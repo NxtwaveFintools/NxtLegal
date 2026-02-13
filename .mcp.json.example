@@ -1,0 +1,23 @@
+{
+  "mcpServers": {
+    "supabase": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-supabase"],
+      "env": {
+        "SUPABASE_URL": "your-supabase-url-here",
+        "SUPABASE_ANON_KEY": "your-supabase-anon-key-here"
+      }
+    },
+    "nextjs": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-everything"],
+      "env": {
+        "PROJECT_PATH": "c:/path/to/your/nxt_legal"
+      }
+    },
+    "filesystem": {
+      "command": "npx",
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "c:/path/to/your/nxt_legal"]
+    }
+  }
+}

@@ -1,0 +1,7 @@
+.next
+node_modules
+.git
+*.md
+package-lock.json
+public
+src/types/database.ts

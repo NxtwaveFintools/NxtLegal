@@ -1,0 +1,24 @@
+'use client'
+
+import { startMicrosoftOAuth } from '@/core/infra/auth/supabase-oauth-client'
+
+export default function MicrosoftButton() {
+  const login = async () => {
+    await startMicrosoftOAuth()
+  }
+
+  return (
+    <button
+      onClick={login}
+      className="w-full bg-blue-600 text-white px-4 py-3 rounded font-medium hover:bg-blue-700 transition-colors flex items-center justify-center gap-2"
+    >
+      <svg className="w-5 h-5" viewBox="0 0 21 21" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <rect x="1" y="1" width="9" height="9" fill="#f25022" />
+        <rect x="1" y="11" width="9" height="9" fill="#00a4ef" />
+        <rect x="11" y="1" width="9" height="9" fill="#7fba00" />
+        <rect x="11" y="11" width="9" height="9" fill="#ffb900" />
+      </svg>
+      Sign in with Microsoft
+    </button>
+  )
+}
