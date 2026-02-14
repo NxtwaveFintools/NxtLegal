@@ -3,25 +3,60 @@ import { ZodError } from 'zod'
 import { getAuthService, getIdempotencyService, getAuditLogger } from '@/core/registry/service-registry'
 import { withCorrelationId } from '@/core/http/with-correlation-id'
 import { LoginSchema } from '@/core/domain/auth/schemas/auth-schemas'
-import { authErrorCodes, authErrorMessages } from '@/core/constants/auth-errors'
 import { errorResponse, okResponse } from '@/core/http/response'
 import { logger } from '@/core/infra/logging/logger'
 import { rateLimiter } from '@/core/infra/rate-limiting/simple-rate-limiter'
 import { limits } from '@/core/constants/limits'
+import { getTenantIdFromHeader } from '@/core/constants/tenants'
+import { sanitizeZodError } from '@/core/http/error-sanitizer'
+import { accountLockoutService } from '@/core/infra/security/account-lockout-service'
+import { sanitizeRateLimitKey, validateEmployeeId } from '@/core/http/input-validator'
+import { isAppError } from '@/core/http/errors'
 
 const handleLogin = async (request: NextRequest, correlationId: string) => {
+  // Cache parsed body to avoid double-read issues
+  let parsedBody: unknown
+  let tenantId: string = ''
+  let ip: string = 'unknown'
+
   try {
     // Get IP address for rate limiting
-    const ip = request.headers.get('x-forwarded-for') || 'unknown'
+    ip = request.headers.get('x-forwarded-for') || 'unknown'
 
-    const body = await request.json()
+    parsedBody = await request.json()
 
     // Validate input with Zod
-    const { employeeId, password } = LoginSchema.parse(body)
+    const { employeeId: rawEmployeeId, password } = LoginSchema.parse(parsedBody)
 
-    // Extract tenant ID from request (from header or use default for non-SaaS)
-    // In production, this should come from a routing header or subdomain
-    const tenantId = request.headers.get('X-Tenant-ID') || '00000000-0000-0000-0000-000000000000'
+    // ✅ SECURITY: Normalize and validate employee ID format
+    const employeeId = validateEmployeeId(rawEmployeeId)
+
+    // Extract and validate tenant ID from request header
+    tenantId = getTenantIdFromHeader(request.headers.get('X-Tenant-ID'), { allowDefault: true })
+
+    // SECURITY: Check account lockout status first
+    if (accountLockoutService.isLocked(tenantId, employeeId)) {
+      const remainingSeconds = accountLockoutService.getLockoutRemainingSeconds(tenantId, employeeId)
+      logger.warn('Login attempt on locked account', {
+        correlationId,
+        tenantId,
+        employeeId,
+        remainingSeconds,
+      })
+      return NextResponse.json(
+        errorResponse(
+          authErrorCodes.accountInactive,
+          `Account temporarily locked due to too many failed attempts. Try again in ${remainingSeconds} seconds.`
+        ),
+        {
+          status: 403,
+          headers: {
+            'Retry-After': String(remainingSeconds),
+            'X-Correlation-ID': correlationId,
+          },
+        }
+      )
+    }
 
     // Check for idempotency key - if provided, check for duplicate requests
     const idempotencyKey = request.headers.get('Idempotency-Key')
@@ -38,8 +73,8 @@ const handleLogin = async (request: NextRequest, correlationId: string) => {
       }
     }
 
-    // Rate limit: 5 attempts per minute per IP+email
-    const rateLimitKey = `ratelimit:login:${ip}:${employeeId}`
+    // ✅ SECURITY: Sanitize rate limit key to prevent injection attacks
+    const rateLimitKey = sanitizeRateLimitKey(`ratelimit:login:${ip}:${employeeId}`)
     const { allowed, resetAfterSeconds } = rateLimiter.checkLimit(rateLimitKey, limits.maxLoginAttempts, 60)
 
     if (!allowed) {
@@ -62,6 +97,9 @@ const handleLogin = async (request: NextRequest, correlationId: string) => {
     const authService = getAuthService()
     const result = await authService.loginWithPassword({ employeeId, password }, tenantId)
 
+    // Clear account lockout on successful login
+    accountLockoutService.clearFailedAttempts(tenantId, employeeId)
+
     // Log successful login for audit trail
     const auditLogger = getAuditLogger()
     await auditLogger.logLogin(tenantId, result.employee.employeeId, 'password')
@@ -79,16 +117,17 @@ const handleLogin = async (request: NextRequest, correlationId: string) => {
   } catch (error) {
     // Handle Zod validation errors
     if (error instanceof ZodError) {
+      // Log full details server-side
       logger.warn('Login validation failed', {
         correlationId,
-        error: error.errors.map((e) => ({ path: e.path.join('.'), message: e.message })),
+        validationErrors: error.errors.map((e) => ({ path: e.path.join('.'), message: e.message })),
       })
+
+      // Sanitize error response for client (hides internals in production)
+      const sanitized = sanitizeZodError(error)
       return NextResponse.json(
-        errorResponse(authErrorCodes.validationError, 'Validation error', {
-          errors: error.errors.map((e) => ({
-            field: e.path.join('.'),
-            message: e.message,
-          })),
+        errorResponse(authErrorCodes.validationError, sanitized.message, {
+          ...(sanitized.errors && { errors: sanitized.errors }),
           correlationId,
         }),
         { status: 400 }
@@ -96,26 +135,49 @@ const handleLogin = async (request: NextRequest, correlationId: string) => {
     }
 
     // Handle auth service errors
-    const errorCode = error instanceof Error ? error.message : authErrorCodes.authFailed
-    const message = authErrorMessages[errorCode as keyof typeof authErrorMessages]
-    const status =
-      errorCode === authErrorCodes.accountInactive ? 403 : errorCode === authErrorCodes.invalidCredentials ? 401 : 500
+    const errorCode = isAppError(error) ? error.code : authErrorCodes.authFailed
+    const message = isAppError(error) ? error.message : authErrorMessages[errorCode as keyof typeof authErrorMessages]
+    const status = isAppError(error) ? error.statusCode : 500
 
-    // Log failed login attempt for security audit
-    const tenantId = request.headers.get('X-Tenant-ID') || '00000000-0000-0000-0000-000000000000'
+    logger.warn('Login failed', {
+      correlationId,
+      errorCode,
+      status,
+      tenantId,
+      ip,
+      metadata: isAppError(error) ? error.metadata : undefined,
+    })
+
+    // Record failed attempt for account lockout (only for auth failures, not validation errors)
+    let lockoutStatus: { shouldLock: boolean; attemptsRemaining: number; lockedUntilSeconds: number } | null = null
+    if (status === 401 && typeof parsedBody === 'object' && parsedBody !== null && 'employeeId' in parsedBody) {
+      const employeeIdValue = String(parsedBody.employeeId)
+      lockoutStatus = accountLockoutService.recordFailedAttempt(tenantId, employeeIdValue)
+
+      if (lockoutStatus.shouldLock) {
+        logger.warn('Account locked after too many failed attempts', {
+          correlationId,
+          tenantId,
+          employeeId: employeeIdValue,
+          lockedUntilSeconds: lockoutStatus.lockedUntilSeconds,
+        })
+      }
+    }
+
     if (status === 401 || status === 403) {
       try {
         const auditLogger = getAuditLogger()
-        // Extract employeeId from body safely for audit log
-        const body = typeof request.json === 'function' ? await request.json().catch(() => ({})) : {}
-        const employeeId =
-          typeof body === 'object' && body !== null && 'employeeId' in body ? String(body.employeeId) : 'unknown'
+        // Use cached parsed body to avoid double-read
+        const employeeIdValue =
+          typeof parsedBody === 'object' && parsedBody !== null && 'employeeId' in parsedBody
+            ? String(parsedBody.employeeId)
+            : 'unknown'
         await auditLogger.logAction({
           tenantId,
-          userId: employeeId,
+          userId: employeeIdValue,
           action: 'auth.login',
           resourceType: 'auth_session',
-          resourceId: employeeId,
+          resourceId: employeeIdValue,
           metadata: { status: 'failed', reason: errorCode },
         })
       } catch (auditError) {

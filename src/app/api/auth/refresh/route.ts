@@ -5,18 +5,19 @@ import { errorResponse, okResponse } from '@/core/http/response'
 import { authErrorCodes, authErrorMessages } from '@/core/constants/auth-errors'
 import { rateLimiter } from '@/core/infra/rate-limiting/simple-rate-limiter'
 import { logger } from '@/core/infra/logging/logger'
+import { getTenantIdFromHeader } from '@/core/constants/tenants'
+import { sanitizeRateLimitKey } from '@/core/http/input-validator'
 
 const handleRefresh = async (request: NextRequest, correlationId: string) => {
   try {
     // Get IP address for rate limiting
     const ip = request.headers.get('x-forwarded-for') || 'unknown'
 
-    // Extract tenant ID from request (for future multi-tenant validation)
-    // TODO: Validate incoming tenant ID matches JWT tenant claim
-    // const tenantId = request.headers.get('X-Tenant-ID') || '00000000-0000-0000-0000-000000000000'
+    // Extract and validate tenant ID from request header
+    const requestTenantId = getTenantIdFromHeader(request.headers.get('X-Tenant-ID'), { allowDefault: true })
 
-    // Rate limit: 10 attempts per minute per IP
-    const rateLimitKey = `ratelimit:refresh:${ip}`
+    // ✅ SECURITY: Sanitize rate limit key to prevent injection attacks
+    const rateLimitKey = sanitizeRateLimitKey(`ratelimit:refresh:${ip}`)
     const { allowed, resetAfterSeconds } = rateLimiter.checkLimit(rateLimitKey, 10, 60)
 
     if (!allowed) {
@@ -52,7 +53,30 @@ const handleRefresh = async (request: NextRequest, correlationId: string) => {
       )
     }
 
-    logger.info('Session refreshed successfully', { correlationId, employeeId: session.employeeId })
+    // CRITICAL SECURITY: Validate tenant ID from JWT matches request header
+    if (session.tenantId && session.tenantId !== requestTenantId) {
+      logger.error('Tenant ID mismatch in refresh', {
+        correlationId,
+        requestTenantId,
+        sessionTenantId: session.tenantId,
+        employeeId: session.employeeId,
+      })
+      return NextResponse.json(
+        errorResponse(authErrorCodes.unauthorized, 'Invalid tenant context', { correlationId }),
+        {
+          status: 403,
+          headers: {
+            'X-Correlation-ID': correlationId,
+          },
+        }
+      )
+    }
+
+    logger.info('Session refreshed successfully', {
+      correlationId,
+      employeeId: session.employeeId,
+      tenantId: session.tenantId,
+    })
     return NextResponse.json(okResponse({ session }))
   } catch (error) {
     logger.error('Refresh endpoint error', { correlationId, error: String(error) })

@@ -8,6 +8,7 @@ import { cookieNames } from '@/core/constants/cookies'
 import { limits } from '@/core/constants/limits'
 import { logger } from '@/core/infra/logging/logger'
 import { revokedTokensCache } from '@/core/infra/cache/revoked-tokens-cache'
+import { isValidTenantId } from '@/core/constants/tenants'
 
 export type SessionData = {
   employeeId: string
@@ -63,6 +64,15 @@ export const createSession = async (data: SessionData) => {
     throw new Error('Invalid session data: employeeId is required')
   }
 
+  // ✅ SECURITY: Enforce tenant ID validation for multi-tenant isolation
+  if (!data.tenantId || !isValidTenantId(data.tenantId)) {
+    logger.error('Session creation blocked: invalid tenant ID', {
+      employeeId: data.employeeId,
+      tenantId: data.tenantId,
+    })
+    throw new Error('Invalid session data: valid tenantId is required')
+  }
+
   try {
     const { token: accessToken } = await signToken(data, 'access')
     const { token: refreshToken } = await signToken(data, 'refresh')
@@ -85,7 +95,7 @@ export const createSession = async (data: SessionData) => {
       maxAge: 60 * 60 * 24 * limits.sessionDays * 3.5, // 7 days
     })
 
-    logger.info('Session created', { employeeId: data.employeeId, role: data.role })
+    logger.info('Session created', { employeeId: data.employeeId, tenantId: data.tenantId, role: data.role })
   } catch (error) {
     logger.error('Failed to set session cookie', { error: String(error) })
     throw error
@@ -120,12 +130,21 @@ export const getSession = async (): Promise<SessionData | null> => {
       return null
     }
 
+    // ✅ SECURITY: Ensure tenant ID is always present for multi-tenant isolation
+    if (!payload.tenantId || !isValidTenantId(payload.tenantId)) {
+      logger.error('Session validation failed: missing or invalid tenant ID', {
+        employeeId: payload.employeeId,
+        tenantId: payload.tenantId,
+      })
+      return null
+    }
+
     return {
       employeeId: payload.employeeId,
       email: typeof payload.email === 'string' && payload.email.length > 0 ? payload.email : undefined,
       fullName: typeof payload.fullName === 'string' && payload.fullName.length > 0 ? payload.fullName : undefined,
       role: typeof payload.role === 'string' ? payload.role : 'viewer',
-      tenantId: typeof payload.tenantId === 'string' ? payload.tenantId : undefined,
+      tenantId: payload.tenantId, // Already validated above
     }
   } catch (error) {
     logger.warn('Session verification failed', { error: String(error) })
@@ -167,12 +186,21 @@ export const refreshSession = async (): Promise<SessionData | null> => {
       return null
     }
 
+    // ✅ SECURITY: Ensure tenant ID is always present for multi-tenant isolation
+    if (!payload.tenantId || !isValidTenantId(payload.tenantId)) {
+      logger.error('Refresh token validation failed: missing or invalid tenant ID', {
+        employeeId: payload.employeeId,
+        tenantId: payload.tenantId,
+      })
+      return null
+    }
+
     const sessionData: SessionData = {
       employeeId: payload.employeeId,
       email: typeof payload.email === 'string' ? payload.email : undefined,
       fullName: typeof payload.fullName === 'string' ? payload.fullName : undefined,
       role: typeof payload.role === 'string' ? payload.role : 'viewer',
-      tenantId: typeof payload.tenantId === 'string' ? payload.tenantId : undefined,
+      tenantId: payload.tenantId, // Already validated above
     }
 
     // CRITICAL: Revoke old refresh token before issuing new one (token rotation)

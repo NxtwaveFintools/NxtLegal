@@ -11,6 +11,7 @@ import { IdempotencyService } from '@/core/domain/idempotency/idempotency-servic
 import { supabaseEmployeeRepository } from '@/core/infra/repositories/supabase-employee-repository'
 import { supabaseAuditRepository } from '@/core/infra/repositories/supabase-audit-repository'
 import { supabaseIdempotencyRepository } from '@/core/infra/repositories/supabase-idempotency-repository'
+import { logger } from '@/core/infra/logging/logger'
 import type { EmployeeRepository } from '@/core/domain/users/employee-repository'
 
 // Private instances - don't export directly
@@ -23,9 +24,9 @@ let idempotencyService: IdempotencyService | null = null
  */
 export function getAuthService(): AuthService {
   if (!authService) {
-    // Wire dependencies: AuthService requires EmployeeRepository
+    // Wire dependencies: AuthService requires EmployeeRepository and Logger
     const employeeRepository: EmployeeRepository = supabaseEmployeeRepository
-    authService = new AuthService(employeeRepository)
+    authService = new AuthService(employeeRepository, logger)
   }
   return authService
 }

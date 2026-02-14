@@ -4,6 +4,7 @@
 
 import { AuthService } from '@/core/domain/auth/auth-service'
 import type { EmployeeRepository } from '@/core/domain/users/employee-repository'
+import type { Logger } from '@/core/infra/logging/types'
 
 // Mock repository
 const mockEmployeeRepository: jest.Mocked<EmployeeRepository> = {
@@ -15,12 +16,20 @@ const mockEmployeeRepository: jest.Mocked<EmployeeRepository> = {
   listByTenant: jest.fn(),
 }
 
+// Mock logger
+const mockLogger: jest.Mocked<Logger> = {
+  debug: jest.fn(),
+  info: jest.fn(),
+  warn: jest.fn(),
+  error: jest.fn(),
+}
+
 describe('AuthService', () => {
   let authService: AuthService
 
   beforeEach(() => {
     jest.clearAllMocks()
-    authService = new AuthService(mockEmployeeRepository)
+    authService = new AuthService(mockEmployeeRepository, mockLogger)
   })
 
   describe('loginWithPassword', () => {

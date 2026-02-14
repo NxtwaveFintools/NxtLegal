@@ -2,6 +2,8 @@
 
 Production-grade SaaS contract management system built with Next.js, TypeScript, and Supabase. **100% Compliant with enterprise architecture guidelines.**
 
+**📘 [Complete Setup Guide →](./SETUP.md)** | **📐 [Architecture Guide →](./ARCHITECTURE.md)** | **👨‍💻 [Development Guidelines →](./.github/copilot-instructions.md)**
+
 ## 📋 Table of Contents
 
 - [Quick Start](#quick-start)
@@ -30,34 +32,92 @@ Production-grade SaaS contract management system built with Next.js, TypeScript,
 git clone https://github.com/your-org/nxt_legal.git
 cd nxt_legal
 npm install
-npm run dev
 ```
-
-Opens at `http://localhost:3000`
 
 ### Environment Setup
 
-Create `.env.local`:
+**See [SETUP.md](./SETUP.md) for complete environment configuration guide.**
+
+Quick start - create `.env.local`:
 
 ```env
-# API
-NEXT_PUBLIC_API_URL=http://localhost:3000
-
 # Supabase
-SUPABASE_URL=https://your-project.supabase.co
-SUPABASE_ANON_KEY=your_anon_key
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key
 
-# JWT (generate: openssl rand -base64 32)
-NEXT_PUBLIC_JWT_SECRET=your-secret-min-32-chars
+# Authentication
+JWT_SECRET_KEY=your-jwt-secret-min-32-chars-CHANGE-IN-PRODUCTION
+AUTH_ALLOWED_DOMAINS=yourcompany.com
+
+# Application
+NEXT_PUBLIC_SITE_URL=http://localhost:3000
+NODE_ENV=development
+FEATURE_MICROSOFT_OAUTH=true
+```
+
+### Database Setup
+
+```bash
+# Run migrations
+npx supabase db push
+
+# Seed test employee (NW1007247 / password)
+npm run seed:test-employee
+
+# Verify setup
+npm run test:login
+```
+
+### Start Development
+
+```bash
+npm run dev  # → http://localhost:3000
 ```
 
 ---
 
 ## ✅ What's Implemented
 
-### Phase 1: Critical Security ✅ COMPLETE
-- **Zod Validation:** All POST endpoints validate input with Zod schemas
-- **Rate Limiting:** 5 login attempts/min per IP+email (429 Retry-After)
+### Phase 1: Critical Security ✅ COMPLETE (7 items)
+- **Centralized Tenant Constants:** Zero-hardcoding enforcement with validation helpers
+- **Tenant ID Validation:** Cross-tenant access prevention in refresh endpoint
+- **Fixed Double Body Read:** Cached parsedBody to prevent audit logging errors
+- **Employee DTOs:** Password hash filtering from API responses
+- **Password Constraints:** 8-128 char validation (supports passphrases)
+- **Error Sanitization:** Production-safe messages (hides internals)
+- **Account Lockout:** 5 attempts = 15min lockout (brute force prevention)
+
+### Phase 2: High-Priority Hardening ✅ COMPLETE (6 items)
+- **Comprehensive Input Validation:** Centralized Zod schemas for all inputs
+  - EmployeeIdSchema (alphanumeric, auto-uppercase, 3-20 chars)
+  - TenantIdSchema (UUID v4 validation)
+  - EmailSchema (normalization + lowercase)
+  - RoleSchema (enum validation)
+  - sanitizeRateLimitKey (injection prevention)
+  - validateMetadata (prototype pollution prevention)
+- **Integrated Validators:** Login/refresh routes use sanitized inputs
+- **Configuration Validation:** Startup checks for JWT secret, domains, Supabase config
+- **Multi-Tenant Isolation:** Session store enforces tenant ID validation
+- **Custom Error Classes:** Typed errors (AuthenticationError, ValidationError, etc.)
+- **AuthService Updates:** Uses custom error classes for better error handling
+
+### Phase 3: Testing & Polish ✅ COMPLETE (6 items)  
+- **Auth Integration Tests:** Comprehensive test suite for login flows
+- **Account Lockout Tests:** Brute force prevention mechanism verified
+- **Multi-Tenant Isolation Tests:** Repository-level tenant boundary enforcement
+- **Startup Configuration:** Instrumentation validates config before requests
+- **Login Flow Verification:** `npm run test:login` script for manual testing
+- **Environment Setup Guide:** Complete SETUP.md with troubleshooting
+
+---
+
+## ✅ What's Implemented (Continued)
+
+### Authentication & Authorization
+- **Dual Login Methods:** Employee ID + Password, Microsoft OAuth (Azure AD)
+- **JWT Token Strategy:** 2-day access + 7-day refresh with rotation
+- **Account Lockout:** 5 max attempts, 15-min lockout, per-tenant tracking
 - **Token Rotation:** Refresh tokens rotated on each use, old JTI revoked
 - **Enhanced JWT:** Payload includes jti, role, tenant_id for security
 
@@ -461,6 +521,34 @@ Idempotency Keys Table:
 ---
 
 ## 🧪 Testing
+
+### Test Credentials
+
+**Employee ID Login:**
+- Employee ID: `NW1007247` (case-insensitive)
+- Password: `password`
+- Role: `viewer`
+- Tenant: Default tenant (`00000000-0000-0000-0000-000000000000`)
+
+**Microsoft OAuth Login:**
+- Use your organization's Microsoft account
+- Auto-creates employee record on first login
+- Email must match whitelisted domain
+
+**Setup Test Employee:**
+
+If employee login fails with 401, run the seed script:
+
+```bash
+npm run seed:test-employee
+```
+
+Or manually verify/fix database state:
+
+```bash
+# Run verification script in Supabase SQL Editor
+cat supabase/verify_employee_login.sql
+```
 
 ### Running Tests
 

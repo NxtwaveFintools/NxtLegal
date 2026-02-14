@@ -41,6 +41,9 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
 
   async findByEmployeeId({ employeeId, tenantId }: EmployeeLookup): Promise<EmployeeRecord | null> {
     try {
+      // Debug logging for multi-tenant employee lookup
+      logger.debug('Looking up employee by ID', { employeeId, tenantId })
+
       const supabase = createServiceSupabase()
       const { data, error } = await supabase
         .from('employees')
@@ -54,12 +57,24 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
 
       if (error) {
         if (error.code === 'PGRST116') {
+          logger.debug('Employee not found in tenant', { employeeId, tenantId })
           return null
         }
-        logger.error('Employee lookup by ID failed', { employeeId, tenantId, error: error.message })
+        logger.error('Employee lookup by ID failed', {
+          employeeId,
+          tenantId,
+          error: error.message,
+          errorCode: error.code,
+        })
         return null
       }
 
+      logger.debug('Employee found', {
+        employeeId,
+        tenantId,
+        hasPassword: !!data.password_hash,
+        isActive: data.is_active,
+      })
       return data ? this.mapEmployee(data) : null
     } catch (error) {
       logger.error('Employee lookup by ID threw error', { employeeId, tenantId, error: String(error) })
