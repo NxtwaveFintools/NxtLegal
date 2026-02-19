@@ -11,7 +11,7 @@ import { getTenantIdFromHeader } from '@/core/constants/tenants'
 import { authErrorCodes, authErrorMessages } from '@/core/constants/auth-errors'
 import { sanitizeZodError } from '@/core/http/error-sanitizer'
 import { accountLockoutService } from '@/core/infra/security/account-lockout-service'
-import { sanitizeRateLimitKey, validateEmployeeId } from '@/core/http/input-validator'
+import { sanitizeRateLimitKey, validateLoginEmail } from '@/core/http/input-validator'
 import { isAppError } from '@/core/http/errors'
 const handleLogin = async (request: NextRequest, correlationId: string) => {
   // Cache parsed body to avoid double-read issues
@@ -26,21 +26,20 @@ const handleLogin = async (request: NextRequest, correlationId: string) => {
     parsedBody = await request.json()
 
     // Validate input with Zod
-    const { employeeId: rawEmployeeId, password } = LoginSchema.parse(parsedBody)
+    const { email: rawEmail, password } = LoginSchema.parse(parsedBody)
 
-    // ✅ SECURITY: Normalize and validate employee ID format
-    const employeeId = validateEmployeeId(rawEmployeeId)
+    const email = validateLoginEmail(rawEmail)
 
     // Extract and validate tenant ID from request header
     tenantId = getTenantIdFromHeader(request.headers.get('X-Tenant-ID'), { allowDefault: true })
 
     // SECURITY: Check account lockout status first
-    if (accountLockoutService.isLocked(tenantId, employeeId)) {
-      const remainingSeconds = accountLockoutService.getLockoutRemainingSeconds(tenantId, employeeId)
+    if (accountLockoutService.isLocked(tenantId, email)) {
+      const remainingSeconds = accountLockoutService.getLockoutRemainingSeconds(tenantId, email)
       logger.warn('Login attempt on locked account', {
         correlationId,
         tenantId,
-        employeeId,
+        email,
         remainingSeconds,
       })
       return NextResponse.json(
@@ -67,18 +66,18 @@ const handleLogin = async (request: NextRequest, correlationId: string) => {
         logger.info('Idempotent request detected - returning cached response', {
           correlationId,
           idempotencyKey,
-          employeeId,
+          email,
         })
         return NextResponse.json(existingResponse.responseData, { status: existingResponse.statusCode })
       }
     }
 
     // ✅ SECURITY: Sanitize rate limit key to prevent injection attacks
-    const rateLimitKey = sanitizeRateLimitKey(`ratelimit:login:${ip}:${employeeId}`)
+    const rateLimitKey = sanitizeRateLimitKey(`ratelimit:login:${ip}:${email}`)
     const { allowed, resetAfterSeconds } = rateLimiter.checkLimit(rateLimitKey, limits.maxLoginAttempts, 60)
 
     if (!allowed) {
-      logger.warn('Login rate limit exceeded', { correlationId, ip, employeeId })
+      logger.warn('Login rate limit exceeded', { correlationId, ip, email })
       return NextResponse.json(
         errorResponse(
           authErrorCodes.rateLimitExceeded,
@@ -95,17 +94,17 @@ const handleLogin = async (request: NextRequest, correlationId: string) => {
     }
 
     const authService = getAuthService()
-    const result = await authService.loginWithPassword({ employeeId, password }, tenantId)
+    const result = await authService.loginWithPassword({ email, password }, tenantId)
 
     // Clear account lockout on successful login
-    accountLockoutService.clearFailedAttempts(tenantId, employeeId)
+    accountLockoutService.clearFailedAttempts(tenantId, email)
 
     // Log successful login for audit trail
     const auditLogger = getAuditLogger()
-    await auditLogger.logLogin(tenantId, result.employee.employeeId, 'password')
+    await auditLogger.logLogin(tenantId, result.user.email, 'password')
 
-    const responseData = okResponse({ employee: result.employee })
-    logger.info('User logged in successfully', { correlationId, employeeId, ip })
+    const responseData = okResponse({ user: result.user })
+    logger.info('User logged in successfully', { correlationId, email, ip })
 
     // Store successful response for idempotency if key was provided
     if (idempotencyKey) {
@@ -150,15 +149,15 @@ const handleLogin = async (request: NextRequest, correlationId: string) => {
 
     // Record failed attempt for account lockout (only for auth failures, not validation errors)
     let lockoutStatus: { shouldLock: boolean; attemptsRemaining: number; lockedUntilSeconds: number } | null = null
-    if (status === 401 && typeof parsedBody === 'object' && parsedBody !== null && 'employeeId' in parsedBody) {
-      const employeeIdValue = String(parsedBody.employeeId)
-      lockoutStatus = accountLockoutService.recordFailedAttempt(tenantId, employeeIdValue)
+    if (status === 401 && typeof parsedBody === 'object' && parsedBody !== null && 'email' in parsedBody) {
+      const emailValue = String(parsedBody.email)
+      lockoutStatus = accountLockoutService.recordFailedAttempt(tenantId, emailValue)
 
       if (lockoutStatus.shouldLock) {
         logger.warn('Account locked after too many failed attempts', {
           correlationId,
           tenantId,
-          employeeId: employeeIdValue,
+          email: emailValue,
           lockedUntilSeconds: lockoutStatus.lockedUntilSeconds,
         })
       }
@@ -168,16 +167,16 @@ const handleLogin = async (request: NextRequest, correlationId: string) => {
       try {
         const auditLogger = getAuditLogger()
         // Use cached parsed body to avoid double-read
-        const employeeIdValue =
-          typeof parsedBody === 'object' && parsedBody !== null && 'employeeId' in parsedBody
-            ? String(parsedBody.employeeId)
+        const loginId =
+          typeof parsedBody === 'object' && parsedBody !== null && 'email' in parsedBody
+            ? String(parsedBody.email)
             : 'unknown'
         await auditLogger.logAction({
           tenantId,
-          userId: employeeIdValue,
+          userId: loginId,
           action: 'auth.login',
           resourceType: 'auth_session',
-          resourceId: employeeIdValue,
+          resourceId: loginId,
           metadata: { status: 'failed', reason: errorCode },
         })
       } catch (auditError) {

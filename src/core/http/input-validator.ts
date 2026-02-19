@@ -6,22 +6,22 @@
 import { z } from 'zod'
 
 /**
- * Employee ID validation
- * Format: Alphanumeric, 6-12 characters (e.g., NW1007247, EMP001)
- * Case-insensitive, converted to uppercase
+ * Login email validation
  */
-export const EmployeeIdSchema = z
+export const LoginEmailSchema = z
   .string()
-  .min(3, 'Employee ID must be at least 3 characters')
-  .max(20, 'Employee ID must not exceed 20 characters')
-  .regex(/^[A-Z0-9]+$/i, 'Employee ID must contain only letters and numbers')
-  .transform((val) => val.toUpperCase())
+  .email('Invalid email address')
+  .toLowerCase()
+  .transform((value) => value.trim())
+  .refine((value) => value.endsWith('@nxtwave.co.in'), {
+    message: 'Only @nxtwave.co.in email addresses are allowed',
+  })
 
 /**
- * Validate and sanitize employee ID
+ * Validate and normalize login email
  */
-export function validateEmployeeId(employeeId: string): string {
-  return EmployeeIdSchema.parse(employeeId.trim())
+export function validateLoginEmail(email: string): string {
+  return LoginEmailSchema.parse(email)
 }
 
 /**
@@ -60,7 +60,7 @@ export const CorrelationIdSchema = z.string().uuid('Invalid correlation ID forma
 /**
  * Role validation
  */
-export const RoleSchema = z.enum(['admin', 'legal_counsel', 'contract_manager', 'viewer'], {
+export const RoleSchema = z.enum(['POC', 'HOD', 'LEGAL_TEAM', 'ADMIN'], {
   errorMap: () => ({ message: 'Invalid role' }),
 })
 

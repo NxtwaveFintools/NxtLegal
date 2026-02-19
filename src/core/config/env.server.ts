@@ -22,5 +22,6 @@ export const envServer = {
   siteUrl: requireEnv('NEXT_PUBLIC_SITE_URL'),
   featureMicrosoftOAuth: optionalEnv('FEATURE_MICROSOFT_OAUTH') ?? 'true',
   featurePasswordLogin: optionalEnv('FEATURE_PASSWORD_LOGIN') ?? 'true',
+  featureContractWorkflow: optionalEnv('FEATURE_CONTRACT_WORKFLOW') ?? 'false',
   nodeEnv: optionalEnv('NODE_ENV') ?? 'development',
 } as const

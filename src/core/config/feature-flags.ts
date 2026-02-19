@@ -12,4 +12,5 @@ const parseBoolean = (value: string | undefined, fallback = false): boolean => {
 export const featureFlags = {
   enablePasswordLogin: parseBoolean(envServer.featurePasswordLogin, true),
   enableMicrosoftOAuth: parseBoolean(envServer.featureMicrosoftOAuth, true),
+  enableContractWorkflow: parseBoolean(envServer.featureContractWorkflow, false),
 } as const

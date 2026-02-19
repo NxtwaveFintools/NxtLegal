@@ -19,35 +19,34 @@ export class AuthService {
     private logger: Logger
   ) {}
 
-  async loginWithPassword({ employeeId, password }: LoginRequest, tenantId: string): Promise<AuthResult> {
-    const trimmedId = employeeId?.trim() ?? ''
-    if (!trimmedId || !password) {
-      throw new ValidationError('Employee ID and password are required')
+  async loginWithPassword({ email, password }: LoginRequest, tenantId: string): Promise<AuthResult> {
+    const normalizedEmail = email?.trim().toLowerCase() ?? ''
+    if (!normalizedEmail || !password) {
+      throw new ValidationError('Email and password are required')
     }
 
-    if (trimmedId.length === 0 || password.length === 0 || password.length > limits.passwordMaxLength) {
+    if (normalizedEmail.length === 0 || password.length === 0 || password.length > limits.passwordMaxLength) {
       throw new ValidationError('Invalid credentials format')
     }
 
-    const employee = await this.employeeRepository.findByEmployeeId({
-      employeeId: trimmedId.toUpperCase(),
-      tenantId,
-    })
+    if (!isAllowedDomain(normalizedEmail)) {
+      throw new AuthorizationError(authErrorCodes.unauthorized, 'Domain not allowed for this organization')
+    }
+
+    const employee = await this.employeeRepository.findByEmail({ email: normalizedEmail, tenantId })
 
     if (!employee) {
-      // Employee not found in this tenant - log for debugging (not exposed to user)
-      this.logger.debug('Employee not found for login', { employeeId: trimmedId.toUpperCase(), tenantId })
+      this.logger.debug('User not found for login', { email: normalizedEmail, tenantId })
       throw new AuthenticationError(authErrorCodes.invalidCredentials, 'Invalid credentials')
     }
 
     if (!employee.passwordHash) {
-      // Employee exists but has no password (OAuth-only account)
-      this.logger.debug('Employee has no password hash', { employeeId: trimmedId.toUpperCase(), tenantId })
+      this.logger.debug('User has no password hash', { email: normalizedEmail, tenantId })
       throw new AuthenticationError(authErrorCodes.invalidCredentials, 'Invalid credentials')
     }
 
     if (!employee.isActive) {
-      this.logger.debug('Employee account inactive', { employeeId: trimmedId.toUpperCase(), tenantId })
+      this.logger.debug('User account inactive', { email: normalizedEmail, tenantId })
       throw new AuthorizationError(authErrorCodes.accountInactive, 'Account is inactive')
     }
 
@@ -58,7 +57,7 @@ export class AuthService {
     }
 
     await createSession({
-      employeeId: employee.employeeId,
+      employeeId: employee.id,
       email: employee.email,
       fullName: employee.fullName ?? undefined,
       role: employee.role,
@@ -66,10 +65,13 @@ export class AuthService {
     })
 
     return {
-      employee: {
-        employeeId: employee.employeeId,
+      user: {
+        id: employee.id,
+        employeeId: employee.id,
         email: employee.email,
         fullName: employee.fullName ?? undefined,
+        role: employee.role,
+        team: employee.teamName ?? null,
       },
     }
   }
@@ -100,8 +102,10 @@ export class AuthService {
         tenantId,
         fullName: profile.name || undefined,
         isActive: true,
-        role: 'viewer', // Default role for OAuth users
+        role: 'POC',
         passwordHash: null, // OAuth users don't need password hash
+        teamId: null,
+        teamName: null,
       })
     }
 
@@ -110,7 +114,7 @@ export class AuthService {
     }
 
     await createSession({
-      employeeId: employee.employeeId,
+      employeeId: employee.id,
       email: employee.email,
       fullName: employee.fullName ?? undefined,
       role: employee.role,
@@ -118,10 +122,13 @@ export class AuthService {
     })
 
     return {
-      employee: {
-        employeeId: employee.employeeId,
+      user: {
+        id: employee.id,
+        employeeId: employee.id,
         email: employee.email,
         fullName: employee.fullName ?? undefined,
+        role: employee.role,
+        team: employee.teamName ?? null,
       },
     }
   }

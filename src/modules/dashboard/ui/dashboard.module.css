@@ -1,0 +1,467 @@
+.page {
+  display: grid;
+  grid-template-columns: 80px 1fr;
+  min-height: 100vh;
+  background: var(--color-background);
+  color: var(--color-text);
+}
+
+.sidebar {
+  background: var(--color-sidebar);
+  border-right: 1px solid var(--color-border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 20px 0;
+  gap: 18px;
+}
+
+.sidebarLogo {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+}
+
+.navList {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin-top: 8px;
+}
+
+.navItem {
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  background: transparent;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease,
+    color 0.2s ease;
+}
+
+.navItem:hover {
+  background: var(--color-surface-muted);
+  color: var(--color-text);
+}
+
+.navItemActive {
+  background: var(--color-accent-soft);
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.navIcon {
+  width: 18px;
+  height: 18px;
+}
+
+.bottomNav {
+  margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.content {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 28px;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.topbarLeft {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-width: 0;
+}
+
+.searchBar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  padding: 6px 12px;
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.searchInput {
+  border: none;
+  background: transparent;
+  outline: none;
+  color: var(--color-text);
+  width: 180px;
+  font-size: 13px;
+}
+
+.topbarRight {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.companyBadge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  background: var(--color-surface);
+}
+
+.profileBadge {
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  background: var(--color-surface-muted);
+  border: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.main {
+  padding: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.greeting {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.greetingTitle {
+  font-size: 24px;
+  font-weight: 700;
+}
+
+.greetingSubtitle {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  margin-top: 4px;
+}
+
+.tasksRow {
+  display: grid;
+  grid-template-columns: 1fr 260px;
+  gap: 16px;
+}
+
+.tasksCardGroup {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.tasksHeader {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.taskCards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.actionCard {
+  border-radius: 14px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 110px;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    box-shadow 0.2s ease,
+    border-color 0.2s ease,
+    transform 0.2s ease;
+}
+
+.actionCard:hover {
+  border-color: var(--color-accent);
+  box-shadow: var(--color-shadow-sm);
+  transform: translateY(-1px);
+}
+
+.actionCardTop {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.actionCardTitle {
+  font-size: 14px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.actionCardIcon {
+  width: 22px;
+  height: 22px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.actionCardIcon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.actionCardCount {
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--color-accent);
+}
+
+.actionCardMeta {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.secondaryTasks {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.secondaryTaskCard {
+  border-radius: 14px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  padding: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.secondaryTaskCard:hover {
+  border-color: var(--color-accent);
+  box-shadow: var(--color-shadow-sm);
+}
+
+.secondaryTaskTitle {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.secondaryTaskCount {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-accent);
+}
+
+.contractsSection {
+  border-radius: 18px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  padding: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.contractsHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--color-text-muted);
+}
+
+.contractsTabs {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.tab {
+  border-radius: 999px;
+  border: 1px solid var(--color-border);
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  background: var(--color-surface);
+}
+
+.tabActive {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+  background: var(--color-accent-soft);
+}
+
+.contractsBody {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 18px;
+  min-height: 260px;
+  border-radius: 14px;
+  border: 1px dashed var(--color-border);
+  background: var(--color-surface-muted);
+  align-items: center;
+  justify-items: center;
+  text-align: center;
+  padding: 18px;
+}
+
+.emptyTitle {
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.emptySubtitle {
+  font-size: 13px;
+  color: var(--color-text-muted);
+  margin-top: 6px;
+}
+
+.emptyAction {
+  margin-top: 16px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--color-accent);
+  color: var(--color-accent);
+  background: transparent;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.contractList {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.contractItem {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+.contractTitle {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.contractMeta {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.contractActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+@media (max-width: 1024px) {
+  .page {
+    grid-template-columns: 64px 1fr;
+  }
+
+  .tasksRow {
+    grid-template-columns: 1fr;
+  }
+
+  .taskCards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .page {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    flex-direction: row;
+    justify-content: space-between;
+    padding: 10px 16px;
+    border-right: none;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .navList {
+    flex-direction: row;
+  }
+
+  .bottomNav {
+    flex-direction: row;
+  }
+
+  .topbar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .taskCards {
+    grid-template-columns: 1fr;
+  }
+}

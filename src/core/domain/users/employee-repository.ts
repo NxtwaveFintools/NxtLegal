@@ -4,6 +4,8 @@ export type EmployeeRecord = {
   tenantId: string
   email: string
   fullName?: string | null
+  teamId?: string | null
+  teamName?: string | null
   isActive: boolean
   passwordHash?: string | null
   role: string

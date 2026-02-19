@@ -8,9 +8,14 @@
 import { AuthService } from '@/core/domain/auth/auth-service'
 import { AuditLogger } from '@/core/domain/audit/audit-logger'
 import { IdempotencyService } from '@/core/domain/idempotency/idempotency-service'
+import { ContractUploadService } from '@/core/domain/contracts/contract-upload-service'
+import { ContractQueryService } from '@/core/domain/contracts/contract-query-service'
 import { supabaseEmployeeRepository } from '@/core/infra/repositories/supabase-employee-repository'
 import { supabaseAuditRepository } from '@/core/infra/repositories/supabase-audit-repository'
 import { supabaseIdempotencyRepository } from '@/core/infra/repositories/supabase-idempotency-repository'
+import { supabaseContractRepository } from '@/core/infra/repositories/supabase-contract-repository'
+import { supabaseContractStorageRepository } from '@/core/infra/repositories/supabase-contract-storage-repository'
+import { supabaseContractQueryRepository } from '@/core/infra/repositories/supabase-contract-query-repository'
 import { logger } from '@/core/infra/logging/logger'
 import type { EmployeeRepository } from '@/core/domain/users/employee-repository'
 
@@ -18,6 +23,8 @@ import type { EmployeeRepository } from '@/core/domain/users/employee-repository
 let authService: AuthService | null = null
 let auditLogger: AuditLogger | null = null
 let idempotencyService: IdempotencyService | null = null
+let contractUploadService: ContractUploadService | null = null
+let contractQueryService: ContractQueryService | null = null
 
 /**
  * Get or create AuthService singleton with dependencies injected
@@ -52,12 +59,37 @@ export function getIdempotencyService(): IdempotencyService {
 }
 
 /**
+ * Get or create ContractUploadService singleton with dependencies injected
+ */
+export function getContractUploadService(): ContractUploadService {
+  if (!contractUploadService) {
+    contractUploadService = new ContractUploadService(
+      supabaseContractRepository,
+      supabaseContractStorageRepository,
+      logger
+    )
+  }
+
+  return contractUploadService
+}
+
+export function getContractQueryService(): ContractQueryService {
+  if (!contractQueryService) {
+    contractQueryService = new ContractQueryService(supabaseContractQueryRepository)
+  }
+
+  return contractQueryService
+}
+
+/**
  * Reset services (for testing)
  */
 export function resetServices(): void {
   authService = null
   auditLogger = null
   idempotencyService = null
+  contractUploadService = null
+  contractQueryService = null
 }
 
 // Export types for use in other files

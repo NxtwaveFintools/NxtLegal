@@ -1,6 +1,8 @@
 export const roleRegistry = {
-  employee: 'employee',
-  admin: 'admin',
+  poc: 'POC',
+  hod: 'HOD',
+  legalTeam: 'LEGAL_TEAM',
+  admin: 'ADMIN',
 } as const
 
 export type RoleKey = keyof typeof roleRegistry

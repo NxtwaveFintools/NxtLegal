@@ -10,5 +10,11 @@ export const requireAuthenticatedUser = async (): Promise<AuthenticatedEmployee>
     redirect(appConfig.routes.public.login)
   }
 
-  return session
+  return {
+    id: session.employeeId,
+    employeeId: session.employeeId,
+    email: session.email ?? '',
+    fullName: session.fullName,
+    role: session.role,
+  }
 }

@@ -1,17 +1,8 @@
 /**
- * Script to seed/reset test employee for development
+ * Script to seed role-aligned development users for email-based authentication.
  *
  * Usage:
  *   npm run seed:test-employee
- *
- * Environment variables required:
- *   SUPABASE_SERVICE_ROLE_KEY - Service role key with database access
- *   SUPABASE_URL - Supabase project URL
- *
- * This script:
- * 1. Ensures default tenant exists
- * 2. Creates or updates test employee with correct credentials
- * 3. Idempotent - safe to run multiple times
  */
 
 import { config } from 'dotenv'
@@ -41,16 +32,39 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
 })
 
 const DEFAULT_TENANT_ID = '00000000-0000-0000-0000-000000000000'
-const TEST_EMPLOYEE = {
-  employeeId: 'NW1007247',
-  email: 'vadla.tejeswarachari.nxtwave.co.in',
-  fullName: 'Vadla Tejeswar Achari',
-  password: 'password',
-  role: 'viewer',
-}
+const DEV_PASSWORD = 'Password@123'
+
+const DEV_USERS = [
+  {
+    email: 'poc@nxtwave.co.in',
+    fullName: 'Finance POC',
+    role: 'POC',
+    team: 'Finance',
+  },
+  {
+    email: 'hod@nxtwave.co.in',
+    fullName: 'Finance HOD',
+    role: 'HOD',
+    team: 'Finance',
+  },
+  {
+    email: 'legalteam@nxtwave.co.in',
+    fullName: 'Legal Team',
+    role: 'LEGAL_TEAM',
+    team: null,
+  },
+  {
+    email: 'admin@nxtwave.co.in',
+    fullName: 'System Admin',
+    role: 'ADMIN',
+    team: null,
+  },
+] as const
+
+const FINANCE_TEAM_NAME = 'Finance'
 
 async function seedTestEmployee() {
-  console.log('🌱 Seeding test employee...\n')
+  console.log('🌱 Seeding role-based test users...\n')
 
   try {
     // Step 1: Ensure default tenant exists
@@ -80,106 +94,141 @@ async function seedTestEmployee() {
       console.log(`   ✓ Default tenant exists: ${existingTenant.name}`)
     }
 
-    // Step 2: Hash password
+    // Step 2: Ensure users table is available
+    console.log('\n2️⃣  Validating users/teams schema...')
+    const { error: usersTableCheckError } = await supabase.from('users').select('id').limit(1)
+    if (usersTableCheckError) {
+      throw new Error(
+        `users table is unavailable (${usersTableCheckError.message}). Apply latest migrations before seeding.`
+      )
+    }
+
+    const { error: teamsTableCheckError } = await supabase.from('teams').select('id').limit(1)
+    if (teamsTableCheckError) {
+      throw new Error(
+        `teams table is unavailable (${teamsTableCheckError.message}). Apply latest migrations before seeding.`
+      )
+    }
+
+    // Step 3: Hash password
     console.log('\n2️⃣  Hashing password...')
-    const passwordHash = await hashPassword(TEST_EMPLOYEE.password)
+    const passwordHash = await hashPassword(DEV_PASSWORD)
     console.log('   ✓ Password hashed')
 
-    // Step 3: Check if employee exists
-    console.log('\n3️⃣  Checking if employee exists...')
-    const { data: existingEmployee, error: employeeCheckError } = await supabase
-      .from('employees')
-      .select('id, employee_id, email, is_active, deleted_at')
-      .eq('employee_id', TEST_EMPLOYEE.employeeId)
-      .single()
+    // Step 4: Ensure Finance team exists
+    console.log('\n4️⃣  Ensuring Finance team exists...')
+    const { data: existingTeam, error: teamLookupError } = await supabase
+      .from('teams')
+      .select('id')
+      .eq('tenant_id', DEFAULT_TENANT_ID)
+      .eq('name', FINANCE_TEAM_NAME)
+      .is('deleted_at', null)
+      .maybeSingle()
 
-    if (employeeCheckError && employeeCheckError.code !== 'PGRST116') {
-      throw new Error(`Failed to check employee: ${employeeCheckError.message}`)
+    if (teamLookupError) {
+      throw new Error(`Failed to lookup team: ${teamLookupError.message}`)
     }
 
-    if (existingEmployee) {
-      console.log(`   ✓ Employee exists: ${existingEmployee.employee_id}`)
-      console.log(`     - Active: ${existingEmployee.is_active}`)
-      console.log(`     - Deleted: ${existingEmployee.deleted_at ? 'Yes' : 'No'}`)
-
-      // Update existing employee
-      console.log('\n4️⃣  Updating existing employee...')
-      const { error: updateError } = await supabase
-        .from('employees')
-        .update({
+    let financeTeamId = existingTeam?.id ?? null
+    if (!financeTeamId) {
+      const { data: createdTeam, error: teamCreateError } = await supabase
+        .from('teams')
+        .insert({
           tenant_id: DEFAULT_TENANT_ID,
-          email: TEST_EMPLOYEE.email,
-          full_name: TEST_EMPLOYEE.fullName,
-          password_hash: passwordHash,
-          role: TEST_EMPLOYEE.role,
-          is_active: true,
-          deleted_at: null,
-          updated_at: new Date().toISOString(),
+          name: FINANCE_TEAM_NAME,
+          poc_email: 'poc@nxtwave.co.in',
+          hod_email: 'hod@nxtwave.co.in',
         })
-        .eq('employee_id', TEST_EMPLOYEE.employeeId)
+        .select('id')
+        .single()
 
-      if (updateError) {
-        throw new Error(`Failed to update employee: ${updateError.message}`)
+      if (teamCreateError) {
+        throw new Error(`Failed to create team: ${teamCreateError.message}`)
       }
-      console.log('   ✓ Employee updated')
+      financeTeamId = createdTeam.id
+      console.log('   ✓ Finance team created')
     } else {
-      console.log('   ⓘ Employee does not exist')
+      const { error: teamUpdateError } = await supabase
+        .from('teams')
+        .update({
+          poc_email: 'poc@nxtwave.co.in',
+          hod_email: 'hod@nxtwave.co.in',
+          deleted_at: null,
+        })
+        .eq('id', financeTeamId)
 
-      // Insert new employee
-      console.log('\n4️⃣  Creating new employee...')
-      const { error: insertError } = await supabase.from('employees').insert({
-        employee_id: TEST_EMPLOYEE.employeeId,
-        tenant_id: DEFAULT_TENANT_ID,
-        email: TEST_EMPLOYEE.email,
-        full_name: TEST_EMPLOYEE.fullName,
-        password_hash: passwordHash,
-        role: TEST_EMPLOYEE.role,
-        is_active: true,
-      })
-
-      if (insertError) {
-        throw new Error(`Failed to create employee: ${insertError.message}`)
+      if (teamUpdateError) {
+        throw new Error(`Failed to update team: ${teamUpdateError.message}`)
       }
-      console.log('   ✓ Employee created')
+      console.log('   ✓ Finance team updated')
     }
 
-    // Step 4: Verify setup
-    console.log('\n5️⃣  Verifying setup...')
-    const { data: verifyEmployee, error: verifyError } = await supabase
-      .from('employees')
-      .select('employee_id, tenant_id, email, full_name, role, is_active, deleted_at, password_hash')
-      .eq('employee_id', TEST_EMPLOYEE.employeeId)
-      .single()
+    // Step 5: Seed users idempotently by email
+    console.log('\n5️⃣  Seeding users...')
+    for (const devUser of DEV_USERS) {
+      const { data: existingUser, error: userLookupError } = await supabase
+        .from('users')
+        .select('id, email')
+        .eq('tenant_id', DEFAULT_TENANT_ID)
+        .eq('email', devUser.email)
+        .maybeSingle()
 
-    if (verifyError) {
-      throw new Error(`Failed to verify employee: ${verifyError.message}`)
+      if (userLookupError) {
+        throw new Error(`Failed to lookup user ${devUser.email}: ${userLookupError.message}`)
+      }
+
+      const payload = {
+        tenant_id: DEFAULT_TENANT_ID,
+        email: devUser.email,
+        full_name: devUser.fullName,
+        password_hash: passwordHash,
+        role: devUser.role,
+        team_id: devUser.team ? financeTeamId : null,
+        is_active: true,
+        deleted_at: null,
+      }
+
+      if (existingUser) {
+        const { error: updateUserError } = await supabase.from('users').update(payload).eq('id', existingUser.id)
+        if (updateUserError) {
+          throw new Error(`Failed to update user ${devUser.email}: ${updateUserError.message}`)
+        }
+        console.log(`   ✓ Updated ${devUser.email} (${devUser.role})`)
+      } else {
+        const { error: createUserError } = await supabase.from('users').insert(payload)
+        if (createUserError) {
+          throw new Error(`Failed to create user ${devUser.email}: ${createUserError.message}`)
+        }
+        console.log(`   ✓ Created ${devUser.email} (${devUser.role})`)
+      }
     }
 
-    const checks = [
-      { name: 'Employee ID', value: verifyEmployee.employee_id === TEST_EMPLOYEE.employeeId },
-      { name: 'Tenant ID', value: verifyEmployee.tenant_id === DEFAULT_TENANT_ID },
-      { name: 'Email', value: verifyEmployee.email === TEST_EMPLOYEE.email },
-      { name: 'Password hash', value: !!verifyEmployee.password_hash },
-      { name: 'Active', value: verifyEmployee.is_active === true },
-      { name: 'Not deleted', value: verifyEmployee.deleted_at === null },
-    ]
+    // Step 6: Verification
+    console.log('\n6️⃣  Verifying users...')
+    const { data: verifyUsers, error: verifyUsersError } = await supabase
+      .from('users')
+      .select('email, role, team_id, tenant_id, password_hash, is_active, deleted_at')
+      .eq('tenant_id', DEFAULT_TENANT_ID)
+      .in(
+        'email',
+        DEV_USERS.map((user) => user.email)
+      )
 
-    console.log('\n   Verification Results:')
-    checks.forEach((check) => {
-      console.log(`   ${check.value ? '✓' : '✗'} ${check.name}`)
+    if (verifyUsersError) {
+      throw new Error(`Failed to verify users: ${verifyUsersError.message}`)
+    }
+
+    if (!verifyUsers || verifyUsers.length !== DEV_USERS.length) {
+      throw new Error('Verification failed: not all development users were seeded')
+    }
+
+    console.log('\n✅ Role-based test users seeded successfully!\n')
+    console.log('📝 Dev Credentials (all users):')
+    console.log(`   Password: ${DEV_PASSWORD}`)
+    DEV_USERS.forEach((user) => {
+      console.log(`   - ${user.email} | ${user.role} | team=${user.team ?? 'GLOBAL'}`)
     })
-
-    const allPassed = checks.every((c) => c.value)
-    if (!allPassed) {
-      throw new Error('Verification failed - see results above')
-    }
-
-    console.log('\n✅ Test employee seeded successfully!\n')
-    console.log('📝 Test Credentials:')
-    console.log(`   Employee ID: ${TEST_EMPLOYEE.employeeId} (case-insensitive)`)
-    console.log(`   Password:    ${TEST_EMPLOYEE.password}`)
-    console.log(`   Email:       ${TEST_EMPLOYEE.email}`)
-    console.log(`   Tenant ID:   ${DEFAULT_TENANT_ID}`)
+    console.log(`\n   Tenant ID: ${DEFAULT_TENANT_ID}`)
     console.log('\n🚀 You can now login at: http://localhost:3000/login')
   } catch (error) {
     console.error('\n❌ Seed failed:', error instanceof Error ? error.message : String(error))

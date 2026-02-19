@@ -2,9 +2,9 @@ import { apiClient, authApiRoutes } from '@/core/client/api-client'
 import type { AuthenticatedEmployee } from '@/core/domain/auth/types'
 
 export const authClient = {
-  login: (employeeId: string, password: string) =>
-    apiClient.post<{ employee: AuthenticatedEmployee }>(authApiRoutes.login, {
-      employeeId,
+  login: (email: string, password: string) =>
+    apiClient.post<{ user: AuthenticatedEmployee }>(authApiRoutes.login, {
+      email,
       password,
     }),
   logout: () => apiClient.post(authApiRoutes.logout),

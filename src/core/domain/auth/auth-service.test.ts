@@ -35,89 +35,89 @@ describe('AuthService', () => {
   describe('loginWithPassword', () => {
     it('should successfully login with valid credentials', async () => {
       const tenantId = 'tenant-001'
-      const employeeId = 'EMP001'
+      const email = 'user@nxtwave.co.in'
       const password = 'SecurePassword123'
 
       // Mock employee lookup
-      mockEmployeeRepository.findByEmployeeId.mockResolvedValue({
+      mockEmployeeRepository.findByEmail.mockResolvedValue({
         id: 'employee-uuid-123',
-        employeeId,
+        employeeId: 'employee-uuid-123',
         tenantId,
-        email: 'user@company.com',
+        email,
         fullName: 'John Doe',
         isActive: true,
         passwordHash: '$2b$10$example.hash', // bcrypt hash
-        role: 'legal_counsel',
+        role: 'LEGAL_TEAM',
         createdAt: '2026-02-14T00:00:00Z',
         updatedAt: '2026-02-14T00:00:00Z',
         deletedAt: null,
       })
 
       // Test should call repository with tenant scoping
-      await expect(authService.loginWithPassword({ employeeId, password }, tenantId)).rejects.toThrow() // Will throw because password validation fails in real code
+      await expect(authService.loginWithPassword({ email, password }, tenantId)).rejects.toThrow() // Will throw because password validation fails in real code
 
       // Verify tenant scoping was applied
-      expect(mockEmployeeRepository.findByEmployeeId).toHaveBeenCalledWith({
-        employeeId: employeeId.toUpperCase(),
+      expect(mockEmployeeRepository.findByEmail).toHaveBeenCalledWith({
+        email,
         tenantId,
       })
     })
 
     it('should fail with invalid credentials', async () => {
       const tenantId = 'tenant-001'
-      const employeeId = 'INVALID'
+      const email = 'invalid@nxtwave.co.in'
       const password = 'WrongPassword'
 
       // Mock employee not found
-      mockEmployeeRepository.findByEmployeeId.mockResolvedValue(null)
+      mockEmployeeRepository.findByEmail.mockResolvedValue(null)
 
-      await expect(authService.loginWithPassword({ employeeId, password }, tenantId)).rejects.toThrow()
+      await expect(authService.loginWithPassword({ email, password }, tenantId)).rejects.toThrow()
 
-      expect(mockEmployeeRepository.findByEmployeeId).toHaveBeenCalledWith({
-        employeeId: employeeId.toUpperCase(),
+      expect(mockEmployeeRepository.findByEmail).toHaveBeenCalledWith({
+        email,
         tenantId,
       })
     })
 
     it('should reject login for inactive employees', async () => {
       const tenantId = 'tenant-001'
-      const employeeId = 'EMP001'
+      const email = 'inactive@nxtwave.co.in'
 
       // Mock inactive employee
-      mockEmployeeRepository.findByEmployeeId.mockResolvedValue({
+      mockEmployeeRepository.findByEmail.mockResolvedValue({
         id: 'employee-uuid-123',
-        employeeId,
+        employeeId: 'employee-uuid-123',
         tenantId,
-        email: 'user@company.com',
+        email,
         fullName: 'John Doe',
         isActive: false, // Inactive
         passwordHash: '$2b$10$example.hash',
-        role: 'viewer',
+        role: 'POC',
         createdAt: '2026-02-14T00:00:00Z',
         updatedAt: '2026-02-14T00:00:00Z',
         deletedAt: null,
       })
 
-      await expect(authService.loginWithPassword({ employeeId, password: 'correct' }, tenantId)).rejects.toThrow()
+      await expect(authService.loginWithPassword({ email, password: 'correct' }, tenantId)).rejects.toThrow()
     })
 
     it('should enforce tenant isolation - different tenant cannot access employee', async () => {
       const tenantA = 'tenant-a'
       const tenantB = 'tenant-b'
-      const employeeId = 'EMP001'
+      const email = 'tenant.user@nxtwave.co.in'
 
       // Setup: Employee exists in tenant A
-      mockEmployeeRepository.findByEmployeeId.mockImplementation(async ({ tenantId }) => {
+      mockEmployeeRepository.findByEmail.mockImplementation(async ({ tenantId }) => {
         return tenantId === tenantA
           ? {
               id: 'employee-uuid-123',
-              employeeId,
+              employeeId: 'employee-uuid-123',
               tenantId: tenantA,
-              email: 'user@company-a.com',
+              email,
               fullName: 'John Doe',
               isActive: true,
               passwordHash: '$2b$10$example.hash',
-              role: 'legal_counsel',
+              role: 'POC',
               createdAt: '2026-02-14T00:00:00Z',
               updatedAt: '2026-02-14T00:00:00Z',
               deletedAt: null,
@@ -126,11 +126,11 @@ describe('AuthService', () => {
       })
 
       // Try to login from tenant B - should fail
-      await expect(authService.loginWithPassword({ employeeId, password: 'any' }, tenantB)).rejects.toThrow()
+      await expect(authService.loginWithPassword({ email, password: 'any' }, tenantB)).rejects.toThrow()
 
       // Verify repository was called with tenant B, not tenant A
-      expect(mockEmployeeRepository.findByEmployeeId).toHaveBeenCalledWith({
-        employeeId: employeeId.toUpperCase(),
+      expect(mockEmployeeRepository.findByEmail).toHaveBeenCalledWith({
+        email,
         tenantId: tenantB,
       })
     })

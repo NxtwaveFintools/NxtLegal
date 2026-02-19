@@ -3,6 +3,7 @@
 import { useRouter } from 'next/navigation'
 import { authClient } from '@/core/client/auth-client'
 import { routeRegistry } from '@/core/config/route-registry'
+import styles from './LogoutButton.module.css'
 
 export default function LogoutButton() {
   const router = useRouter()
@@ -21,10 +22,7 @@ export default function LogoutButton() {
   }
 
   return (
-    <button
-      onClick={handleLogout}
-      className="bg-gray-900 text-white px-4 py-2 rounded hover:bg-gray-800 transition-colors font-medium"
-    >
+    <button onClick={handleLogout} className={styles.button}>
       Logout
     </button>
   )

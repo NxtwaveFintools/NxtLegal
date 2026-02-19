@@ -8,18 +8,18 @@ import { limits } from '@/core/constants/limits'
 import { routeRegistry } from '@/core/config/route-registry'
 
 type EmployeeLoginState = {
-  employeeId: string
+  email: string
   password: string
   error: string
   loading: boolean
-  setEmployeeId: (value: string) => void
+  setEmail: (value: string) => void
   setPassword: (value: string) => void
   submit: () => Promise<void>
 }
 
 export const useEmployeeLogin = (): EmployeeLoginState => {
   const router = useRouter()
-  const [employeeId, setEmployeeId] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
@@ -27,8 +27,8 @@ export const useEmployeeLogin = (): EmployeeLoginState => {
   const submit = async () => {
     setError('')
 
-    if (!employeeId.trim()) {
-      setError('Please enter your Employee ID')
+    if (!email.trim()) {
+      setError('Please enter your work email')
       return
     }
 
@@ -45,7 +45,7 @@ export const useEmployeeLogin = (): EmployeeLoginState => {
     setLoading(true)
 
     try {
-      const response = await authClient.login(employeeId.toUpperCase(), password)
+      const response = await authClient.login(email.trim().toLowerCase(), password)
 
       if (!response || typeof response.ok !== 'boolean') {
         setError(authErrorMessages.auth_failed)
@@ -59,7 +59,7 @@ export const useEmployeeLogin = (): EmployeeLoginState => {
         return
       }
 
-      if (!response.data?.employee?.employeeId) {
+      if (!response.data?.user?.email) {
         setError(authErrorMessages.auth_failed)
         setLoading(false)
         return
@@ -74,11 +74,11 @@ export const useEmployeeLogin = (): EmployeeLoginState => {
   }
 
   return {
-    employeeId,
+    email,
     password,
     error,
     loading,
-    setEmployeeId,
+    setEmail,
     setPassword,
     submit,
   }

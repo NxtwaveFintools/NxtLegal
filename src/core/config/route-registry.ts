@@ -13,5 +13,15 @@ export const routeRegistry = {
       session: '/api/auth/session',
       refresh: '/api/auth/refresh',
     },
+    contracts: {
+      list: '/api/contracts',
+      upload: '/api/contracts/upload',
+      detail: '/api/contracts/:contractId',
+      download: '/api/contracts/:contractId/download',
+      timeline: '/api/contracts/:contractId/timeline',
+      action: '/api/contracts/:contractId/action',
+      note: '/api/contracts/:contractId/note',
+      approvers: '/api/contracts/:contractId/approvers',
+    },
   },
 } as const

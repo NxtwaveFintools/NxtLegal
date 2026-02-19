@@ -6,6 +6,8 @@
 
 import { envServer } from '@/core/config/env.server'
 import { envPublic } from '@/core/config/env.public'
+import { featureFlags } from '@/core/config/feature-flags'
+import { validateContractWorkflowGraph } from '@/core/config/contract-workflow-validator'
 import { limits } from '@/core/constants/limits'
 import { DEFAULT_TENANT_ID } from '@/core/constants/tenants'
 import { logger } from '@/core/infra/logging/logger'
@@ -198,7 +200,7 @@ function validateTenantConfig(): { valid: boolean; warnings: string[] } {
  * Main configuration validation function
  * Call this on application startup
  */
-export function validateConfiguration(): ValidationResult {
+export async function validateConfiguration(): Promise<ValidationResult> {
   const errors: string[] = []
   const warnings: string[] = []
 
@@ -232,6 +234,16 @@ export function validateConfiguration(): ValidationResult {
   const tenantValidation = validateTenantConfig()
   warnings.push(...tenantValidation.warnings)
 
+  // 7. Validate contract workflow transition graph
+  if (featureFlags.enableContractWorkflow) {
+    try {
+      await validateContractWorkflowGraph()
+      logger.info('Contract workflow graph validation passed')
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : 'Contract workflow graph validation failed')
+    }
+  }
+
   // Log results
   if (errors.length > 0) {
     logger.error('Configuration validation failed', { errors })
@@ -256,8 +268,8 @@ export function validateConfiguration(): ValidationResult {
  * Throw error if configuration is invalid
  * Use this in server startup to prevent running with bad config
  */
-export function requireValidConfiguration(): void {
-  const result = validateConfiguration()
+export async function requireValidConfiguration(): Promise<void> {
+  const result = await validateConfiguration()
 
   if (!result.valid) {
     const errorMessage = `Configuration validation failed:\n${result.errors.join('\n')}`

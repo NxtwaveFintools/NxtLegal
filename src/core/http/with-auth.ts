@@ -12,6 +12,10 @@ type AuthenticatedHandler<T = unknown> = (
   context: { params?: Record<string, string>; session: SessionData }
 ) => Promise<NextResponse<T>>
 
+type RouteHandlerContext = {
+  params?: Record<string, string> | Promise<Record<string, string>>
+}
+
 /**
  * Higher-Order Function (Proxy Pattern) for protecting API routes
  *
@@ -22,9 +26,10 @@ type AuthenticatedHandler<T = unknown> = (
  * })
  */
 export function withAuth<T = unknown>(handler: AuthenticatedHandler<T>) {
-  return async (request: NextRequest, context?: { params?: Record<string, string> }) => {
+  return async (request: NextRequest, context: RouteHandlerContext = {}) => {
     try {
       const session = await getSession()
+      const resolvedParams = context.params ? await Promise.resolve(context.params) : undefined
 
       if (!session || !session.employeeId) {
         logger.warn('Unauthorized API access attempt', {
@@ -39,7 +44,7 @@ export function withAuth<T = unknown>(handler: AuthenticatedHandler<T>) {
       }
 
       // Pass validated session to handler
-      return await handler(request, { params: context?.params, session })
+      return await handler(request, { params: resolvedParams, session })
     } catch (error) {
       logger.error('Auth proxy error', {
         path: request.nextUrl.pathname,
@@ -57,11 +62,12 @@ export function withAuth<T = unknown>(handler: AuthenticatedHandler<T>) {
  * Proxy wrapper for public routes (no auth required, but session available if exists)
  */
 export function withOptionalAuth<T = unknown>(handler: AuthenticatedHandler<T>) {
-  return async (request: NextRequest, context?: { params?: Record<string, string> }) => {
+  return async (request: NextRequest, context: RouteHandlerContext = {}) => {
     const session = await getSession()
+    const resolvedParams = context.params ? await Promise.resolve(context.params) : undefined
 
     return await handler(request, {
-      params: context?.params,
+      params: resolvedParams,
       session: session || { employeeId: '', email: undefined, fullName: undefined },
     })
   }
