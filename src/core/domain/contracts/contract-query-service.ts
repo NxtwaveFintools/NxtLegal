@@ -1,9 +1,13 @@
 import { AuthorizationError, BusinessRuleError, NotFoundError } from '@/core/http/errors'
+import type { ContractStatus } from '@/core/constants/contracts'
 import type {
+  DashboardContractFilter,
   ContractDetail,
   ContractDetailView,
   ContractListItem,
   ContractQueryRepository,
+  RepositorySortBy,
+  RepositorySortDirection,
   ContractTimelineEvent,
 } from '@/core/domain/contracts/contract-query-repository'
 import type { ContractActionName } from '@/core/domain/contracts/schemas'
@@ -19,6 +23,40 @@ export class ContractQueryService {
     limit: number
   }): Promise<{ items: ContractListItem[]; nextCursor?: string }> {
     return this.contractRepository.listByTenant(params)
+  }
+
+  async getPendingApprovalsForRole(params: {
+    tenantId: string
+    employeeId: string
+    role?: string
+    limit: number
+  }): Promise<ContractListItem[]> {
+    return this.contractRepository.getPendingApprovalsForRole(params)
+  }
+
+  async getDashboardContracts(params: {
+    tenantId: string
+    employeeId: string
+    role?: string
+    filter: DashboardContractFilter
+    cursor?: string
+    limit: number
+  }): Promise<{ items: ContractListItem[]; nextCursor?: string }> {
+    return this.contractRepository.getDashboardContracts(params)
+  }
+
+  async listRepositoryContracts(params: {
+    tenantId: string
+    employeeId: string
+    role?: string
+    cursor?: string
+    limit: number
+    search?: string
+    status?: ContractStatus
+    sortBy?: RepositorySortBy
+    sortDirection?: RepositorySortDirection
+  }): Promise<{ items: ContractListItem[]; nextCursor?: string }> {
+    return this.contractRepository.listRepositoryContracts(params)
   }
 
   async getContractDetail(params: {

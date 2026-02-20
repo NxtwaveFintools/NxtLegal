@@ -18,13 +18,16 @@ type ContractsWorkspaceProps = {
     employeeId: string
     role?: string
   }
+  initialContractId?: string
 }
 
-export default function ContractsWorkspace({ session }: ContractsWorkspaceProps) {
+export default function ContractsWorkspace({ session, initialContractId }: ContractsWorkspaceProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [contracts, setContracts] = useState<ContractRecord[]>([])
-  const [selectedContractId, setSelectedContractId] = useState<string | null>(() => searchParams.get('contractId'))
+  const [selectedContractId, setSelectedContractId] = useState<string | null>(() => {
+    return searchParams.get('contractId') ?? initialContractId ?? null
+  })
   const [selectedContract, setSelectedContract] = useState<ContractRecord | null>(null)
   const [timeline, setTimeline] = useState<ContractTimelineEvent[]>([])
   const [availableActions, setAvailableActions] = useState<ContractAllowedAction[]>([])

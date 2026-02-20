@@ -21,6 +21,9 @@ const baseContract: ContractDetail = {
 
 const createRepositoryMock = (): jest.Mocked<ContractQueryRepository> => ({
   listByTenant: jest.fn(),
+  getPendingApprovalsForRole: jest.fn(),
+  getDashboardContracts: jest.fn(),
+  listRepositoryContracts: jest.fn(),
   getById: jest.fn(),
   getTimeline: jest.fn(),
   getAdditionalApprovers: jest.fn(),
@@ -112,5 +115,54 @@ describe('ContractQueryService', () => {
         actorEmail: 'hod@nxtwave.co.in',
       })
     ).rejects.toBeInstanceOf(AuthorizationError)
+  })
+
+  it('delegates pending approvals to repository with actor role context', async () => {
+    const repository = createRepositoryMock()
+    const service = new ContractQueryService(repository)
+
+    repository.getPendingApprovalsForRole.mockResolvedValue([baseContract])
+
+    const result = await service.getPendingApprovalsForRole({
+      tenantId: 'tenant-1',
+      employeeId: 'hod-1',
+      role: 'HOD',
+      limit: 20,
+    })
+
+    expect(result).toHaveLength(1)
+    expect(repository.getPendingApprovalsForRole).toHaveBeenCalledWith({
+      tenantId: 'tenant-1',
+      employeeId: 'hod-1',
+      role: 'HOD',
+      limit: 20,
+    })
+  })
+
+  it('delegates dashboard contracts with requested filter', async () => {
+    const repository = createRepositoryMock()
+    const service = new ContractQueryService(repository)
+
+    repository.getDashboardContracts.mockResolvedValue({
+      items: [baseContract],
+      nextCursor: undefined,
+    })
+
+    const result = await service.getDashboardContracts({
+      tenantId: 'tenant-1',
+      employeeId: 'poc-1',
+      role: 'POC',
+      filter: 'HOD_PENDING',
+      limit: 20,
+    })
+
+    expect(result.items).toHaveLength(1)
+    expect(repository.getDashboardContracts).toHaveBeenCalledWith({
+      tenantId: 'tenant-1',
+      employeeId: 'poc-1',
+      role: 'POC',
+      filter: 'HOD_PENDING',
+      limit: 20,
+    })
   })
 })

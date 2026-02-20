@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { limits } from '@/core/constants/limits'
+import { contractStatuses } from '@/core/constants/contracts'
 
 export const contractActionNames = [
   'hod.approve',
@@ -13,6 +14,36 @@ export const contractActionNames = [
 export const listContractsQuerySchema = z.object({
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(limits.paginationPageSize).default(20),
+})
+
+export const dashboardContractsFilterValues = [
+  'ALL',
+  'HOD_PENDING',
+  'LEGAL_PENDING',
+  'FINAL_APPROVED',
+  'LEGAL_QUERY',
+] as const
+
+export const dashboardContractsQuerySchema = z.object({
+  filter: z.enum(dashboardContractsFilterValues),
+  cursor: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(limits.paginationPageSize).default(20),
+})
+
+export const pendingApprovalsQuerySchema = z.object({
+  limit: z.coerce.number().int().min(1).max(limits.paginationPageSize).default(20),
+})
+
+export const repositorySortByValues = ['title', 'created_at', 'hod_approved_at', 'status'] as const
+export const repositorySortDirectionValues = ['asc', 'desc'] as const
+
+export const repositoryContractsQuerySchema = z.object({
+  cursor: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(limits.paginationPageSize).default(20),
+  search: z.string().trim().max(200).optional(),
+  status: z.nativeEnum(contractStatuses).optional(),
+  sortBy: z.enum(repositorySortByValues).default('created_at'),
+  sortDirection: z.enum(repositorySortDirectionValues).default('desc'),
 })
 
 export const contractActionSchema = z
@@ -39,3 +70,4 @@ export const contractApproverSchema = z.object({
 })
 
 export type ContractActionName = (typeof contractActionNames)[number]
+export type DashboardContractsFilter = (typeof dashboardContractsFilterValues)[number]

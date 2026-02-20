@@ -5,6 +5,8 @@ export const routeRegistry = {
   },
   protected: {
     dashboard: '/dashboard',
+    repository: '/repository',
+    contractDetail: '/contracts/:contractId',
   },
   api: {
     auth: {
@@ -15,6 +17,9 @@ export const routeRegistry = {
     },
     contracts: {
       list: '/api/contracts',
+      pendingApprovals: '/api/contracts/pending-approvals',
+      dashboard: '/api/contracts/dashboard',
+      repository: '/api/contracts/repository',
       upload: '/api/contracts/upload',
       detail: '/api/contracts/:contractId',
       download: '/api/contracts/:contractId/download',

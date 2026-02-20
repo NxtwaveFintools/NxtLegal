@@ -9,9 +9,15 @@ export type ContractListItem = {
   uploadedByEmail: string
   currentAssigneeEmployeeId: string
   currentAssigneeEmail: string
+  hodApprovedAt?: string | null
   createdAt: string
   updatedAt: string
 }
+
+export type DashboardContractFilter = 'ALL' | 'HOD_PENDING' | 'LEGAL_PENDING' | 'FINAL_APPROVED' | 'LEGAL_QUERY'
+
+export type RepositorySortBy = 'title' | 'created_at' | 'hod_approved_at' | 'status'
+export type RepositorySortDirection = 'asc' | 'desc'
 
 export type ContractDetail = ContractListItem & {
   fileName: string
@@ -62,6 +68,31 @@ export interface ContractQueryRepository {
     limit: number
     role?: string
     employeeId: string
+  }): Promise<{ items: ContractListItem[]; nextCursor?: string }>
+  getPendingApprovalsForRole(params: {
+    tenantId: string
+    employeeId: string
+    role?: string
+    limit: number
+  }): Promise<ContractListItem[]>
+  getDashboardContracts(params: {
+    tenantId: string
+    employeeId: string
+    role?: string
+    filter: DashboardContractFilter
+    cursor?: string
+    limit: number
+  }): Promise<{ items: ContractListItem[]; nextCursor?: string }>
+  listRepositoryContracts(params: {
+    tenantId: string
+    employeeId: string
+    role?: string
+    cursor?: string
+    limit: number
+    search?: string
+    status?: ContractStatus
+    sortBy?: RepositorySortBy
+    sortDirection?: RepositorySortDirection
   }): Promise<{ items: ContractListItem[]; nextCursor?: string }>
   getById(tenantId: string, contractId: string): Promise<ContractDetail | null>
   getTimeline(tenantId: string, contractId: string, limit: number): Promise<ContractTimelineEvent[]>

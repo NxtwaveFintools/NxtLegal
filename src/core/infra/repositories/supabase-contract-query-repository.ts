@@ -4,11 +4,14 @@ import { contractStatuses, type ContractStatus } from '@/core/constants/contract
 import { AuthorizationError, BusinessRuleError, ConflictError, DatabaseError } from '@/core/http/errors'
 import { createServiceSupabase } from '@/lib/supabase/service'
 import type {
+  DashboardContractFilter,
   ContractAdditionalApprover,
   ContractAllowedAction,
   ContractDetail,
   ContractListItem,
   ContractQueryRepository,
+  RepositorySortBy,
+  RepositorySortDirection,
   ContractTimelineEvent,
 } from '@/core/domain/contracts/contract-query-repository'
 import type { ContractActionName } from '@/core/domain/contracts/schemas'
@@ -36,6 +39,7 @@ type ContractEntity = {
   uploaded_by_email: string
   current_assignee_employee_id: string
   current_assignee_email: string
+  hod_approved_at: string | null
   file_name: string | null
   file_size_bytes: number | null
   file_mime_type: string | null
@@ -90,7 +94,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     let query = supabase
       .from('contracts')
       .select(
-        'id, tenant_id, title, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, created_at, updated_at'
+        'id, tenant_id, title, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, hod_approved_at, created_at, updated_at'
       )
       .eq('tenant_id', params.tenantId)
       .is('deleted_at', null)
@@ -124,6 +128,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       uploaded_by_email: string
       current_assignee_employee_id: string
       current_assignee_email: string
+      hod_approved_at: string | null
       created_at: string
       updated_at: string
     }>
@@ -136,13 +141,225 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     return { items, nextCursor }
   }
 
+  async getPendingApprovalsForRole(params: {
+    tenantId: string
+    employeeId: string
+    role?: string
+    limit: number
+  }): Promise<ContractListItem[]> {
+    const statuses = this.getPendingApprovalStatuses(params.role)
+
+    if (statuses.length === 0) {
+      return []
+    }
+
+    const supabase = createServiceSupabase()
+    let query = supabase
+      .from('contracts')
+      .select(
+        'id, tenant_id, title, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, hod_approved_at, created_at, updated_at'
+      )
+      .eq('tenant_id', params.tenantId)
+      .is('deleted_at', null)
+      .in('status', statuses)
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(params.limit)
+
+    if (params.role === 'HOD' || params.role === 'LEGAL_TEAM') {
+      query = query.eq('current_assignee_employee_id', params.employeeId)
+    }
+
+    const { data, error } = await query
+
+    if (error) {
+      throw new DatabaseError('Failed to fetch pending approvals for actor role', new Error(error.message), {
+        code: error.code,
+      })
+    }
+
+    const rows = (data ?? []) as Array<{
+      id: string
+      title: string
+      status: string
+      uploaded_by_employee_id: string
+      uploaded_by_email: string
+      current_assignee_employee_id: string
+      current_assignee_email: string
+      hod_approved_at: string | null
+      created_at: string
+      updated_at: string
+    }>
+
+    return rows.map((row) => this.mapListItem(row))
+  }
+
+  async getDashboardContracts(params: {
+    tenantId: string
+    employeeId: string
+    role?: string
+    filter: DashboardContractFilter
+    cursor?: string
+    limit: number
+  }): Promise<{ items: ContractListItem[]; nextCursor?: string }> {
+    const resolvedFilter = this.resolveDashboardFilter(params.role, params.filter)
+    const statusFilter = this.resolveDashboardStatusFromFilter(resolvedFilter)
+    const decodedCursor = this.decodeCursor(params.cursor)
+    const supabase = createServiceSupabase()
+
+    let query = supabase
+      .from('contracts')
+      .select(
+        'id, tenant_id, title, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, hod_approved_at, created_at, updated_at'
+      )
+      .eq('tenant_id', params.tenantId)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(params.limit + 1)
+
+    if (decodedCursor) {
+      query = query.lt('created_at', decodedCursor.createdAt)
+    }
+
+    if (statusFilter) {
+      query = query.eq('status', statusFilter)
+    }
+
+    if (params.role === 'POC' || !params.role) {
+      query = query.eq('uploaded_by_employee_id', params.employeeId)
+    }
+
+    if (params.role === 'HOD') {
+      const teamMemberIds = await this.getTeamMemberIds(params.tenantId, params.employeeId)
+
+      if (teamMemberIds.length === 0) {
+        query = query.eq('uploaded_by_employee_id', params.employeeId)
+      } else {
+        query = query.in('uploaded_by_employee_id', teamMemberIds)
+      }
+    }
+
+    const { data, error } = await query
+
+    if (error) {
+      throw new DatabaseError('Failed to fetch dashboard contracts', new Error(error.message), {
+        code: error.code,
+      })
+    }
+
+    const rows = (data ?? []) as Array<{
+      id: string
+      title: string
+      status: string
+      uploaded_by_employee_id: string
+      uploaded_by_email: string
+      current_assignee_employee_id: string
+      current_assignee_email: string
+      hod_approved_at: string | null
+      created_at: string
+      updated_at: string
+    }>
+
+    const hasNext = rows.length > params.limit
+    const items = rows.slice(0, params.limit).map((row) => this.mapListItem(row))
+    const nextCursor = hasNext ? this.encodeCursor(items[items.length - 1]?.createdAt ?? '') : undefined
+
+    return { items, nextCursor }
+  }
+
+  async listRepositoryContracts(params: {
+    tenantId: string
+    employeeId: string
+    role?: string
+    cursor?: string
+    limit: number
+    search?: string
+    status?: ContractStatus
+    sortBy?: RepositorySortBy
+    sortDirection?: RepositorySortDirection
+  }): Promise<{ items: ContractListItem[]; nextCursor?: string }> {
+    const supabase = createServiceSupabase()
+    const decodedCursor = this.decodeCursor(params.cursor)
+    const sortBy = params.sortBy ?? 'created_at'
+    const sortDirection = params.sortDirection ?? 'desc'
+
+    let query = supabase
+      .from('contracts')
+      .select(
+        'id, tenant_id, title, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, hod_approved_at, created_at, updated_at'
+      )
+      .eq('tenant_id', params.tenantId)
+      .is('deleted_at', null)
+      .limit(params.limit + 1)
+
+    if (params.status) {
+      query = query.eq('status', params.status)
+    }
+
+    if (params.search) {
+      query = query.ilike('title', `%${params.search}%`)
+    }
+
+    if (sortBy === 'title') {
+      query = query.order('title', { ascending: sortDirection === 'asc' }).order('id', { ascending: false })
+    } else if (sortBy === 'status') {
+      query = query.order('status', { ascending: sortDirection === 'asc' }).order('id', { ascending: false })
+    } else if (sortBy === 'hod_approved_at') {
+      query = query
+        .order('hod_approved_at', { ascending: sortDirection === 'asc', nullsFirst: sortDirection === 'asc' })
+        .order('id', { ascending: false })
+    } else {
+      query = query.order('created_at', { ascending: sortDirection === 'asc' }).order('id', { ascending: false })
+    }
+
+    if (decodedCursor && sortBy === 'created_at' && sortDirection === 'desc') {
+      query = query.lt('created_at', decodedCursor.createdAt)
+    }
+
+    const visibilityFilter = await this.getVisibilityFilter(params.tenantId, params.role, params.employeeId)
+    if (visibilityFilter) {
+      query = query.or(visibilityFilter)
+    }
+
+    const { data, error } = await query
+
+    if (error) {
+      throw new DatabaseError('Failed to list repository contracts', new Error(error.message), {
+        code: error.code,
+      })
+    }
+
+    const rows = (data ?? []) as Array<{
+      id: string
+      title: string
+      status: string
+      uploaded_by_employee_id: string
+      uploaded_by_email: string
+      current_assignee_employee_id: string
+      current_assignee_email: string
+      hod_approved_at: string | null
+      created_at: string
+      updated_at: string
+    }>
+
+    const hasNext = rows.length > params.limit
+    const items = rows.slice(0, params.limit).map((row) => this.mapListItem(row))
+    const nextCursor =
+      sortBy === 'created_at' && sortDirection === 'desc' && hasNext
+        ? this.encodeCursor(items[items.length - 1]?.createdAt ?? '')
+        : undefined
+
+    return { items, nextCursor }
+  }
+
   async getById(tenantId: string, contractId: string): Promise<ContractDetail | null> {
     const supabase = createServiceSupabase()
 
     const { data, error } = await supabase
       .from('contracts')
       .select(
-        'id, tenant_id, title, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, file_name, file_size_bytes, file_mime_type, file_path, created_at, updated_at, row_version'
+        'id, tenant_id, title, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, hod_approved_at, file_name, file_size_bytes, file_mime_type, file_path, created_at, updated_at, row_version'
       )
       .eq('tenant_id', tenantId)
       .eq('id', contractId)
@@ -845,6 +1062,69 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     return `uploaded_by_employee_id.in.(${serializedIds}),current_assignee_employee_id.eq.${employeeId}`
   }
 
+  private getPendingApprovalStatuses(role?: string): ContractStatus[] {
+    if (role === 'HOD') {
+      return [contractStatuses.hodPending]
+    }
+
+    if (role === 'LEGAL_TEAM') {
+      return [contractStatuses.legalPending]
+    }
+
+    if (role === 'ADMIN') {
+      return [contractStatuses.hodPending, contractStatuses.legalPending]
+    }
+
+    return []
+  }
+
+  private resolveDashboardFilter(
+    role: string | undefined,
+    requestedFilter: DashboardContractFilter
+  ): DashboardContractFilter {
+    if (role === 'ADMIN') {
+      return requestedFilter
+    }
+
+    if (role === 'LEGAL_TEAM') {
+      if (requestedFilter === 'ALL') {
+        return 'LEGAL_PENDING'
+      }
+
+      return requestedFilter
+    }
+
+    if (role === 'HOD' || role === 'POC') {
+      if (requestedFilter === 'ALL') {
+        return 'HOD_PENDING'
+      }
+
+      return requestedFilter
+    }
+
+    return 'HOD_PENDING'
+  }
+
+  private resolveDashboardStatusFromFilter(filter: DashboardContractFilter): ContractStatus | null {
+    if (filter === 'ALL') {
+      return null
+    }
+
+    if (filter === 'HOD_PENDING') {
+      return contractStatuses.hodPending
+    }
+
+    if (filter === 'LEGAL_PENDING') {
+      return contractStatuses.legalPending
+    }
+
+    if (filter === 'FINAL_APPROVED') {
+      return contractStatuses.finalApproved
+    }
+
+    return contractStatuses.legalQuery
+  }
+
   private async getTeamMemberIds(tenantId: string, employeeId: string): Promise<string[]> {
     const supabase = createServiceSupabase()
 
@@ -1037,6 +1317,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     uploaded_by_email: string
     current_assignee_employee_id: string
     current_assignee_email: string
+    hod_approved_at?: string | null
     created_at: string
     updated_at: string
   }): ContractListItem {
@@ -1050,6 +1331,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       uploadedByEmail: row.uploaded_by_email,
       currentAssigneeEmployeeId: row.current_assignee_employee_id,
       currentAssigneeEmail: row.current_assignee_email,
+      hodApprovedAt: row.hod_approved_at ?? null,
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }
@@ -1066,6 +1348,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       uploadedByEmail: row.uploaded_by_email,
       currentAssigneeEmployeeId: row.current_assignee_employee_id,
       currentAssigneeEmail: row.current_assignee_email,
+      hodApprovedAt: row.hod_approved_at,
       fileName: row.file_name ?? '',
       fileSizeBytes: row.file_size_bytes ?? 0,
       fileMimeType: row.file_mime_type ?? '',

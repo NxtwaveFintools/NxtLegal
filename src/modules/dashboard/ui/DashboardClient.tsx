@@ -1,14 +1,13 @@
 'use client'
 
 import type { ReactNode } from 'react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import LogoutButton from '@/components/auth/LogoutButton'
-import ThemeToggle from '@/components/theme/ThemeToggle'
 import ThirdPartyUploadSidebar from '@/modules/contracts/ui/third-party-upload/ThirdPartyUploadSidebar'
 import ContractStatusBadge from '@/modules/contracts/ui/ContractStatusBadge'
-import { contractsClient, type ContractRecord } from '@/core/client/contracts-client'
-import { contractStatuses } from '@/core/constants/contracts'
+import { contractsClient, type ContractRecord, type DashboardContractsFilter } from '@/core/client/contracts-client'
+import { contractWorkflowRoles } from '@/core/constants/contracts'
+import ProtectedAppShell from '@/modules/dashboard/ui/ProtectedAppShell'
 import styles from './dashboard.module.css'
 
 type DashboardClientProps = {
@@ -28,6 +27,13 @@ type ActionCardProps = {
   icon?: ReactNode
 }
 
+type DashboardRoleConfig = {
+  defaultFilter: DashboardContractsFilter
+  approveFilter: DashboardContractsFilter
+  filters: Array<{ value: DashboardContractsFilter; label: string }>
+  showApproveCard: boolean
+}
+
 function DashboardActionCard({ title, count, description, onClick, icon }: ActionCardProps) {
   return (
     <button type="button" onClick={onClick} className={styles.actionCard}>
@@ -43,16 +49,109 @@ function DashboardActionCard({ title, count, description, onClick, icon }: Actio
   )
 }
 
+const dashboardTimestampFormatter = new Intl.DateTimeFormat('en-GB', {
+  day: '2-digit',
+  month: 'short',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: true,
+})
+
+function getRoleConfig(role?: string): DashboardRoleConfig {
+  if (role === contractWorkflowRoles.admin) {
+    return {
+      defaultFilter: 'ALL',
+      approveFilter: 'HOD_PENDING',
+      showApproveCard: true,
+      filters: [
+        { value: 'ALL', label: 'All' },
+        { value: 'HOD_PENDING', label: 'HOD Pending' },
+        { value: 'LEGAL_PENDING', label: 'Legal Pending' },
+        { value: 'FINAL_APPROVED', label: 'Final Approved' },
+        { value: 'LEGAL_QUERY', label: 'Legal Query' },
+      ],
+    }
+  }
+
+  if (role === contractWorkflowRoles.legalTeam) {
+    return {
+      defaultFilter: 'LEGAL_PENDING',
+      approveFilter: 'LEGAL_PENDING',
+      showApproveCard: true,
+      filters: [
+        { value: 'LEGAL_PENDING', label: 'Legal Pending' },
+        { value: 'HOD_PENDING', label: 'HOD Pending' },
+        { value: 'FINAL_APPROVED', label: 'Final Approved' },
+        { value: 'LEGAL_QUERY', label: 'Legal Query' },
+      ],
+    }
+  }
+
+  if (role === contractWorkflowRoles.hod) {
+    return {
+      defaultFilter: 'HOD_PENDING',
+      approveFilter: 'HOD_PENDING',
+      showApproveCard: true,
+      filters: [
+        { value: 'HOD_PENDING', label: 'HOD Pending' },
+        { value: 'LEGAL_PENDING', label: 'Legal Pending' },
+        { value: 'FINAL_APPROVED', label: 'Final Approved' },
+        { value: 'LEGAL_QUERY', label: 'Legal Query' },
+      ],
+    }
+  }
+
+  return {
+    defaultFilter: 'HOD_PENDING',
+    approveFilter: 'HOD_PENDING',
+    showApproveCard: false,
+    filters: [
+      { value: 'HOD_PENDING', label: 'HOD Pending' },
+      { value: 'LEGAL_PENDING', label: 'Legal Pending' },
+      { value: 'FINAL_APPROVED', label: 'Final Approved' },
+      { value: 'LEGAL_QUERY', label: 'Legal Query' },
+    ],
+  }
+}
+
 export default function DashboardClient({ session }: DashboardClientProps) {
   const router = useRouter()
+  const roleConfig = useMemo(() => getRoleConfig(session.role), [session.role])
+  const contractsSectionRef = useRef<HTMLElement | null>(null)
+  const initialLoadPromiseRef = useRef<Promise<void> | null>(null)
+
   const [isUploadOpen, setIsUploadOpen] = useState(false)
   const [contracts, setContracts] = useState<ContractRecord[]>([])
   const [isLoadingContracts, setIsLoadingContracts] = useState(true)
   const [contractsError, setContractsError] = useState<string | null>(null)
+  const [pendingApprovalsCount, setPendingApprovalsCount] = useState(0)
+  const [activeFilter, setActiveFilter] = useState<DashboardContractsFilter>(roleConfig.defaultFilter)
+  const [filterCounts, setFilterCounts] = useState<Partial<Record<DashboardContractsFilter, number>>>({})
 
-  const loadContracts = useCallback(async () => {
+  const loadPendingApprovals = useCallback(async () => {
+    if (!roleConfig.showApproveCard) {
+      setPendingApprovalsCount(0)
+      return
+    }
+
+    const response = await contractsClient.pendingApprovals({ limit: 50 })
+
+    if (!response.ok || !response.data) {
+      setPendingApprovalsCount(0)
+      return
+    }
+
+    setPendingApprovalsCount(response.data.contracts.length)
+  }, [roleConfig.showApproveCard])
+
+  const loadContractsForFilter = useCallback(async (filter: DashboardContractsFilter) => {
     setIsLoadingContracts(true)
-    const response = await contractsClient.list({ limit: 20 })
+
+    const response = await contractsClient.dashboardContracts({
+      filter,
+      limit: 20,
+    })
 
     if (!response.ok || !response.data) {
       setContracts([])
@@ -66,56 +165,44 @@ export default function DashboardClient({ session }: DashboardClientProps) {
     setIsLoadingContracts(false)
   }, [])
 
-  useEffect(() => {
-    let isCancelled = false
+  const loadFilterCounts = useCallback(async () => {
+    const results = await Promise.all(
+      roleConfig.filters.map(async (filterOption) => {
+        const response = await contractsClient.dashboardContracts({
+          filter: filterOption.value,
+          limit: 50,
+        })
 
-    const loadInitialContracts = async () => {
-      const response = await contractsClient.list({ limit: 20 })
+        return {
+          filter: filterOption.value,
+          count: response.ok && response.data ? response.data.contracts.length : 0,
+        }
+      })
+    )
 
-      if (isCancelled) {
-        return
-      }
-
-      if (!response.ok || !response.data) {
-        setContracts([])
-        setContractsError(response.error?.message ?? 'Failed to load contracts')
-        setIsLoadingContracts(false)
-        return
-      }
-
-      setContracts(response.data.contracts)
-      setContractsError(null)
-      setIsLoadingContracts(false)
+    const nextCounts: Partial<Record<DashboardContractsFilter, number>> = {}
+    for (const item of results) {
+      nextCounts[item.filter] = item.count
     }
 
-    void loadInitialContracts()
+    setFilterCounts(nextCounts)
+  }, [roleConfig.filters])
 
-    return () => {
-      isCancelled = true
-    }
-  }, [])
-
-  const displayName = useMemo(() => {
-    if (!session.fullName) {
-      return 'there'
-    }
-
-    return session.fullName.split(' ')[0] || session.fullName
-  }, [session.fullName])
-
-  const executedContracts = useMemo(
-    () =>
-      contracts.filter(
-        (contract) =>
-          contract.status === contractStatuses.hodApproved || contract.status === contractStatuses.finalApproved
-      ),
-    [contracts]
+  const applyFilter = useCallback(
+    (filter: DashboardContractsFilter) => {
+      setActiveFilter(filter)
+      void loadContractsForFilter(filter)
+    },
+    [loadContractsForFilter]
   )
 
-  const ongoingContracts = useMemo(
-    () => contracts.filter((contract) => !executedContracts.some((executed) => executed.id === contract.id)),
-    [contracts, executedContracts]
-  )
+  if (initialLoadPromiseRef.current === null) {
+    initialLoadPromiseRef.current = Promise.all([
+      loadPendingApprovals(),
+      loadFilterCounts(),
+      loadContractsForFilter(activeFilter),
+    ]).then(() => undefined)
+  }
 
   const uploadIcon = (
     <svg viewBox="0 0 20 20" aria-hidden="true">
@@ -131,185 +218,147 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   )
 
   return (
-    <div className={styles.page}>
-      <aside className={styles.sidebar}>
-        <div className={styles.sidebarLogo}>N</div>
-        <div className={styles.navList}>
-          <button type="button" className={`${styles.navItem} ${styles.navItemActive}`} aria-label="Home">
-            <span className={styles.navIcon}>H</span>
-          </button>
-          <button type="button" className={styles.navItem} aria-label="Repository">
-            <span className={styles.navIcon}>R</span>
-          </button>
-          <button type="button" className={styles.navItem} aria-label="Manage">
-            <span className={styles.navIcon}>M</span>
-          </button>
-          <button type="button" className={styles.navItem} aria-label="Analytics">
-            <span className={styles.navIcon}>A</span>
-          </button>
-        </div>
-        <div className={styles.bottomNav}>
-          <button type="button" className={styles.navItem} aria-label="Settings">
-            <span className={styles.navIcon}>S</span>
-          </button>
-          <button type="button" className={styles.navItem} aria-label="Chat">
-            <span className={styles.navIcon}>C</span>
-          </button>
-        </div>
-      </aside>
-
-      <div className={styles.content}>
-        <header className={styles.topbar}>
-          <div className={styles.topbarLeft}>
-            <div className={styles.searchBar}>
-              <span>Search</span>
-              <input type="text" className={styles.searchInput} placeholder="Shortcuts" aria-label="Search shortcuts" />
-              <span>Ctrl+K</span>
-            </div>
+    <ProtectedAppShell session={{ fullName: session.fullName }} activeNav="home">
+      <main className={styles.main}>
+        <section className={styles.greeting}>
+          <div>
+            <div className={styles.greetingTitle}>Dashboard</div>
+            <div className={styles.greetingSubtitle}>Tasks pending on you</div>
           </div>
-          <div className={styles.topbarRight}>
-            <ThemeToggle />
-            <span className={styles.companyBadge}>NxtWave Disruptive Technologies Private Limited</span>
-            <div className={styles.profileBadge}>{displayName.slice(0, 1).toUpperCase()}</div>
-            <LogoutButton />
-          </div>
-        </header>
+        </section>
 
-        <main className={styles.main}>
-          <section className={styles.greeting}>
-            <div>
-              <div className={styles.greetingTitle}>Good afternoon, {displayName}</div>
-              <div className={styles.greetingSubtitle}>Tasks pending on you</div>
-            </div>
-          </section>
-
-          <section className={styles.tasksRow}>
-            <div className={styles.tasksCardGroup}>
-              <div className={styles.tasksHeader}>Tasks pending on you</div>
-              <div className={styles.taskCards}>
-                <DashboardActionCard
-                  title="Upload Third-Party Contract"
-                  count={contracts.length}
-                  description="Upload third-party contracts for review"
-                  icon={uploadIcon}
-                  onClick={() => setIsUploadOpen(true)}
-                />
+        <section className={styles.tasksRow}>
+          <div className={styles.tasksCardGroup}>
+            <div className={styles.tasksHeader}>Tasks pending on you</div>
+            <div className={styles.taskCards}>
+              <DashboardActionCard
+                title="Upload Third-Party Contract"
+                count={contracts.length}
+                description="Upload third-party contracts for review"
+                icon={uploadIcon}
+                onClick={() => setIsUploadOpen(true)}
+              />
+              {roleConfig.showApproveCard ? (
                 <DashboardActionCard
                   title="Approve"
-                  count={
-                    contracts.filter((contract) => contract.currentAssigneeEmployeeId === session.employeeId).length
-                  }
+                  count={pendingApprovalsCount}
                   description="Contracts waiting for approval"
-                  onClick={() => router.push('/dashboard/contracts')}
+                  onClick={() => {
+                    applyFilter(roleConfig.approveFilter)
+                    contractsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                  }}
                 />
-                <DashboardActionCard title="Review" count={0} description="Documents awaiting review" />
-              </div>
+              ) : null}
+              <DashboardActionCard title="Review" count={0} description="Documents awaiting review" />
             </div>
-            <div className={styles.secondaryTasks}>
-              <div className={styles.secondaryTaskCard}>
-                <span className={styles.secondaryTaskTitle}>Setup Signatures</span>
-                <span className={styles.secondaryTaskCount}>0</span>
-              </div>
-              <div className={styles.secondaryTaskCard}>
-                <span className={styles.secondaryTaskTitle}>Custom Task</span>
-                <span className={styles.secondaryTaskCount}>0</span>
-              </div>
+          </div>
+          <div className={styles.secondaryTasks}>
+            <div className={styles.secondaryTaskCard}>
+              <span className={styles.secondaryTaskTitle}>Setup Signatures</span>
+              <span className={styles.secondaryTaskCount}>0</span>
             </div>
-          </section>
+            <div className={styles.secondaryTaskCard}>
+              <span className={styles.secondaryTaskTitle}>Custom Task</span>
+              <span className={styles.secondaryTaskCount}>0</span>
+            </div>
+          </div>
+        </section>
 
-          <section className={styles.contractsSection}>
-            <div className={styles.contractsHeader}>
-              <span>Contracts owned by {session.fullName || session.employeeId}</span>
-              <span>Looking for a specific contract? Search in Repository</span>
-            </div>
-            <div className={styles.contractsTabs}>
+        <section className={styles.contractsSection} ref={contractsSectionRef}>
+          <div className={styles.contractsHeader}>
+            <span>My Contracts</span>
+            <span>Looking for a specific contract? Open Repository</span>
+          </div>
+          <div className={styles.contractsTabs}>
+            {roleConfig.filters.map((filterOption) => (
               <button
+                key={filterOption.value}
                 type="button"
-                className={`${styles.tab} ${styles.tabActive}`}
-                onClick={() => router.push('/dashboard/contracts')}
+                className={`${styles.tab} ${activeFilter === filterOption.value ? styles.tabActive : ''}`}
+                onClick={() => applyFilter(filterOption.value)}
               >
-                Ongoing ({ongoingContracts.length})
+                {filterOption.label} ({filterCounts[filterOption.value] ?? 0})
               </button>
-              <button type="button" className={styles.tab}>
-                Without Activity (0)
-              </button>
-              <button type="button" className={styles.tab}>
-                Executed ({executedContracts.length})
-              </button>
-            </div>
-            <div className={styles.contractsBody}>
-              {isLoadingContracts ? (
-                <div>
-                  <div className={styles.emptyTitle}>...</div>
-                  <div className={styles.emptySubtitle}>Loading contracts</div>
-                </div>
-              ) : contractsError ? (
-                <div>
-                  <div className={styles.emptyTitle}>!</div>
-                  <div className={styles.emptySubtitle}>{contractsError}</div>
-                  <button type="button" className={styles.emptyAction} onClick={() => void loadContracts()}>
-                    Retry
-                  </button>
-                </div>
-              ) : contracts.length === 0 ? (
-                <div>
-                  <div className={styles.emptyTitle}>0</div>
-                  <div className={styles.emptySubtitle}>No contracts here</div>
-                  <button
-                    type="button"
-                    className={styles.emptyAction}
-                    onClick={() => router.push('/dashboard/contracts')}
-                  >
-                    View Your Contracts
-                  </button>
-                </div>
-              ) : (
-                <div className={styles.contractList}>
-                  {contracts.map((contract) => (
-                    <div key={contract.id} className={styles.contractItem}>
-                      <div>
-                        <div className={styles.contractTitle}>{contract.title}</div>
-                        <div className={styles.contractMeta}>
-                          <ContractStatusBadge status={contract.status} />
-                        </div>
+            ))}
+          </div>
+
+          <div className={styles.contractsBody}>
+            {isLoadingContracts ? (
+              <div>
+                <div className={styles.emptyTitle}>...</div>
+                <div className={styles.emptySubtitle}>Loading contracts</div>
+              </div>
+            ) : contractsError ? (
+              <div>
+                <div className={styles.emptyTitle}>!</div>
+                <div className={styles.emptySubtitle}>{contractsError}</div>
+                <button
+                  type="button"
+                  className={styles.emptyAction}
+                  onClick={() => {
+                    void loadContractsForFilter(activeFilter)
+                  }}
+                >
+                  Retry
+                </button>
+              </div>
+            ) : contracts.length === 0 ? (
+              <div>
+                <div className={styles.emptyTitle}>No contracts found</div>
+                <div className={styles.emptySubtitle}>No contracts match the selected filter.</div>
+              </div>
+            ) : (
+              <div className={styles.contractList}>
+                {contracts.map((contract) => (
+                  <div key={contract.id} className={styles.contractItem}>
+                    <div>
+                      <div className={styles.contractTitle}>{contract.title}</div>
+                      <div className={styles.contractMeta}>
+                        Created by {contract.uploadedByEmail || contract.uploadedByEmployeeId}
                       </div>
-                      <div className={styles.contractActions}>
-                        <button
-                          type="button"
-                          className={styles.tab}
-                          onClick={() => router.push(`/dashboard/contracts?contractId=${contract.id}`)}
-                        >
-                          Open
-                        </button>
-                        <button
-                          type="button"
-                          className={styles.tab}
-                          onClick={async () => {
-                            const response = await contractsClient.download(contract.id)
-                            if (response.ok && response.data?.signedUrl) {
-                              window.open(response.data.signedUrl, '_blank', 'noopener,noreferrer')
-                            }
-                          }}
-                        >
-                          Download
-                        </button>
+                      <div className={styles.contractMeta}>
+                        {dashboardTimestampFormatter.format(new Date(contract.createdAt))}
                       </div>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </section>
-        </main>
-      </div>
+                    <div className={styles.contractActions}>
+                      <ContractStatusBadge status={contract.status} />
+                      <button
+                        type="button"
+                        className={styles.emptyAction}
+                        onClick={() => router.push(contractsClient.resolveProtectedContractPath(contract.id))}
+                      >
+                        Open
+                      </button>
+                      <button
+                        type="button"
+                        className={styles.emptyAction}
+                        onClick={async () => {
+                          const response = await contractsClient.download(contract.id)
+
+                          if (response.ok && response.data?.signedUrl) {
+                            window.open(response.data.signedUrl, '_blank', 'noopener,noreferrer')
+                          }
+                        }}
+                      >
+                        Download
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </section>
+      </main>
 
       <ThirdPartyUploadSidebar
         isOpen={isUploadOpen}
         onClose={() => setIsUploadOpen(false)}
         onUploaded={async () => {
-          await loadContracts()
+          await Promise.all([loadContractsForFilter(activeFilter), loadFilterCounts(), loadPendingApprovals()])
+          router.refresh()
         }}
       />
-    </div>
+    </ProtectedAppShell>
   )
 }
