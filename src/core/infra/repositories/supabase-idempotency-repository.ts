@@ -50,6 +50,27 @@ class SupabaseIdempotencyRepository implements IIdempotencyRepository {
     if (error) throw error
   }
 
+  async tryCreate(record: IdempotencyRecord): Promise<boolean> {
+    const { error } = await this.supabase.from('idempotency_keys').insert([
+      {
+        key: record.key,
+        tenant_id: record.tenantId,
+        response_data: record.responseData,
+        status_code: record.statusCode,
+        expires_at: record.expiresAt,
+      },
+    ])
+
+    if (error) {
+      if (error.code === '23505') {
+        return false
+      }
+      throw error
+    }
+
+    return true
+  }
+
   async delete(key: string, tenantId: string): Promise<void> {
     const { error } = await this.supabase.from('idempotency_keys').delete().eq('key', key).eq('tenant_id', tenantId)
 

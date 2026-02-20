@@ -9,6 +9,7 @@ import type { IIdempotencyRepository } from '@/core/domain/idempotency/idempoten
 const mockIdempotencyRepository: jest.Mocked<IIdempotencyRepository> = {
   get: jest.fn(),
   set: jest.fn(),
+  tryCreate: jest.fn(),
   delete: jest.fn(),
 }
 
@@ -190,6 +191,79 @@ describe('IdempotencyService', () => {
       expect(result).toEqual({ key, tenantId, responseData, statusCode, expiresAt })
       expect(result?.responseData).toEqual(responseData)
       expect(result?.statusCode).toEqual(statusCode)
+    })
+  })
+
+  describe('claimOrGet', () => {
+    it('should return cached when completed response already exists', async () => {
+      const key = 'existing-key'
+      const tenantId = 'tenant-001'
+      const record = {
+        key,
+        tenantId,
+        responseData: { ok: true },
+        statusCode: 201,
+        expiresAt: new Date(Date.now() + 10_000).toISOString(),
+      }
+
+      mockIdempotencyRepository.get.mockResolvedValue(record)
+
+      const result = await idempotencyService.claimOrGet(key, tenantId)
+
+      expect(result).toEqual({ status: 'cached', record })
+      expect(mockIdempotencyRepository.tryCreate).not.toHaveBeenCalled()
+    })
+
+    it('should return in-progress when key is currently claimed', async () => {
+      const key = 'in-progress-key'
+      const tenantId = 'tenant-001'
+
+      mockIdempotencyRepository.get.mockResolvedValue({
+        key,
+        tenantId,
+        responseData: { __idempotency_state: 'IN_PROGRESS' },
+        statusCode: 409,
+        expiresAt: new Date(Date.now() + 10_000).toISOString(),
+      })
+
+      const result = await idempotencyService.claimOrGet(key, tenantId)
+
+      expect(result).toEqual({ status: 'in-progress' })
+      expect(mockIdempotencyRepository.tryCreate).not.toHaveBeenCalled()
+    })
+
+    it('should claim key when no existing record and insert succeeds', async () => {
+      const key = 'new-key'
+      const tenantId = 'tenant-001'
+
+      mockIdempotencyRepository.get.mockResolvedValue(null)
+      mockIdempotencyRepository.tryCreate.mockResolvedValue(true)
+
+      const result = await idempotencyService.claimOrGet(key, tenantId)
+
+      expect(result).toEqual({ status: 'claimed' })
+      expect(mockIdempotencyRepository.tryCreate).toHaveBeenCalled()
+    })
+
+    it('should return cached when claim races and completed record appears', async () => {
+      const key = 'race-key'
+      const tenantId = 'tenant-001'
+
+      mockIdempotencyRepository.get.mockResolvedValueOnce(null).mockResolvedValueOnce({
+        key,
+        tenantId,
+        responseData: { contractId: 'c-1' },
+        statusCode: 201,
+        expiresAt: new Date(Date.now() + 10_000).toISOString(),
+      })
+      mockIdempotencyRepository.tryCreate.mockResolvedValue(false)
+
+      const result = await idempotencyService.claimOrGet(key, tenantId)
+
+      expect(result).toEqual({
+        status: 'cached',
+        record: expect.objectContaining({ key, tenantId, statusCode: 201 }),
+      })
     })
   })
 })

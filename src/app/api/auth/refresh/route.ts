@@ -13,8 +13,24 @@ const handleRefresh = async (request: NextRequest, correlationId: string) => {
     // Get IP address for rate limiting
     const ip = request.headers.get('x-forwarded-for') || 'unknown'
 
-    // Extract and validate tenant ID from request header
-    const requestTenantId = getTenantIdFromHeader(request.headers.get('X-Tenant-ID'), { allowDefault: true })
+    const tenantHeader = request.headers.get('X-Tenant-ID')
+    let requestTenantId: string | null = null
+
+    if (tenantHeader) {
+      try {
+        requestTenantId = getTenantIdFromHeader(tenantHeader, { allowDefault: false })
+      } catch {
+        return NextResponse.json(
+          errorResponse(authErrorCodes.validationError, 'Invalid tenant header', { correlationId }),
+          {
+            status: 400,
+            headers: {
+              'X-Correlation-ID': correlationId,
+            },
+          }
+        )
+      }
+    }
 
     // ✅ SECURITY: Sanitize rate limit key to prevent injection attacks
     const rateLimitKey = sanitizeRateLimitKey(`ratelimit:refresh:${ip}`)
@@ -53,8 +69,8 @@ const handleRefresh = async (request: NextRequest, correlationId: string) => {
       )
     }
 
-    // CRITICAL SECURITY: Validate tenant ID from JWT matches request header
-    if (session.tenantId && session.tenantId !== requestTenantId) {
+    // CRITICAL SECURITY: Validate tenant ID from JWT matches request header (when header is provided)
+    if (requestTenantId && session.tenantId && session.tenantId !== requestTenantId) {
       logger.error('Tenant ID mismatch in refresh', {
         correlationId,
         requestTenantId,

@@ -6,6 +6,8 @@ import { logger } from '@/core/infra/logging/logger'
 import { isAppError } from '@/core/http/errors'
 
 const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
+  let shouldReleaseClaim = false
+
   try {
     if (!session.tenantId) {
       return NextResponse.json(errorResponse('SESSION_INVALID', 'Session tenant is required'), { status: 401 })
@@ -24,12 +26,6 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
       })
     }
 
-    const idempotencyService = getIdempotencyService()
-    const existingResponse = await idempotencyService.getIfExists(idempotencyKey, session.tenantId)
-    if (existingResponse) {
-      return NextResponse.json(existingResponse.responseData, { status: existingResponse.statusCode })
-    }
-
     const formData = await request.formData()
     const title = String(formData.get('title') ?? '').trim()
     const uploadedFile = formData.get('file')
@@ -39,6 +35,21 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
         status: 400,
       })
     }
+
+    const idempotencyService = getIdempotencyService()
+    const claimResult = await idempotencyService.claimOrGet(idempotencyKey, session.tenantId)
+    if (claimResult.status === 'cached') {
+      return NextResponse.json(claimResult.record.responseData, { status: claimResult.record.statusCode })
+    }
+
+    if (claimResult.status === 'in-progress') {
+      return NextResponse.json(
+        errorResponse('IDEMPOTENCY_IN_PROGRESS', 'A request with this Idempotency-Key is already in progress'),
+        { status: 409 }
+      )
+    }
+
+    shouldReleaseClaim = true
 
     const fileArrayBuffer = await uploadedFile.arrayBuffer()
     const fileBytes = new Uint8Array(fileArrayBuffer)
@@ -76,9 +87,21 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
     })
 
     await idempotencyService.store(idempotencyKey, session.tenantId, responseData, 201)
+    shouldReleaseClaim = false
 
     return NextResponse.json(responseData, { status: 201 })
   } catch (error) {
+    const tenantId = session.tenantId
+    const idempotencyKey = request.headers.get('Idempotency-Key')?.trim()
+    if (tenantId && idempotencyKey && shouldReleaseClaim) {
+      try {
+        const idempotencyService = getIdempotencyService()
+        await idempotencyService.releaseClaim(idempotencyKey, tenantId)
+      } catch {
+        // noop - keep original failure path
+      }
+    }
+
     logger.error('Contract upload failed', {
       error: String(error),
       errorCode: isAppError(error) ? error.code : 'INTERNAL_ERROR',

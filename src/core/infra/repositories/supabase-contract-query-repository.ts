@@ -1,7 +1,7 @@
 import 'server-only'
 
 import { contractStatuses, type ContractStatus } from '@/core/constants/contracts'
-import { AuthorizationError, BusinessRuleError, DatabaseError } from '@/core/http/errors'
+import { AuthorizationError, BusinessRuleError, ConflictError, DatabaseError } from '@/core/http/errors'
 import { createServiceSupabase } from '@/lib/supabase/service'
 import type {
   ContractAdditionalApprover,
@@ -365,7 +365,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       nextStatus = contractStatuses.hodPending
     }
 
-    const { error: updateError } = await supabase
+    const { data: updatedRow, error: updateError } = await supabase
       .from('contracts')
       .update({
         status: nextStatus,
@@ -376,10 +376,21 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       .eq('id', contract.id)
       .eq('tenant_id', params.tenantId)
       .eq('row_version', contract.rowVersion)
+      .select('id')
+      .maybeSingle<{ id: string }>()
 
     if (updateError) {
       throw new DatabaseError('Failed to apply contract action', new Error(updateError.message), {
         code: updateError.code,
+      })
+    }
+
+    if (!updatedRow) {
+      throw new ConflictError('Contract was modified by another request. Please refresh and retry.', {
+        contractId: params.contractId,
+        tenantId: params.tenantId,
+        action: params.action,
+        expectedRowVersion: contract.rowVersion,
       })
     }
 
@@ -685,12 +696,19 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       .eq('trigger_action', action)
       .eq('is_active', true)
       .order('created_at', { ascending: false })
-      .limit(1)
+      .limit(2)
 
     if (error) {
       throw new DatabaseError('Failed to resolve workflow transition', new Error(error.message), {
         code: error.code,
       })
+    }
+
+    if (tenantTransitions && tenantTransitions.length > 1) {
+      throw new BusinessRuleError(
+        'CONTRACT_TRANSITION_AMBIGUOUS',
+        'Multiple active workflow transitions configured for this action'
+      )
     }
 
     if (tenantTransitions && tenantTransitions.length === 1) {
@@ -705,12 +723,19 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       .eq('trigger_action', action)
       .eq('is_active', true)
       .order('created_at', { ascending: false })
-      .limit(1)
+      .limit(2)
 
     if (fallbackError) {
       throw new DatabaseError('Failed to resolve default workflow transition', new Error(fallbackError.message), {
         code: fallbackError.code,
       })
+    }
+
+    if (fallbackTransitions && fallbackTransitions.length > 1) {
+      throw new BusinessRuleError(
+        'CONTRACT_TRANSITION_AMBIGUOUS',
+        'Multiple default active workflow transitions configured for this action'
+      )
     }
 
     if (!fallbackTransitions || fallbackTransitions.length === 0) {
@@ -736,12 +761,19 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         .eq('to_status', contractStatuses.hodPending)
         .eq('is_active', true)
         .order('created_at', { ascending: false })
-        .limit(1)
+        .limit(2)
 
       if (error) {
         throw new DatabaseError('Failed to resolve reroute transition', new Error(error.message), {
           code: error.code,
         })
+      }
+
+      if (data && data.length > 1) {
+        throw new BusinessRuleError(
+          'CONTRACT_TRANSITION_AMBIGUOUS',
+          'Multiple active reroute transitions configured for HOD_PENDING'
+        )
       }
 
       return data
