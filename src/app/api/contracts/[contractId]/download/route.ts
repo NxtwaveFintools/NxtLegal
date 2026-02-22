@@ -5,7 +5,7 @@ import { isAppError } from '@/core/http/errors'
 import { getContractUploadService } from '@/core/registry/service-registry'
 import { logger } from '@/core/infra/logging/logger'
 
-const GETHandler = withAuth(async (_request: NextRequest, { session, params }) => {
+const GETHandler = withAuth(async (request: NextRequest, { session, params }) => {
   try {
     if (!session.tenantId) {
       return NextResponse.json(errorResponse('SESSION_INVALID', 'Session tenant is required'), { status: 401 })
@@ -22,11 +22,13 @@ const GETHandler = withAuth(async (_request: NextRequest, { session, params }) =
     }
 
     const contractUploadService = getContractUploadService()
+    const documentId = request.nextUrl.searchParams.get('documentId')?.trim() || undefined
     const result = await contractUploadService.createSignedDownloadUrl({
       contractId,
       tenantId: session.tenantId,
       requestorEmployeeId: session.employeeId,
       requestorRole: session.role,
+      documentId,
     })
 
     return NextResponse.json(

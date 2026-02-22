@@ -16,6 +16,7 @@ type ContractRecord = {
   title: string
   contractTypeId?: string
   contractTypeName?: string
+  counterpartyName?: string | null
   status: string
   uploadedByEmployeeId: string
   uploadedByEmail: string
@@ -42,6 +43,16 @@ type ContractRecord = {
   fileMimeType?: string
   createdAt: string
   updatedAt: string
+}
+
+type ContractDocument = {
+  id: string
+  documentKind: 'PRIMARY' | 'COUNTERPARTY_SUPPORTING'
+  displayName: string
+  fileName: string
+  fileSizeBytes: number
+  fileMimeType: string
+  createdAt: string
 }
 
 type DashboardContractsFilter = 'ALL' | 'HOD_PENDING' | 'LEGAL_PENDING' | 'FINAL_APPROVED' | 'LEGAL_QUERY'
@@ -79,6 +90,7 @@ type ContractAdditionalApprover = {
 
 type ContractDetailResponse = {
   contract: ContractRecord
+  documents: ContractDocument[]
   availableActions: ContractAllowedAction[]
   additionalApprovers: ContractAdditionalApprover[]
 }
@@ -311,6 +323,7 @@ export const contractsClient = {
   async upload(params: {
     title: string
     contractTypeId: string
+    counterpartyName?: string
     signatoryName?: string
     signatoryDesignation?: string
     signatoryEmail?: string
@@ -318,6 +331,7 @@ export const contractsClient = {
     departmentId?: string
     budgetApproved?: boolean
     file: File
+    supportingFiles?: File[]
     idempotencyKey: string
   }): Promise<ApiResponse<{ contract: ContractRecord }>> {
     const formData = new FormData()
@@ -341,7 +355,13 @@ export const contractsClient = {
     if (typeof params.budgetApproved === 'boolean') {
       formData.set('budgetApproved', String(params.budgetApproved))
     }
+    if (params.counterpartyName?.trim()) {
+      formData.set('counterpartyName', params.counterpartyName.trim())
+    }
     formData.set('file', params.file)
+    for (const supportingFile of params.supportingFiles ?? []) {
+      formData.append('supportingFiles', supportingFile)
+    }
 
     const response = await fetch(routeRegistry.api.contracts.upload, {
       method: 'POST',
@@ -394,8 +414,19 @@ export const contractsClient = {
     return parseApiResponse<ContractDetailResponse>(response)
   },
 
-  async download(contractId: string): Promise<ApiResponse<{ signedUrl: string; fileName: string }>> {
-    const response = await fetch(resolveContractPath(routeRegistry.api.contracts.download, contractId), {
+  async download(
+    contractId: string,
+    options?: { documentId?: string }
+  ): Promise<ApiResponse<{ signedUrl: string; fileName: string }>> {
+    const path = resolveContractPath(routeRegistry.api.contracts.download, contractId)
+    const query = new URLSearchParams()
+    if (options?.documentId) {
+      query.set('documentId', options.documentId)
+    }
+
+    const url = query.size > 0 ? `${path}?${query.toString()}` : path
+
+    const response = await fetch(url, {
       method: 'GET',
       credentials: 'include',
     })
@@ -403,11 +434,25 @@ export const contractsClient = {
     return parseApiResponse<{ signedUrl: string; fileName: string }>(response)
   },
 
+  previewUrl(contractId: string, options?: { documentId?: string; renderAs?: 'binary' | 'html' }): string {
+    const path = resolveContractPath(routeRegistry.api.contracts.preview, contractId)
+    const query = new URLSearchParams()
+    if (options?.documentId) {
+      query.set('documentId', options.documentId)
+    }
+    if (options?.renderAs === 'html') {
+      query.set('render', 'html')
+    }
+
+    return query.size > 0 ? `${path}?${query.toString()}` : path
+  },
+
   resolveProtectedContractPath,
 }
 
 export type {
   ContractRecord,
+  ContractDocument,
   DepartmentOption,
   ContractTypeOption,
   ContractTimelineEvent,

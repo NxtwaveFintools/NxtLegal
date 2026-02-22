@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import {
   contractsClient,
   type ContractAllowedAction,
+  type ContractDocument,
   type ContractDetailResponse,
   type ContractRecord,
   type ContractTimelineEvent,
@@ -43,6 +44,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const [timeline, setTimeline] = useState<ContractTimelineEvent[]>([])
   const [availableActions, setAvailableActions] = useState<ContractAllowedAction[]>([])
   const [approvers, setApprovers] = useState<ContractDetailResponse['additionalApprovers']>([])
+  const [documents, setDocuments] = useState<ContractDocument[]>([])
   const [noteText, setNoteText] = useState('')
   const [approverEmail, setApproverEmail] = useState('')
   const [activeTab, setActiveTab] = useState<TabId>('overview')
@@ -51,10 +53,13 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const [showAllLogs, setShowAllLogs] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isMutating, setIsMutating] = useState(false)
+  const [activeAction, setActiveAction] = useState<ContractAllowedAction['action'] | null>(null)
   const [isViewerOpen, setIsViewerOpen] = useState(false)
   const [viewerUrl, setViewerUrl] = useState<string | null>(null)
+  const [viewerExternalUrl, setViewerExternalUrl] = useState<string | null>(null)
+  const [viewerMimeType, setViewerMimeType] = useState<string>('')
   const [viewerFileName, setViewerFileName] = useState<string>('')
-  const [isLoadingViewer, setIsLoadingViewer] = useState(false)
+  const [previewingDocumentId, setPreviewingDocumentId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   const loadContracts = useCallback(async () => {
@@ -82,6 +87,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
   const applyContractView = (contractView: ContractDetailResponse) => {
     setSelectedContract(contractView.contract)
+    setDocuments(contractView.documents ?? [])
     setAvailableActions(contractView.availableActions)
     setApprovers(contractView.additionalApprovers)
   }
@@ -96,6 +102,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       setError(detailResponse.error?.message ?? 'Failed to load contract detail')
       setSelectedContract(null)
       setTimeline([])
+      setDocuments([])
       setAvailableActions([])
       setApprovers([])
       return
@@ -141,6 +148,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
         setError(detailResponse.error?.message ?? 'Failed to load contract detail')
         setSelectedContract(null)
         setTimeline([])
+        setDocuments([])
         setAvailableActions([])
         setApprovers([])
         return
@@ -185,12 +193,12 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       remark = input.trim()
     }
 
-    setIsMutating(true)
+    setActiveAction(actionItem.action)
     const response = await contractsClient.action(selectedContractId, {
       action: actionItem.action,
       noteText: remark,
     })
-    setIsMutating(false)
+    setActiveAction(null)
 
     if (response.ok !== true) {
       if (response.error?.code) {
@@ -208,12 +216,14 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     router.refresh()
   }
 
-  const handleDownload = async () => {
+  const handleDownload = async (document?: ContractDocument) => {
     if (!selectedContractId) {
       return
     }
 
-    const response = await contractsClient.download(selectedContractId)
+    const response = await contractsClient.download(selectedContractId, {
+      documentId: document?.id,
+    })
 
     if (!response.ok || !response.data?.signedUrl) {
       setError(response.error?.message ?? 'Failed to generate download link')
@@ -223,30 +233,52 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     window.open(response.data.signedUrl, '_blank', 'noopener,noreferrer')
   }
 
-  const handleViewDocument = async () => {
+  const handleViewDocument = async (document?: ContractDocument) => {
     if (!selectedContractId) {
       return
     }
 
-    setIsLoadingViewer(true)
-    const response = await contractsClient.download(selectedContractId)
-    setIsLoadingViewer(false)
+    const previewKey = document?.id ?? '__primary__'
+    setPreviewingDocumentId(previewKey)
+    try {
+      const response = await contractsClient.download(selectedContractId, {
+        documentId: document?.id,
+      })
 
-    if (!response.ok || !response.data?.signedUrl) {
-      setError(response.error?.message ?? 'Failed to generate document view link')
-      return
+      if (!response.ok || !response.data?.signedUrl) {
+        setError(response.error?.message ?? 'Failed to generate document view link')
+        return
+      }
+
+      const resolvedFileName =
+        response.data.fileName ?? document?.displayName ?? selectedContract?.fileName ?? 'Contract document'
+      const resolvedMimeType = document?.fileMimeType ?? ''
+      const isDocx =
+        resolvedMimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+        resolvedFileName.toLowerCase().endsWith('.docx')
+
+      const previewUrl = contractsClient.previewUrl(selectedContractId, {
+        documentId: document?.id,
+        renderAs: isDocx ? 'html' : 'binary',
+      })
+
+      setViewerUrl(previewUrl)
+      setViewerExternalUrl(response.data.signedUrl)
+      setViewerMimeType(resolvedMimeType)
+      setViewerFileName(resolvedFileName)
+      setIsViewerOpen(true)
+    } finally {
+      setPreviewingDocumentId(null)
     }
-
-    setViewerUrl(response.data.signedUrl)
-    setViewerFileName(response.data.fileName ?? selectedContract?.fileName ?? 'Contract document')
-    setIsViewerOpen(true)
   }
 
-  const closeViewer = () => {
+  const closeViewer = useCallback(() => {
     setIsViewerOpen(false)
     setViewerUrl(null)
+    setViewerExternalUrl(null)
+    setViewerMimeType('')
     setViewerFileName('')
-  }
+  }, [])
 
   useEffect(() => {
     if (!isViewerOpen) return
@@ -260,7 +292,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     window.addEventListener('keydown', onKey)
 
     return () => window.removeEventListener('keydown', onKey)
-  }, [isViewerOpen])
+  }, [closeViewer, isViewerOpen])
 
   const handleAddNote = async () => {
     if (!selectedContractId || !noteText.trim()) {
@@ -439,10 +471,10 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                 key={item.action}
                 type="button"
                 className={`${styles.button} ${styles.buttonPrimary}`}
-                disabled={isMutating}
+                disabled={Boolean(activeAction) || isMutating}
                 onClick={() => void executeAction(item)}
               >
-                {isMutating ? 'Processing...' : item.label}
+                {activeAction === item.action ? 'Processing...' : item.label}
               </button>
             ))}
           </div>
@@ -548,6 +580,10 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                       <div className={styles.row}>
                         <span>Contract Type</span>
                         <span>{selectedContract.contractTypeName ?? '—'}</span>
+                      </div>
+                      <div className={styles.row}>
+                        <span>Counterparty</span>
+                        <span>{selectedContract.counterpartyName ?? '—'}</span>
                       </div>
                       <div className={styles.row}>
                         <span>File Name</span>
@@ -728,20 +764,40 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                   <div className={styles.tabSection}>
                     <div className={styles.card}>
                       <div className={styles.sectionTitle}>Documents</div>
-                      <div className={styles.actions}>
-                        <button
-                          type="button"
-                          className={styles.button}
-                          disabled={isLoadingViewer}
-                          onClick={() => void handleViewDocument()}
-                        >
-                          {isLoadingViewer ? 'Opening...' : 'Preview'}
-                        </button>
-                        <button type="button" className={styles.button} onClick={handleDownload}>
-                          Download
-                        </button>
+                      <div className={styles.timeline}>
+                        {documents.length === 0 ? (
+                          <div className={styles.placeholderRow}>No documents available for this contract.</div>
+                        ) : (
+                          documents.map((document) => (
+                            <div key={document.id} className={styles.documentRow}>
+                              <div className={styles.documentMeta}>
+                                <div className={styles.eventActor}>{document.displayName}</div>
+                                <div className={styles.itemMeta}>{document.fileName}</div>
+                                <div className={styles.itemMeta}>
+                                  {Math.max(1, Math.round(document.fileSizeBytes / 1024))} KB · {document.fileMimeType}
+                                </div>
+                              </div>
+                              <div className={styles.actions}>
+                                <button
+                                  type="button"
+                                  className={styles.button}
+                                  disabled={Boolean(previewingDocumentId)}
+                                  onClick={() => void handleViewDocument(document)}
+                                >
+                                  {previewingDocumentId === document.id ? 'Opening...' : 'Preview'}
+                                </button>
+                                <button
+                                  type="button"
+                                  className={styles.button}
+                                  onClick={() => void handleDownload(document)}
+                                >
+                                  Download
+                                </button>
+                              </div>
+                            </div>
+                          ))
+                        )}
                       </div>
-                      <div className={styles.placeholderRow}>Version history support will appear here.</div>
                     </div>
                   </div>
                 )}
@@ -773,19 +829,25 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
               </button>
             </div>
             <div className={styles.viewerBody}>
-              <iframe
-                src={viewerUrl}
-                title={viewerFileName}
-                className={styles.viewerFrame}
-                sandbox="allow-same-origin allow-scripts allow-downloads"
-              />
+              {viewerMimeType.startsWith('image/') ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={viewerUrl} alt={viewerFileName} className={styles.viewerFrame} />
+              ) : viewerMimeType.includes('pdf') ||
+                viewerFileName.toLowerCase().endsWith('.pdf') ||
+                viewerFileName.toLowerCase().endsWith('.docx') ? (
+                <iframe src={viewerUrl} title={viewerFileName} className={styles.viewerFrame} />
+              ) : (
+                <div className={styles.placeholderRow}>
+                  Preview is not supported for this file type. Use Open in New Tab.
+                </div>
+              )}
             </div>
             <div className={styles.viewerFooter}>
               <span className={styles.itemMeta}>If preview is not available, open in a new tab.</span>
               <button
                 type="button"
                 className={`${styles.button} ${styles.buttonPrimary}`}
-                onClick={() => window.open(viewerUrl, '_blank', 'noopener,noreferrer')}
+                onClick={() => window.open(viewerExternalUrl ?? viewerUrl, '_blank', 'noopener,noreferrer')}
               >
                 Open in New Tab
               </button>

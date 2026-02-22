@@ -4,7 +4,13 @@ import { createServiceSupabase } from '@/lib/supabase/service'
 import { contractStatuses, type ContractStatus } from '@/core/constants/contracts'
 import { DatabaseError } from '@/core/http/errors'
 import type { ContractRepository } from '@/core/domain/contracts/contract-repository'
-import type { ContractAccessRecord, ContractRecord, CreateContractUploadInput } from '@/core/domain/contracts/types'
+import type {
+  ContractAccessRecord,
+  ContractDocumentAccessRecord,
+  ContractRecord,
+  CreateContractDocumentInput,
+  CreateContractUploadInput,
+} from '@/core/domain/contracts/types'
 
 type ContractRow = {
   id: string
@@ -27,6 +33,7 @@ type ContractRow = {
   file_name: string | null
   file_size_bytes: number | null
   file_mime_type: string | null
+  counterparty_name: string | null
   created_at: string
 }
 
@@ -72,7 +79,7 @@ class SupabaseContractRepository implements ContractRepository {
     const { data, error } = await supabase
       .from('contracts')
       .select(
-        'id, tenant_id, title, contract_type_id, signatory_name, signatory_designation, signatory_email, background_of_request, department_id, budget_approved, request_created_at, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, status, file_path, file_name, file_size_bytes, file_mime_type, created_at'
+        'id, tenant_id, title, contract_type_id, signatory_name, signatory_designation, signatory_email, background_of_request, department_id, budget_approved, request_created_at, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, status, file_path, file_name, file_size_bytes, file_mime_type, counterparty_name, created_at'
       )
       .eq('id', contractId)
       .eq('tenant_id', tenantId)
@@ -138,6 +145,87 @@ class SupabaseContractRepository implements ContractRepository {
       uploadedByEmployeeId: data.uploaded_by_employee_id,
       currentAssigneeEmployeeId: data.current_assignee_employee_id,
       status: data.status as ContractStatus,
+      filePath: data.file_path,
+      fileName: data.file_name,
+    }
+  }
+
+  async setCounterpartyName(params: { tenantId: string; contractId: string; counterpartyName: string }): Promise<void> {
+    const supabase = createServiceSupabase()
+
+    const { error } = await supabase
+      .from('contracts')
+      .update({ counterparty_name: params.counterpartyName.trim() })
+      .eq('tenant_id', params.tenantId)
+      .eq('id', params.contractId)
+      .is('deleted_at', null)
+
+    if (error) {
+      throw new DatabaseError('Failed to persist counterparty name for contract', new Error(error.message), {
+        code: error.code,
+      })
+    }
+  }
+
+  async createDocument(input: CreateContractDocumentInput): Promise<void> {
+    const supabase = createServiceSupabase()
+
+    const { error } = await supabase.from('contract_documents').insert({
+      tenant_id: input.tenantId,
+      contract_id: input.contractId,
+      document_kind: input.documentKind,
+      display_name: input.displayName,
+      file_name: input.fileName,
+      file_path: input.filePath,
+      file_size_bytes: input.fileSizeBytes,
+      file_mime_type: input.fileMimeType,
+      uploaded_by_employee_id: input.uploadedByEmployeeId,
+      uploaded_by_email: input.uploadedByEmail,
+    })
+
+    if (error) {
+      throw new DatabaseError('Failed to persist contract document metadata', new Error(error.message), {
+        code: error.code,
+      })
+    }
+  }
+
+  async getDocumentForAccess(params: {
+    tenantId: string
+    contractId: string
+    documentId: string
+  }): Promise<ContractDocumentAccessRecord | null> {
+    const supabase = createServiceSupabase()
+
+    const { data, error } = await supabase
+      .from('contract_documents')
+      .select('id, tenant_id, contract_id, file_path, file_name')
+      .eq('tenant_id', params.tenantId)
+      .eq('contract_id', params.contractId)
+      .eq('id', params.documentId)
+      .is('deleted_at', null)
+      .maybeSingle<{
+        id: string
+        tenant_id: string
+        contract_id: string
+        file_path: string
+        file_name: string
+      }>()
+
+    if (error) {
+      throw new DatabaseError('Failed to fetch contract document access record', new Error(error.message), {
+        code: error.code,
+      })
+    }
+
+    if (!data) {
+      return null
+    }
+
+    return {
+      id: data.id,
+      tenantId: data.tenant_id,
+      contractId: data.contract_id,
       filePath: data.file_path,
       fileName: data.file_name,
     }

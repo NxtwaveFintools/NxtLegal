@@ -37,6 +37,7 @@ const createRepositoryMock = (): jest.Mocked<ContractQueryRepository> => ({
   getDashboardContracts: jest.fn(),
   listRepositoryContracts: jest.fn(),
   getById: jest.fn(),
+  getDocuments: jest.fn(),
   getTimeline: jest.fn(),
   getAdditionalApprovers: jest.fn(),
   canAccessContract: jest.fn(),
@@ -78,6 +79,7 @@ describe('ContractQueryService', () => {
 
     expect(result).toEqual({
       contract: updatedContract,
+      documents: [],
       availableActions: [],
       additionalApprovers: [],
     })
@@ -89,6 +91,7 @@ describe('ContractQueryService', () => {
 
     repository.getById.mockResolvedValue(baseContract)
     repository.canAccessContract.mockResolvedValue(true)
+    repository.getDocuments.mockResolvedValue([])
     repository.getAvailableActions.mockResolvedValue([])
     repository.getAdditionalApprovers.mockResolvedValue([])
 

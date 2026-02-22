@@ -4,6 +4,7 @@ import { contractStatuses, type ContractStatus } from '@/core/constants/contract
 import { AuthorizationError, BusinessRuleError, ConflictError, DatabaseError } from '@/core/http/errors'
 import { createServiceSupabase } from '@/lib/supabase/service'
 import type {
+  ContractDocument,
   DashboardContractFilter,
   ContractAdditionalApprover,
   ContractAllowedAction,
@@ -37,6 +38,7 @@ type ContractEntity = {
   tenant_id: string
   title: string
   contract_type_id: string
+  counterparty_name: string | null
   status: string
   uploaded_by_employee_id: string
   uploaded_by_email: string
@@ -59,6 +61,16 @@ type ContractEntity = {
   created_at: string
   updated_at: string
   row_version: number
+}
+
+type ContractDocumentEntity = {
+  id: string
+  document_kind: 'PRIMARY' | 'COUNTERPARTY_SUPPORTING'
+  display_name: string
+  file_name: string
+  file_size_bytes: number
+  file_mime_type: string
+  created_at: string
 }
 
 type TransitionGraphEntity = {
@@ -454,7 +466,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     const { data, error } = await supabase
       .from('contracts')
       .select(
-        'id, tenant_id, title, contract_type_id, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, signatory_name, signatory_designation, signatory_email, background_of_request, department_id, budget_approved, request_created_at, hod_approved_at, tat_deadline_at, tat_breached_at, file_name, file_size_bytes, file_mime_type, file_path, created_at, updated_at, row_version'
+        'id, tenant_id, title, contract_type_id, counterparty_name, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, signatory_name, signatory_designation, signatory_email, background_of_request, department_id, budget_approved, request_created_at, hod_approved_at, tat_deadline_at, tat_breached_at, file_name, file_size_bytes, file_mime_type, file_path, created_at, updated_at, row_version'
       )
       .eq('tenant_id', tenantId)
       .eq('id', contractId)
@@ -473,6 +485,36 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     const metadata = await this.resolveContractDetailMetadata(tenantId, data.contract_type_id, data.department_id)
 
     return this.mapDetail(data, metadata)
+  }
+
+  async getDocuments(tenantId: string, contractId: string): Promise<ContractDocument[]> {
+    const supabase = createServiceSupabase()
+
+    const { data, error } = await supabase
+      .from('contract_documents')
+      .select('id, document_kind, display_name, file_name, file_size_bytes, file_mime_type, created_at')
+      .eq('tenant_id', tenantId)
+      .eq('contract_id', contractId)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: true })
+
+    if (error) {
+      throw new DatabaseError('Failed to fetch contract documents', new Error(error.message), {
+        code: error.code,
+      })
+    }
+
+    const rows = (data ?? []) as ContractDocumentEntity[]
+
+    return rows.map((row) => ({
+      id: row.id,
+      documentKind: row.document_kind,
+      displayName: row.display_name,
+      fileName: row.file_name,
+      fileSizeBytes: row.file_size_bytes,
+      fileMimeType: row.file_mime_type,
+      createdAt: row.created_at,
+    }))
   }
 
   private async resolveContractDetailMetadata(
@@ -1544,6 +1586,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       title: row.title,
       contractTypeId: row.contract_type_id,
       contractTypeName: metadata?.contractTypeName,
+      counterpartyName: row.counterparty_name,
       status: row.status as ContractStatus,
       uploadedByEmployeeId: row.uploaded_by_employee_id,
       uploadedByEmail: row.uploaded_by_email,

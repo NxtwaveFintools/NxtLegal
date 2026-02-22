@@ -26,6 +26,7 @@ const uploadContractFormSchema = z.object({
     .enum(['true', 'false'])
     .optional()
     .transform((value) => value === 'true'),
+  counterpartyName: z.string().trim().max(200, 'Counterparty name is too long').optional(),
 })
 
 const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
@@ -59,6 +60,7 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
       backgroundOfRequest: String(formData.get('backgroundOfRequest') ?? ''),
       departmentId: String(formData.get('departmentId') ?? ''),
       budgetApproved: formData.get('budgetApproved') ? String(formData.get('budgetApproved')) : undefined,
+      counterpartyName: formData.get('counterpartyName') ? String(formData.get('counterpartyName')) : undefined,
     })
 
     if (!parsedForm.success) {
@@ -95,6 +97,21 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
 
     const fileArrayBuffer = await uploadedFile.arrayBuffer()
     const fileBytes = new Uint8Array(fileArrayBuffer)
+    const supportingUploadFiles = formData
+      .getAll('supportingFiles')
+      .filter((entry): entry is File => entry instanceof File)
+
+    const supportingFiles = await Promise.all(
+      supportingUploadFiles.map(async (file) => {
+        const arrayBuffer = await file.arrayBuffer()
+        return {
+          fileName: file.name,
+          fileSizeBytes: file.size,
+          fileMimeType: file.type || 'application/octet-stream',
+          fileBytes: new Uint8Array(arrayBuffer),
+        }
+      })
+    )
 
     const contractUploadService = getContractUploadService()
     const contract = await contractUploadService.uploadContract({
@@ -110,10 +127,12 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
       backgroundOfRequest: parsedForm.data.backgroundOfRequest,
       departmentId: parsedForm.data.departmentId,
       budgetApproved: parsedForm.data.budgetApproved,
+      counterpartyName: parsedForm.data.counterpartyName,
       fileName: uploadedFile.name,
       fileSizeBytes: uploadedFile.size,
       fileMimeType: uploadedFile.type || 'application/octet-stream',
       fileBytes,
+      supportingFiles,
     })
 
     logger.info('Contract uploaded successfully', {

@@ -187,6 +187,7 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
     const response = await contractsClient.upload({
       title: generatedTitle,
       contractTypeId: contractType,
+      counterpartyName: counterparty.trim(),
       signatoryName: signatoryName.trim(),
       signatoryDesignation: signatoryDesignation.trim(),
       signatoryEmail: signatoryEmail.trim().toLowerCase(),
@@ -194,6 +195,7 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
       departmentId,
       budgetApproved,
       file: mainFile,
+      supportingFiles,
       idempotencyKey,
     })
 

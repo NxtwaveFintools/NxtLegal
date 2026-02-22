@@ -27,6 +27,7 @@ export type RepositorySortDirection = 'asc' | 'desc'
 export type ContractDetail = ContractListItem & {
   contractTypeId: string
   contractTypeName?: string
+  counterpartyName?: string | null
   departmentId: string
   departmentName?: string
   departmentHodName?: string | null
@@ -42,6 +43,16 @@ export type ContractDetail = ContractListItem & {
   fileMimeType: string
   filePath: string
   rowVersion: number
+}
+
+export type ContractDocument = {
+  id: string
+  documentKind: 'PRIMARY' | 'COUNTERPARTY_SUPPORTING'
+  displayName: string
+  fileName: string
+  fileSizeBytes: number
+  fileMimeType: string
+  createdAt: string
 }
 
 export type ContractTimelineEvent = {
@@ -74,6 +85,7 @@ export type ContractAdditionalApprover = {
 
 export type ContractDetailView = {
   contract: ContractDetail
+  documents: ContractDocument[]
   availableActions: ContractAllowedAction[]
   additionalApprovers: ContractAdditionalApprover[]
 }
@@ -112,6 +124,7 @@ export interface ContractQueryRepository {
     sortDirection?: RepositorySortDirection
   }): Promise<{ items: ContractListItem[]; nextCursor?: string; total: number }>
   getById(tenantId: string, contractId: string): Promise<ContractDetail | null>
+  getDocuments(tenantId: string, contractId: string): Promise<ContractDocument[]>
   getTimeline(tenantId: string, contractId: string, limit: number): Promise<ContractTimelineEvent[]>
   getAdditionalApprovers(tenantId: string, contractId: string): Promise<ContractAdditionalApprover[]>
   canAccessContract(params: {

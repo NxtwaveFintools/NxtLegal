@@ -26,6 +26,7 @@ export const routeRegistry = {
       upload: '/api/contracts/upload',
       detail: '/api/contracts/:contractId',
       download: '/api/contracts/:contractId/download',
+      preview: '/api/contracts/:contractId/preview',
       timeline: '/api/contracts/:contractId/timeline',
       action: '/api/contracts/:contractId/action',
       note: '/api/contracts/:contractId/note',

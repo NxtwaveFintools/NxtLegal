@@ -25,10 +25,17 @@ export type UploadContractInput = {
   backgroundOfRequest: string
   departmentId: string
   budgetApproved: boolean
+  counterpartyName?: string
   fileName: string
   fileSizeBytes: number
   fileMimeType: string
   fileBytes: Uint8Array
+  supportingFiles?: Array<{
+    fileName: string
+    fileSizeBytes: number
+    fileMimeType: string
+    fileBytes: Uint8Array
+  }>
 }
 
 export class ContractUploadService {
@@ -49,8 +56,16 @@ export class ContractUploadService {
     }
 
     const contractId = randomUUID()
+    const supportingFiles = input.supportingFiles ?? []
+    const trimmedCounterpartyName = input.counterpartyName?.trim() ?? ''
     const safeFileName = this.sanitizeFileName(input.fileName)
     const filePath = `${input.tenantId}/${contractId}/${safeFileName}`
+    const uploadedSupportingFiles: Array<{
+      filePath: string
+      fileName: string
+      fileSizeBytes: number
+      fileMimeType: string
+    }> = []
 
     await this.contractStorageRepository.upload({
       path: filePath,
@@ -58,8 +73,27 @@ export class ContractUploadService {
       contentType: input.fileMimeType,
     })
 
+    for (const [index, supportingFile] of supportingFiles.entries()) {
+      const safeSupportingFileName = this.sanitizeFileName(supportingFile.fileName)
+      const supportingFilePath = `${input.tenantId}/${contractId}/counterparty/${String(index + 1).padStart(3, '0')}-${safeSupportingFileName}`
+
+      await this.contractStorageRepository.upload({
+        path: supportingFilePath,
+        fileBytes: supportingFile.fileBytes,
+        contentType: supportingFile.fileMimeType,
+      })
+
+      uploadedSupportingFiles.push({
+        filePath: supportingFilePath,
+        fileName: safeSupportingFileName,
+        fileSizeBytes: supportingFile.fileSizeBytes,
+        fileMimeType: supportingFile.fileMimeType,
+      })
+    }
+
+    let contract: ContractRecord
     try {
-      return await this.contractRepository.createWithAudit({
+      contract = await this.contractRepository.createWithAudit({
         contractId,
         tenantId: input.tenantId,
         title: input.title.trim(),
@@ -81,6 +115,11 @@ export class ContractUploadService {
     } catch (error) {
       try {
         await this.contractStorageRepository.remove(filePath)
+        await Promise.all(
+          uploadedSupportingFiles.map((supportingFile) =>
+            this.contractStorageRepository.remove(supportingFile.filePath)
+          )
+        )
       } catch (rollbackError) {
         this.logger.error('Contract upload rollback failed', {
           tenantId: input.tenantId,
@@ -95,6 +134,56 @@ export class ContractUploadService {
         contractId,
       })
     }
+
+    try {
+      if (trimmedCounterpartyName) {
+        await this.contractRepository.setCounterpartyName({
+          tenantId: input.tenantId,
+          contractId,
+          counterpartyName: trimmedCounterpartyName,
+        })
+      }
+
+      await this.contractRepository.createDocument({
+        tenantId: input.tenantId,
+        contractId,
+        documentKind: 'PRIMARY',
+        displayName: 'Primary Contract',
+        fileName: safeFileName,
+        filePath,
+        fileSizeBytes: input.fileSizeBytes,
+        fileMimeType: input.fileMimeType,
+        uploadedByEmployeeId: input.uploadedByEmployeeId,
+        uploadedByEmail: input.uploadedByEmail,
+      })
+
+      for (const [index, supportingFile] of uploadedSupportingFiles.entries()) {
+        const displayNameBase = trimmedCounterpartyName
+          ? `Counterparty Docs - ${trimmedCounterpartyName}`
+          : 'Counterparty Docs'
+
+        await this.contractRepository.createDocument({
+          tenantId: input.tenantId,
+          contractId,
+          documentKind: 'COUNTERPARTY_SUPPORTING',
+          displayName: `${displayNameBase} (${index + 1})`,
+          fileName: supportingFile.fileName,
+          filePath: supportingFile.filePath,
+          fileSizeBytes: supportingFile.fileSizeBytes,
+          fileMimeType: supportingFile.fileMimeType,
+          uploadedByEmployeeId: input.uploadedByEmployeeId,
+          uploadedByEmail: input.uploadedByEmail,
+        })
+      }
+    } catch (error) {
+      this.logger.error('Contract document metadata persistence failed', {
+        tenantId: input.tenantId,
+        contractId,
+        error: String(error),
+      })
+    }
+
+    return contract
   }
 
   async createSignedDownloadUrl(params: {
@@ -102,6 +191,7 @@ export class ContractUploadService {
     tenantId: string
     requestorEmployeeId: string
     requestorRole: string
+    documentId?: string
   }): Promise<{ signedUrl: string; fileName: string }> {
     const contract = await this.contractRepository.getForAccess(params.contractId, params.tenantId)
 
@@ -124,14 +214,32 @@ export class ContractUploadService {
       throw new AuthorizationError('CONTRACT_READ_FORBIDDEN', 'You do not have access to this contract')
     }
 
+    let filePath = contract.filePath
+    let fileName = contract.fileName
+
+    if (params.documentId) {
+      const document = await this.contractRepository.getDocumentForAccess({
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        documentId: params.documentId,
+      })
+
+      if (!document) {
+        throw new BusinessRuleError('DOCUMENT_NOT_FOUND', 'Requested document is not available for this contract')
+      }
+
+      filePath = document.filePath
+      fileName = document.fileName
+    }
+
     const signedUrl = await this.contractStorageRepository.createSignedDownloadUrl(
-      contract.filePath,
+      filePath,
       contractStorage.signedUrlExpirySeconds
     )
 
     return {
       signedUrl,
-      fileName: contract.fileName,
+      fileName,
     }
   }
 
@@ -183,6 +291,32 @@ export class ContractUploadService {
 
     if (!input.contractTypeId.trim()) {
       throw new BusinessRuleError('CONTRACT_TYPE_ID_REQUIRED', 'Contract type is required')
+    }
+
+    if (input.counterpartyName && input.counterpartyName.trim().length > 200) {
+      throw new BusinessRuleError('COUNTERPARTY_NAME_TOO_LONG', 'Counterparty name exceeds maximum length')
+    }
+
+    const supportingFiles = input.supportingFiles ?? []
+    for (const supportingFile of supportingFiles) {
+      if (!supportingFile.fileName.trim()) {
+        throw new BusinessRuleError('SUPPORTING_FILE_NAME_REQUIRED', 'Supporting document name is required')
+      }
+
+      if (supportingFile.fileSizeBytes <= 0) {
+        throw new BusinessRuleError('SUPPORTING_FILE_EMPTY', 'Supporting document cannot be empty')
+      }
+
+      if (supportingFile.fileSizeBytes > maxFileSizeBytes) {
+        throw new BusinessRuleError(
+          'SUPPORTING_FILE_TOO_LARGE',
+          `Supporting file exceeds ${limits.maxUploadSizeMb}MB limit`
+        )
+      }
+
+      if (!supportingFile.fileMimeType.trim()) {
+        throw new BusinessRuleError('SUPPORTING_FILE_MIME_REQUIRED', 'Supporting document MIME type is required')
+      }
     }
   }
 

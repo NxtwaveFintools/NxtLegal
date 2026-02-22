@@ -82,7 +82,8 @@ export class ContractQueryService {
       throw new AuthorizationError('CONTRACT_READ_FORBIDDEN', 'You do not have access to this contract')
     }
 
-    const [availableActions, additionalApprovers] = await Promise.all([
+    const [documents, availableActions, additionalApprovers] = await Promise.all([
+      this.contractRepository.getDocuments(params.tenantId, params.contractId),
       this.contractRepository.getAvailableActions({
         tenantId: params.tenantId,
         contract,
@@ -94,6 +95,7 @@ export class ContractQueryService {
 
     return {
       contract,
+      documents,
       availableActions,
       additionalApprovers,
     }
@@ -266,6 +268,7 @@ export class ContractQueryService {
       if (error instanceof AuthorizationError && error.code === 'CONTRACT_READ_FORBIDDEN') {
         return {
           contract: params.updatedContract,
+          documents: [],
           availableActions: [],
           additionalApprovers: [],
         }
