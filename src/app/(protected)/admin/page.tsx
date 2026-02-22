@@ -12,5 +12,7 @@ export default async function AdminConsolePage() {
     redirect(routeRegistry.protected.dashboard)
   }
 
-  return <AdminConsoleClient session={{ fullName: session.fullName, role: session.role }} />
+  return (
+    <AdminConsoleClient session={{ employeeId: session.employeeId, fullName: session.fullName, role: session.role }} />
+  )
 }

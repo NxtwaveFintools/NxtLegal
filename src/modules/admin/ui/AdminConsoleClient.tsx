@@ -1,14 +1,18 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import { adminClient, type AdminUserOption, type AdminRoleOption } from '@/core/client/admin-client'
+import { authClient } from '@/core/client/auth-client'
+import { routeRegistry } from '@/core/config/route-registry'
 import ProtectedAppShell from '@/modules/dashboard/ui/ProtectedAppShell'
 import styles from './admin-console.module.css'
 
 type AdminConsoleClientProps = {
   session: {
+    employeeId: string
     fullName?: string | null
-    role?: string
+    role?: string | null
   }
 }
 
@@ -23,6 +27,7 @@ const sectionTitles = [
 ] as const
 
 export default function AdminConsoleClient({ session }: AdminConsoleClientProps) {
+  const router = useRouter()
   const [users, setUsers] = useState<AdminUserOption[]>([])
   const [roles, setRoles] = useState<AdminRoleOption[]>([])
   const [selectedUserId, setSelectedUserId] = useState('')
@@ -36,25 +41,46 @@ export default function AdminConsoleClient({ session }: AdminConsoleClientProps)
 
   useEffect(() => {
     const loadData = async () => {
-      const [usersResponse, rolesResponse] = await Promise.all([adminClient.users(), adminClient.roles()])
+      try {
+        setToastMessage(null)
+        const [usersResponse, rolesResponse] = await Promise.all([adminClient.users(), adminClient.roles()])
 
-      if (!usersResponse.ok || !usersResponse.data) {
-        setToastMessage(usersResponse.error?.message ?? 'Failed to load users')
-      } else {
-        const nextUsers = usersResponse.data.users
-        setUsers(nextUsers)
-        setSelectedUserId((current) => current || nextUsers[0]?.id || '')
+        if (!usersResponse.ok || !usersResponse.data) {
+          setUsers([])
+          setSelectedUserId('')
+          setToastMessage(usersResponse.error?.message ?? 'Failed to load users')
+        } else {
+          const nextUsers = usersResponse.data.users
+          setUsers(nextUsers)
+          setSelectedUserId((current) => {
+            if (!current) {
+              return nextUsers[0]?.id || ''
+            }
+
+            return nextUsers.some((user) => user.id === current) ? current : nextUsers[0]?.id || ''
+          })
+        }
+
+        if (!rolesResponse.ok || !rolesResponse.data) {
+          setRoles([])
+          setSelectedRoleKey('')
+          setToastMessage((current) => current ?? rolesResponse.error?.message ?? 'Failed to load roles')
+        } else {
+          const nextRoles = rolesResponse.data.roles
+          setRoles(nextRoles)
+          setSelectedRoleKey((current) => {
+            if (!current) {
+              return nextRoles[0]?.roleKey || ''
+            }
+
+            return nextRoles.some((role) => role.roleKey === current) ? current : nextRoles[0]?.roleKey || ''
+          })
+        }
+      } catch {
+        setToastMessage('Failed to load admin role management data')
+      } finally {
+        setIsLoading(false)
       }
-
-      if (!rolesResponse.ok || !rolesResponse.data) {
-        setToastMessage(rolesResponse.error?.message ?? 'Failed to load roles')
-      } else {
-        const nextRoles = rolesResponse.data.roles
-        setRoles(nextRoles)
-        setSelectedRoleKey((current) => current || nextRoles[0]?.roleKey || '')
-      }
-
-      setIsLoading(false)
     }
 
     void loadData()
@@ -81,6 +107,15 @@ export default function AdminConsoleClient({ session }: AdminConsoleClientProps)
   }, [operation, selectedRoleKey, selectedUser])
 
   const hodWarning = operation === 'revoke' && selectedRoleKey === 'HOD'
+  const isCurrentUserSelected = selectedUser?.id === session.employeeId
+
+  const canSubmit =
+    !isLoading &&
+    !isSubmitting &&
+    Boolean(selectedUser) &&
+    Boolean(selectedRoleKey) &&
+    users.length > 0 &&
+    roles.length > 0
 
   const handleConfirm = async () => {
     if (!selectedUser) {
@@ -88,38 +123,52 @@ export default function AdminConsoleClient({ session }: AdminConsoleClientProps)
     }
 
     setIsSubmitting(true)
-    const response = await adminClient.changeUserRole(selectedUser.id, {
-      operation,
-      roleKey: selectedRoleKey,
-      reason: reason.trim() || undefined,
-    })
-    setIsSubmitting(false)
-    setShowConfirmModal(false)
+    try {
+      const response = await adminClient.changeUserRole(selectedUser.id, {
+        operation,
+        roleKey: selectedRoleKey,
+        reason: reason.trim() || undefined,
+      })
 
-    if (!response.ok || !response.data) {
-      setToastMessage(response.error?.message ?? 'Role update failed')
-      return
+      setShowConfirmModal(false)
+
+      if (!response.ok || !response.data) {
+        setToastMessage(response.error?.message ?? 'Role update failed')
+        return
+      }
+
+      const afterRolesRaw = response.data.roleChange.afterStateSnapshot.role_keys
+      const afterRoles = Array.isArray(afterRolesRaw)
+        ? afterRolesRaw.filter((item): item is string => typeof item === 'string')
+        : selectedUser.roles
+
+      setUsers((current) =>
+        current.map((user) => (user.id === selectedUser.id ? { ...user, roles: afterRoles } : user))
+      )
+
+      const resultLabel = response.data.roleChange.changed ? 'updated successfully' : 'had no changes'
+      const messageParts = [`Role ${resultLabel}.`]
+
+      if (response.data.reauthentication.required && response.data.reauthentication.message) {
+        messageParts.push(response.data.reauthentication.message)
+      }
+
+      setReason('')
+      setToastMessage(messageParts.join(' '))
+
+      const isSelfChange = response.data.roleChange.targetUserId === session.employeeId
+      if (isSelfChange && response.data.reauthentication.required) {
+        await authClient.logout()
+        router.push(routeRegistry.public.login)
+        router.refresh()
+      }
+    } finally {
+      setIsSubmitting(false)
     }
-
-    const afterRolesRaw = response.data.roleChange.afterStateSnapshot.role_keys
-    const afterRoles = Array.isArray(afterRolesRaw)
-      ? afterRolesRaw.filter((item): item is string => typeof item === 'string')
-      : selectedUser.roles
-
-    setUsers((current) => current.map((user) => (user.id === selectedUser.id ? { ...user, roles: afterRoles } : user)))
-
-    const resultLabel = response.data.roleChange.changed ? 'updated successfully' : 'had no changes'
-    const messageParts = [`Role ${resultLabel}.`]
-
-    if (response.data.reauthentication.required && response.data.reauthentication.message) {
-      messageParts.push(response.data.reauthentication.message)
-    }
-
-    setToastMessage(messageParts.join(' '))
   }
 
   return (
-    <ProtectedAppShell session={{ fullName: session.fullName }} activeNav="admin">
+    <ProtectedAppShell session={{ fullName: session.fullName, role: session.role }} activeNav="admin">
       <main className={styles.main}>
         <section className={styles.header}>
           <h1 className={styles.title}>Admin Console</h1>
@@ -199,7 +248,7 @@ export default function AdminConsoleClient({ session }: AdminConsoleClientProps)
                 type="button"
                 className={`${styles.button} ${styles.buttonPrimary}`}
                 onClick={() => setShowConfirmModal(true)}
-                disabled={isLoading || !selectedUser || !selectedRoleKey || isSubmitting}
+                disabled={!canSubmit}
               >
                 Review & Confirm
               </button>
@@ -233,6 +282,9 @@ export default function AdminConsoleClient({ session }: AdminConsoleClientProps)
 
             {hodWarning ? (
               <div className={styles.warning}>Warning: Removing active HOD may interrupt pending approvals.</div>
+            ) : null}
+            {isCurrentUserSelected ? (
+              <div className={styles.warning}>Changing your own role will force re-authentication.</div>
             ) : null}
           </div>
         </section>

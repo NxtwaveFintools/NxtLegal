@@ -29,7 +29,7 @@ export const dashboardContractsFilterValues = [
 export const dashboardContractsQuerySchema = z.object({
   filter: z.enum(dashboardContractsFilterValues),
   cursor: z.string().optional(),
-  limit: z.coerce.number().int().min(1).max(limits.paginationPageSize).default(20),
+  limit: z.coerce.number().int().min(1).max(limits.paginationPageSize).default(limits.dashboardContractsPageSize),
 })
 
 export const pendingApprovalsQuerySchema = z.object({

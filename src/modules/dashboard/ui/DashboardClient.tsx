@@ -7,6 +7,7 @@ import ThirdPartyUploadSidebar from '@/modules/contracts/ui/third-party-upload/T
 import ContractStatusBadge from '@/modules/contracts/ui/ContractStatusBadge'
 import { contractsClient, type ContractRecord, type DashboardContractsFilter } from '@/core/client/contracts-client'
 import { contractWorkflowRoles } from '@/core/constants/contracts'
+import { limits } from '@/core/constants/limits'
 import ProtectedAppShell from '@/modules/dashboard/ui/ProtectedAppShell'
 import styles from './dashboard.module.css'
 
@@ -125,7 +126,11 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   const [isUploadOpen, setIsUploadOpen] = useState(false)
   const [contracts, setContracts] = useState<ContractRecord[]>([])
   const [isLoadingContracts, setIsLoadingContracts] = useState(true)
+  const [isLoadingPageChange, setIsLoadingPageChange] = useState(false)
   const [contractsError, setContractsError] = useState<string | null>(null)
+  const [contractsCursor, setContractsCursor] = useState<string | null>(null)
+  const [pageIndex, setPageIndex] = useState(0)
+  const [pageCursors, setPageCursors] = useState<Array<string | undefined>>([undefined])
   const [pendingApprovalsCount, setPendingApprovalsCount] = useState(0)
   const [activeFilter, setActiveFilter] = useState<DashboardContractsFilter>(() => {
     const requestedFilter = searchParams.get('filter')
@@ -159,27 +164,62 @@ export default function DashboardClient({ session }: DashboardClientProps) {
     setPendingApprovalsCount(response.data.pagination.total)
   }, [roleConfig.approveFilter, roleConfig.showApproveCard])
 
-  const loadContractsForFilter = useCallback(async (filter: DashboardContractsFilter) => {
-    setIsLoadingContracts(true)
+  const loadContractsForFilter = useCallback(
+    async (
+      filter: DashboardContractsFilter,
+      options?: { cursor?: string; pageIndex?: number; isPageChange?: boolean }
+    ) => {
+      if (options?.isPageChange) {
+        setIsLoadingPageChange(true)
+      } else {
+        setIsLoadingContracts(true)
+      }
 
-    const response = await contractsClient.dashboardContracts({
-      filter,
-      limit: 20,
-    })
+      const response = await contractsClient.dashboardContracts({
+        filter,
+        cursor: options?.cursor,
+        limit: limits.dashboardContractsPageSize,
+      })
 
-    if (!response.ok || !response.data) {
-      setContracts([])
-      setContractsError(response.error?.message ?? 'Failed to load contracts')
-      setActiveFilterTotal(0)
+      if (!response.ok || !response.data) {
+        if (!options?.isPageChange) {
+          setContracts([])
+          setActiveFilterTotal(0)
+        }
+        setContractsError(response.error?.message ?? 'Failed to load contracts')
+        if (!options?.isPageChange) {
+          setContractsCursor(null)
+          setPageIndex(0)
+          setPageCursors([undefined])
+        }
+        setIsLoadingContracts(false)
+        setIsLoadingPageChange(false)
+        return
+      }
+
+      const responseData = response.data
+
+      setContracts(responseData.contracts)
+      setContractsCursor(responseData.pagination.cursor)
+      setActiveFilterTotal(responseData.pagination.total)
+      if (typeof options?.pageIndex === 'number') {
+        const nextPageIndex = options.pageIndex
+        setPageIndex(nextPageIndex)
+        setPageCursors((previousCursors) => {
+          const nextCursors = previousCursors.slice(0, nextPageIndex + 1)
+          nextCursors[nextPageIndex] = options.cursor
+          return nextCursors
+        })
+      } else {
+        setPageIndex(0)
+        setPageCursors([undefined])
+      }
+      setContractsError(null)
       setIsLoadingContracts(false)
-      return
-    }
-
-    setContracts(response.data.contracts)
-    setActiveFilterTotal(response.data.pagination.total)
-    setContractsError(null)
-    setIsLoadingContracts(false)
-  }, [])
+      setIsLoadingPageChange(false)
+    },
+    []
+  )
 
   const loadFilterCounts = useCallback(async () => {
     const results = await Promise.all(
@@ -208,7 +248,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
     (filter: DashboardContractsFilter) => {
       setActiveFilter(filter)
       router.replace(`/dashboard?filter=${filter}`)
-      void loadContractsForFilter(filter)
+      void loadContractsForFilter(filter, { cursor: undefined, pageIndex: 0 })
     },
     [loadContractsForFilter, router]
   )
@@ -369,6 +409,46 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                     </div>
                   </div>
                 ))}
+                <div className={styles.paginationRow}>
+                  <button
+                    type="button"
+                    className={styles.paginationButton}
+                    onClick={() => {
+                      if (pageIndex === 0) {
+                        return
+                      }
+
+                      const previousPageIndex = pageIndex - 1
+                      void loadContractsForFilter(activeFilter, {
+                        cursor: pageCursors[previousPageIndex],
+                        pageIndex: previousPageIndex,
+                        isPageChange: true,
+                      })
+                    }}
+                    disabled={pageIndex === 0 || isLoadingPageChange}
+                  >
+                    Previous
+                  </button>
+                  <button
+                    type="button"
+                    className={styles.paginationButton}
+                    onClick={() => {
+                      if (!contractsCursor) {
+                        return
+                      }
+
+                      const nextPageIndex = pageIndex + 1
+                      void loadContractsForFilter(activeFilter, {
+                        cursor: contractsCursor,
+                        pageIndex: nextPageIndex,
+                        isPageChange: true,
+                      })
+                    }}
+                    disabled={!contractsCursor || isLoadingPageChange}
+                  >
+                    Next
+                  </button>
+                </div>
               </div>
             )}
           </div>
