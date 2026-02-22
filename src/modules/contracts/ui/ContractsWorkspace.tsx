@@ -22,6 +22,15 @@ type ContractsWorkspaceProps = {
 }
 
 export default function ContractsWorkspace({ session, initialContractId }: ContractsWorkspaceProps) {
+  const tabs = [
+    { id: 'overview', label: 'Overview' },
+    { id: 'activity', label: 'Activity' },
+    { id: 'notes', label: 'Notes' },
+    { id: 'documents', label: 'Documents' },
+  ] as const
+
+  type TabId = (typeof tabs)[number]['id']
+
   const router = useRouter()
   const searchParams = useSearchParams()
   const source = searchParams.get('from')
@@ -36,6 +45,10 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const [approvers, setApprovers] = useState<ContractDetailResponse['additionalApprovers']>([])
   const [noteText, setNoteText] = useState('')
   const [approverEmail, setApproverEmail] = useState('')
+  const [activeTab, setActiveTab] = useState<TabId>('overview')
+  const [isIntakeOpen, setIsIntakeOpen] = useState(false)
+  const [expandedLogIds, setExpandedLogIds] = useState<Set<string>>(new Set())
+  const [showAllLogs, setShowAllLogs] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [isMutating, setIsMutating] = useState(false)
   const [isViewerOpen, setIsViewerOpen] = useState(false)
@@ -148,6 +161,14 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       isCancelled = true
     }
   }, [selectedContractId])
+
+  const selectContract = (contractId: string) => {
+    setSelectedContractId(contractId)
+    setActiveTab('overview')
+    setIsIntakeOpen(false)
+    setExpandedLogIds(new Set())
+    setShowAllLogs(false)
+  }
 
   const executeAction = async (actionItem: ContractAllowedAction) => {
     if (!selectedContractId) {
@@ -282,8 +303,83 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   }
 
   const noteEvents = useMemo(() => timeline.filter((event) => isContractNoteEvent(event)), [timeline])
+  const timelineById = useMemo(() => new Map(timeline.map((event) => [event.id, event])), [timeline])
+  const formattedLogs = useMemo(() => {
+    if (activeTab !== 'activity') {
+      return []
+    }
 
-  const formattedLogs = useMemo(() => formatContractLogEvents(timeline), [timeline])
+    return formatContractLogEvents(timeline)
+  }, [activeTab, timeline])
+  const visibleLogs = useMemo(() => {
+    if (showAllLogs) {
+      return formattedLogs
+    }
+
+    return formattedLogs.slice(0, 5)
+  }, [formattedLogs, showAllLogs])
+  const quickMetadata = useMemo(
+    () => [
+      {
+        label: 'Created At',
+        value: selectedContract?.requestCreatedAt
+          ? new Date(selectedContract.requestCreatedAt).toLocaleString()
+          : selectedContract?.createdAt
+            ? new Date(selectedContract.createdAt).toLocaleString()
+            : '—',
+      },
+      {
+        label: 'Budget Approved',
+        value: selectedContract ? (selectedContract.budgetApproved ? 'Yes' : 'No') : '—',
+      },
+    ],
+    [selectedContract]
+  )
+
+  const handleTabKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const currentIndex = tabs.findIndex((tab) => tab.id === activeTab)
+
+    if (currentIndex === -1) {
+      return
+    }
+
+    if (event.key === 'ArrowRight') {
+      event.preventDefault()
+      const nextIndex = (currentIndex + 1) % tabs.length
+      setActiveTab(tabs[nextIndex].id)
+      return
+    }
+
+    if (event.key === 'ArrowLeft') {
+      event.preventDefault()
+      const nextIndex = (currentIndex - 1 + tabs.length) % tabs.length
+      setActiveTab(tabs[nextIndex].id)
+      return
+    }
+
+    if (event.key === 'Home') {
+      event.preventDefault()
+      setActiveTab(tabs[0].id)
+      return
+    }
+
+    if (event.key === 'End') {
+      event.preventDefault()
+      setActiveTab(tabs[tabs.length - 1].id)
+    }
+  }
+
+  const toggleLogExpansion = (logId: string) => {
+    setExpandedLogIds((current) => {
+      const next = new Set(current)
+      if (next.has(logId)) {
+        next.delete(logId)
+      } else {
+        next.add(logId)
+      }
+      return next
+    })
+  }
 
   const handleBackNavigation = () => {
     if (source === 'dashboard') {
@@ -318,7 +414,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                 key={contract.id}
                 type="button"
                 className={`${styles.item} ${contract.id === selectedContractId ? styles.itemActive : ''}`}
-                onClick={() => setSelectedContractId(contract.id)}
+                onClick={() => selectContract(contract.id)}
               >
                 <div className={styles.itemTitle}>{contract.title}</div>
                 <div className={styles.itemMeta}>
@@ -335,187 +431,323 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
           <button type="button" className={styles.backButton} onClick={handleBackNavigation}>
             Back
           </button>
-          <div className={styles.title}>Contract Details</div>
+          <div className={styles.title}>{selectedContract?.title ?? 'Contract Details'}</div>
+          <div className={styles.headerActions}>
+            {selectedContract ? <ContractStatusBadge status={selectedContract.status} /> : null}
+            {availableActions.map((item) => (
+              <button
+                key={item.action}
+                type="button"
+                className={`${styles.button} ${styles.buttonPrimary}`}
+                disabled={isMutating}
+                onClick={() => void executeAction(item)}
+              >
+                {isMutating ? 'Processing...' : item.label}
+              </button>
+            ))}
+          </div>
         </div>
         {!selectedContract ? (
           <div className={styles.itemMeta}>Select a contract to view details</div>
         ) : (
-          <>
-            <div className={styles.section}>
-              <div className={styles.sectionTitle}>Overview</div>
-              <div className={styles.row}>
-                <span>Title</span>
-                <span>{selectedContract.title}</span>
-              </div>
-              <div className={styles.row}>
-                <span>Status</span>
-                <span>
-                  <ContractStatusBadge status={selectedContract.status} />
-                </span>
-              </div>
-              <div className={styles.row}>
-                <span>Contract Type</span>
-                <span>{selectedContract.contractTypeName ?? '—'}</span>
-              </div>
-              <div className={styles.row}>
-                <span>Assignee</span>
-                <span>{selectedContract.currentAssigneeEmail}</span>
-              </div>
-              <div className={styles.row}>
-                <span>File</span>
-                <span>{selectedContract.fileName}</span>
-              </div>
-            </div>
-
-            <div className={styles.section}>
-              <div className={styles.sectionTitle}>Department</div>
-              <div className={styles.row}>
-                <span>Name</span>
-                <span>{selectedContract.departmentName ?? '—'}</span>
-              </div>
-              <div className={styles.row}>
-                <span>HOD</span>
-                <span>{selectedContract.departmentHodName ?? '—'}</span>
-              </div>
-              <div className={styles.row}>
-                <span>HOD Email</span>
-                <span>{selectedContract.departmentHodEmail ?? '—'}</span>
-              </div>
-            </div>
-
-            <div className={styles.section}>
-              <div className={styles.sectionTitle}>Intake Details</div>
-              <div className={styles.row}>
-                <span>Signatory Name</span>
-                <span>{selectedContract.signatoryName ?? '—'}</span>
-              </div>
-              <div className={styles.row}>
-                <span>Signatory Designation</span>
-                <span>{selectedContract.signatoryDesignation ?? '—'}</span>
-              </div>
-              <div className={styles.row}>
-                <span>Signatory Email</span>
-                <span>{selectedContract.signatoryEmail ?? '—'}</span>
-              </div>
-              <div className={styles.row}>
-                <span>Budget Approved</span>
-                <span>{selectedContract.budgetApproved ? 'Yes' : 'No'}</span>
-              </div>
-              <div className={styles.row}>
-                <span>Request Created At</span>
-                <span>
-                  {selectedContract.requestCreatedAt
-                    ? new Date(selectedContract.requestCreatedAt).toLocaleString()
-                    : '—'}
-                </span>
-              </div>
-              <div className={styles.row}>
-                <span>Background</span>
-                <span className={styles.multilineValue}>{selectedContract.backgroundOfRequest ?? '—'}</span>
-              </div>
-            </div>
-
-            <div className={styles.actions}>
-              <button
-                type="button"
-                className={styles.button}
-                disabled={isLoadingViewer}
-                onClick={() => void handleViewDocument()}
-              >
-                {isLoadingViewer ? 'Opening...' : 'View Document'}
-              </button>
-              <button type="button" className={styles.button} onClick={handleDownload}>
-                Download
-              </button>
-              {availableActions.map((item) => (
-                <button
-                  key={item.action}
-                  type="button"
-                  className={`${styles.button} ${styles.buttonPrimary}`}
-                  disabled={isMutating}
-                  onClick={() => void executeAction(item)}
-                >
-                  {isMutating ? 'Processing...' : item.label}
-                </button>
-              ))}
-            </div>
-
-            {(session.role === 'LEGAL_TEAM' || session.role === 'ADMIN') && (
-              <div className={styles.section}>
-                <div className={styles.title}>Additional Approvers</div>
-                <div className={styles.inlineForm}>
-                  <input
-                    type="email"
-                    className={styles.input}
-                    placeholder="approver@nxtwave.co.in"
-                    value={approverEmail}
-                    onChange={(event) => setApproverEmail(event.target.value)}
-                  />
-                  <button
-                    type="button"
-                    className={styles.button}
-                    disabled={isMutating}
-                    onClick={() => void handleAddApprover()}
-                  >
-                    Add Approver
-                  </button>
+          <div className={styles.detailsShell}>
+            <aside className={styles.summaryColumn}>
+              <div className={styles.card}>
+                <div className={styles.sectionTitle}>Contract Summary</div>
+                <div className={styles.row}>
+                  <span>Title</span>
+                  <span className={styles.rowValue}>{selectedContract.title}</span>
                 </div>
-                <div className={styles.timeline}>
-                  {approvers.map((approver) => (
-                    <div key={approver.id} className={styles.event}>
-                      <div>
-                        #{approver.sequenceOrder} {approver.approverEmail}
-                      </div>
-                      <div className={styles.eventMeta}>{approver.status}</div>
-                    </div>
-                  ))}
+                <div className={styles.row}>
+                  <span>Contract Type</span>
+                  <span>{selectedContract.contractTypeName ?? '—'}</span>
+                </div>
+                <div className={styles.row}>
+                  <span>File</span>
+                  <span className={styles.rowValue}>{selectedContract.fileName}</span>
                 </div>
               </div>
-            )}
 
-            <div className={styles.section}>
-              <div className={styles.title}>Notes</div>
-              <div className={styles.inlineForm}>
-                <input
-                  type="text"
-                  className={styles.input}
-                  placeholder="Add note"
-                  value={noteText}
-                  onChange={(event) => setNoteText(event.target.value)}
-                />
-                <button
-                  type="button"
-                  className={styles.button}
-                  disabled={isMutating}
-                  onClick={() => void handleAddNote()}
-                >
-                  Add Note
-                </button>
+              <div className={styles.card}>
+                <div className={styles.sectionTitle}>Department</div>
+                <div className={styles.row}>
+                  <span>Name</span>
+                  <span>{selectedContract.departmentName ?? '—'}</span>
+                </div>
+                <div className={styles.row}>
+                  <span>HOD</span>
+                  <span>{selectedContract.departmentHodName ?? '—'}</span>
+                </div>
+                <div className={styles.row}>
+                  <span>HOD Email</span>
+                  <span>{selectedContract.departmentHodEmail ?? '—'}</span>
+                </div>
               </div>
-              <div className={styles.timeline}>
-                {noteEvents.map((event) => (
-                  <div key={event.id} className={styles.event}>
-                    <div>{event.noteText}</div>
-                    <div className={styles.eventMeta}>{new Date(event.createdAt).toLocaleString()}</div>
+
+              <div className={styles.card}>
+                <div className={styles.sectionTitle}>Assignee</div>
+                <div className={styles.row}>
+                  <span>Current</span>
+                  <span>{selectedContract.currentAssigneeEmail}</span>
+                </div>
+                <div className={styles.row}>
+                  <span>Uploaded By</span>
+                  <span>{selectedContract.uploadedByEmail}</span>
+                </div>
+              </div>
+
+              <div className={styles.card}>
+                <div className={styles.sectionTitle}>Quick Metadata</div>
+                {quickMetadata.map((item) => (
+                  <div key={item.label} className={styles.row}>
+                    <span>{item.label}</span>
+                    <span>{item.value}</span>
                   </div>
                 ))}
               </div>
-            </div>
+            </aside>
 
-            <div className={styles.timeline}>
-              <div className={styles.title}>Logs</div>
-              {formattedLogs.map((event) => (
-                <div key={event.id} className={styles.event}>
-                  <div className={styles.eventActor}>{event.actorLabel}</div>
-                  <div>{event.message}</div>
-                  {event.remark ? <div className={styles.eventRemark}>{event.remark}</div> : null}
-                  <div className={styles.eventMeta} title={event.absoluteTimestamp}>
-                    {event.relativeTimestamp}
+            <div className={styles.tabColumn}>
+              <div
+                className={styles.tabHeader}
+                role="tablist"
+                aria-label="Contract details sections"
+                onKeyDown={handleTabKeyDown}
+              >
+                {tabs.map((tab) => {
+                  const selected = activeTab === tab.id
+
+                  return (
+                    <button
+                      key={tab.id}
+                      id={`contract-tab-${tab.id}`}
+                      type="button"
+                      role="tab"
+                      tabIndex={selected ? 0 : -1}
+                      aria-selected={selected}
+                      aria-controls={`contract-tabpanel-${tab.id}`}
+                      className={`${styles.tabButton} ${selected ? styles.tabButtonActive : ''}`}
+                      onClick={() => setActiveTab(tab.id)}
+                    >
+                      {tab.label}
+                    </button>
+                  )
+                })}
+              </div>
+
+              <div
+                id={`contract-tabpanel-${activeTab}`}
+                role="tabpanel"
+                aria-labelledby={`contract-tab-${activeTab}`}
+                className={styles.tabPanel}
+              >
+                {activeTab === 'overview' && (
+                  <div className={styles.tabSection}>
+                    <div className={styles.card}>
+                      <div className={styles.sectionTitle}>Overview</div>
+                      <div className={styles.row}>
+                        <span>Contract Type</span>
+                        <span>{selectedContract.contractTypeName ?? '—'}</span>
+                      </div>
+                      <div className={styles.row}>
+                        <span>File Name</span>
+                        <span>{selectedContract.fileName ?? '—'}</span>
+                      </div>
+                      <div className={styles.row}>
+                        <span>File Size</span>
+                        <span>
+                          {typeof selectedContract.fileSizeBytes === 'number'
+                            ? `${Math.round(selectedContract.fileSizeBytes / 1024)} KB`
+                            : '—'}
+                        </span>
+                      </div>
+                      <div className={styles.row}>
+                        <span>File Type</span>
+                        <span>{selectedContract.fileMimeType ?? '—'}</span>
+                      </div>
+                    </div>
+
+                    <div className={styles.card}>
+                      <button
+                        type="button"
+                        className={styles.accordionTrigger}
+                        aria-expanded={isIntakeOpen}
+                        aria-controls="intake-details-panel"
+                        onClick={() => setIsIntakeOpen((current) => !current)}
+                      >
+                        Intake Details
+                      </button>
+                      {isIntakeOpen ? (
+                        <div id="intake-details-panel" className={styles.accordionBody}>
+                          <div className={styles.row}>
+                            <span>Signatory Name</span>
+                            <span>{selectedContract.signatoryName ?? '—'}</span>
+                          </div>
+                          <div className={styles.row}>
+                            <span>Signatory Designation</span>
+                            <span>{selectedContract.signatoryDesignation ?? '—'}</span>
+                          </div>
+                          <div className={styles.row}>
+                            <span>Signatory Email</span>
+                            <span>{selectedContract.signatoryEmail ?? '—'}</span>
+                          </div>
+                          <div className={styles.row}>
+                            <span>Background</span>
+                            <span className={styles.multilineValue}>{selectedContract.backgroundOfRequest ?? '—'}</span>
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    {(session.role === 'LEGAL_TEAM' || session.role === 'ADMIN') && (
+                      <div className={styles.card}>
+                        <div className={styles.sectionTitle}>Additional Approvers</div>
+                        <div className={styles.inlineForm}>
+                          <input
+                            type="email"
+                            className={styles.input}
+                            placeholder="approver@nxtwave.co.in"
+                            value={approverEmail}
+                            onChange={(event) => setApproverEmail(event.target.value)}
+                          />
+                          <button
+                            type="button"
+                            className={styles.button}
+                            disabled={isMutating}
+                            onClick={() => void handleAddApprover()}
+                          >
+                            Add Approver
+                          </button>
+                        </div>
+                        <div className={styles.timeline}>
+                          {approvers.map((approver) => (
+                            <div key={approver.id} className={styles.event}>
+                              <div>
+                                #{approver.sequenceOrder} {approver.approverEmail}
+                              </div>
+                              <div className={styles.eventMeta}>{approver.status}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
+                )}
+
+                {activeTab === 'activity' && (
+                  <div className={styles.tabSection}>
+                    <div className={styles.card}>
+                      <div className={styles.sectionTitle}>Logs Timeline</div>
+                      <div className={styles.logContainer}>
+                        {visibleLogs.map((event) => {
+                          const rawEvent = timelineById.get(event.id)
+                          const roleClass =
+                            rawEvent?.actorRole === 'HOD'
+                              ? styles.roleHod
+                              : rawEvent?.actorRole === 'LEGAL_TEAM'
+                                ? styles.roleLegal
+                                : styles.rolePoc
+                          const isExpanded = expandedLogIds.has(event.id)
+
+                          return (
+                            <div key={event.id} className={`${styles.timelineEvent} ${roleClass}`}>
+                              <div className={styles.timelineMarker} />
+                              <div className={styles.timelineContent}>
+                                <div className={styles.eventActor}>{event.actorLabel}</div>
+                                <div>{event.message}</div>
+                                <div className={styles.eventMeta} title={event.absoluteTimestamp}>
+                                  {event.relativeTimestamp}
+                                </div>
+                                <button
+                                  type="button"
+                                  className={styles.inlineLinkButton}
+                                  onClick={() => toggleLogExpansion(event.id)}
+                                  aria-expanded={isExpanded}
+                                >
+                                  {isExpanded ? 'Collapse' : 'Expand'}
+                                </button>
+                                {isExpanded ? (
+                                  <div className={styles.expandedMeta}>
+                                    {event.remark ? <div className={styles.eventRemark}>{event.remark}</div> : null}
+                                    <div className={styles.eventMeta}>{event.absoluteTimestamp}</div>
+                                  </div>
+                                ) : null}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                      {formattedLogs.length > 5 ? (
+                        <button
+                          type="button"
+                          className={styles.button}
+                          onClick={() => setShowAllLogs((current) => !current)}
+                        >
+                          {showAllLogs ? 'Show Latest 5' : `Show All (${formattedLogs.length})`}
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === 'notes' && (
+                  <div className={styles.tabSection}>
+                    <div className={styles.card}>
+                      <div className={styles.sectionTitle}>Notes</div>
+                      <div className={styles.inlineForm}>
+                        <input
+                          type="text"
+                          className={styles.input}
+                          placeholder="Add note"
+                          value={noteText}
+                          onChange={(event) => setNoteText(event.target.value)}
+                        />
+                        <button
+                          type="button"
+                          className={styles.button}
+                          disabled={isMutating}
+                          onClick={() => void handleAddNote()}
+                        >
+                          Add Note
+                        </button>
+                      </div>
+                      <div className={styles.timeline}>
+                        {noteEvents.map((event) => (
+                          <div key={event.id} className={styles.event}>
+                            <div className={styles.eventActor}>{event.actorEmail ?? 'System'}</div>
+                            <div>{event.noteText}</div>
+                            <div className={styles.eventMeta}>{new Date(event.createdAt).toLocaleString()}</div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeTab === 'documents' && (
+                  <div className={styles.tabSection}>
+                    <div className={styles.card}>
+                      <div className={styles.sectionTitle}>Documents</div>
+                      <div className={styles.actions}>
+                        <button
+                          type="button"
+                          className={styles.button}
+                          disabled={isLoadingViewer}
+                          onClick={() => void handleViewDocument()}
+                        >
+                          {isLoadingViewer ? 'Opening...' : 'Preview'}
+                        </button>
+                        <button type="button" className={styles.button} onClick={handleDownload}>
+                          Download
+                        </button>
+                      </div>
+                      <div className={styles.placeholderRow}>Version history support will appear here.</div>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
-          </>
+          </div>
         )}
 
         {error && <div className={styles.error}>{error}</div>}
