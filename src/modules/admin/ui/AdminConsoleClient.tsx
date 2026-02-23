@@ -12,6 +12,7 @@ type AdminConsoleClientProps = {
     email?: string | null
     team?: string | null
     role?: string | null
+    canAccessApproverHistory?: boolean
   }
 }
 
@@ -194,6 +195,7 @@ export default function AdminConsoleClient({ session }: AdminConsoleClientProps)
     <ProtectedAppShell
       session={{ fullName: session.fullName, email: session.email, team: session.team, role: session.role }}
       activeNav="admin"
+      canAccessApproverHistory={session.canAccessApproverHistory}
     >
       <main className={styles.main}>
         <section className={styles.header}>

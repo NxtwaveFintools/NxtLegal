@@ -18,6 +18,8 @@ const mockEmployeeRepository: jest.Mocked<EmployeeRepository> = {
   findByEmployeeId: jest.fn(),
   findByEmail: jest.fn(),
   findMappedTeamRolesByEmail: jest.fn(),
+  hasAdditionalApproverParticipation: jest.fn().mockResolvedValue(false),
+  hasActionableAdditionalApproverAssignments: jest.fn().mockResolvedValue(false),
   create: jest.fn(),
   softDelete: jest.fn(),
   restore: jest.fn(),
@@ -167,6 +169,8 @@ describe('AuthService', () => {
       const email = 'new.user@nxtwave.co.in'
 
       mockEmployeeRepository.findMappedTeamRolesByEmail.mockResolvedValue([])
+      mockEmployeeRepository.hasAdditionalApproverParticipation.mockResolvedValue(false)
+      mockEmployeeRepository.hasActionableAdditionalApproverAssignments.mockResolvedValue(false)
       mockEmployeeRepository.findByEmail.mockResolvedValue(null)
 
       await expect(
@@ -185,6 +189,8 @@ describe('AuthService', () => {
       const email = 'admin@nxtwave.co.in'
 
       mockEmployeeRepository.findMappedTeamRolesByEmail.mockResolvedValue([])
+      mockEmployeeRepository.hasAdditionalApproverParticipation.mockResolvedValue(false)
+      mockEmployeeRepository.hasActionableAdditionalApproverAssignments.mockResolvedValue(false)
       mockEmployeeRepository.findByEmail.mockResolvedValue({
         id: 'admin-uuid-123',
         employeeId: 'admin-uuid-123',
@@ -224,6 +230,8 @@ describe('AuthService', () => {
       const email = 'mapped.user@nxtwave.co.in'
 
       mockEmployeeRepository.findMappedTeamRolesByEmail.mockResolvedValue(['POC', 'HOD'])
+      mockEmployeeRepository.hasAdditionalApproverParticipation.mockResolvedValue(false)
+      mockEmployeeRepository.hasActionableAdditionalApproverAssignments.mockResolvedValue(false)
       mockEmployeeRepository.findByEmail.mockResolvedValue({
         id: 'mapped-uuid-123',
         employeeId: 'mapped-uuid-123',
@@ -255,6 +263,79 @@ describe('AuthService', () => {
           tenantId,
         })
       )
+    })
+
+    it('allows additional approver with actionable assignment', async () => {
+      const tenantId = 'tenant-001'
+      const email = 'approver@nxtwave.co.in'
+
+      mockEmployeeRepository.findMappedTeamRolesByEmail.mockResolvedValue([])
+      mockEmployeeRepository.hasAdditionalApproverParticipation.mockResolvedValue(true)
+      mockEmployeeRepository.hasActionableAdditionalApproverAssignments.mockResolvedValue(true)
+      mockEmployeeRepository.findByEmail.mockResolvedValue({
+        id: 'approver-uuid-123',
+        employeeId: 'approver-uuid-123',
+        tenantId,
+        email,
+        fullName: 'Additional Approver',
+        isActive: true,
+        passwordHash: null,
+        role: 'USER',
+        tokenVersion: 1,
+        createdAt: '2026-02-14T00:00:00Z',
+        updatedAt: '2026-02-14T00:00:00Z',
+        deletedAt: null,
+      })
+
+      const result = await authService.loginWithOAuth(
+        {
+          email,
+          name: 'Additional Approver',
+        },
+        tenantId
+      )
+
+      expect(result.user.role).toBe('USER')
+      expect(createSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          employeeId: 'approver-uuid-123',
+          role: 'USER',
+          tenantId,
+        })
+      )
+    })
+
+    it('allows additional approver with historical participation even when no actionable assignment', async () => {
+      const tenantId = 'tenant-001'
+      const email = 'history.approver@nxtwave.co.in'
+
+      mockEmployeeRepository.findMappedTeamRolesByEmail.mockResolvedValue([])
+      mockEmployeeRepository.hasAdditionalApproverParticipation.mockResolvedValue(true)
+      mockEmployeeRepository.hasActionableAdditionalApproverAssignments.mockResolvedValue(false)
+      mockEmployeeRepository.findByEmail.mockResolvedValue({
+        id: 'history-approver-uuid-123',
+        employeeId: 'history-approver-uuid-123',
+        tenantId,
+        email,
+        fullName: 'History Approver',
+        isActive: true,
+        passwordHash: null,
+        role: 'USER',
+        tokenVersion: 1,
+        createdAt: '2026-02-14T00:00:00Z',
+        updatedAt: '2026-02-14T00:00:00Z',
+        deletedAt: null,
+      })
+
+      const result = await authService.loginWithOAuth(
+        {
+          email,
+          name: 'History Approver',
+        },
+        tenantId
+      )
+
+      expect(result.user.role).toBe('USER')
     })
   })
 })

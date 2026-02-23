@@ -113,6 +113,10 @@ describe('AuthService Integration Tests', () => {
         return Array.from(roleSet)
       },
 
+      hasAdditionalApproverParticipation: async () => false,
+
+      hasActionableAdditionalApproverAssignments: async () => false,
+
       create: async (
         employee: Omit<EmployeeRecord, 'createdAt' | 'updatedAt' | 'deletedAt'>
       ): Promise<EmployeeRecord> => {

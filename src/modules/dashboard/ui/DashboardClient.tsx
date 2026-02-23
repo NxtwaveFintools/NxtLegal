@@ -18,6 +18,7 @@ type DashboardClientProps = {
     email?: string | null
     team?: string | null
     role?: string
+    canAccessApproverHistory?: boolean
   }
 }
 
@@ -36,6 +37,15 @@ type DashboardRoleConfig = {
   showApproveCard: boolean
 }
 
+const dashboardTimestampFormatter = new Intl.DateTimeFormat('en-GB', {
+  day: '2-digit',
+  month: 'short',
+  year: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: true,
+})
+
 function DashboardActionCard({ title, count, description, onClick, icon }: ActionCardProps) {
   return (
     <button type="button" onClick={onClick} className={styles.actionCard}>
@@ -51,15 +61,6 @@ function DashboardActionCard({ title, count, description, onClick, icon }: Actio
   )
 }
 
-const dashboardTimestampFormatter = new Intl.DateTimeFormat('en-GB', {
-  day: '2-digit',
-  month: 'short',
-  year: 'numeric',
-  hour: '2-digit',
-  minute: '2-digit',
-  hour12: true,
-})
-
 function getRoleConfig(role?: string): DashboardRoleConfig {
   if (role === contractWorkflowRoles.admin) {
     return {
@@ -69,7 +70,7 @@ function getRoleConfig(role?: string): DashboardRoleConfig {
       filters: [
         { value: 'ALL', label: 'All' },
         { value: 'HOD_PENDING', label: 'HOD Pending' },
-        { value: 'LEGAL_PENDING', label: 'Legal Pending' },
+        { value: 'LEGAL_PENDING', label: 'Legal Waiting / Pending' },
         { value: 'FINAL_APPROVED', label: 'Final Approved' },
         { value: 'LEGAL_QUERY', label: 'Legal Query' },
       ],
@@ -82,7 +83,7 @@ function getRoleConfig(role?: string): DashboardRoleConfig {
       approveFilter: 'LEGAL_PENDING',
       showApproveCard: true,
       filters: [
-        { value: 'LEGAL_PENDING', label: 'Legal Pending' },
+        { value: 'LEGAL_PENDING', label: 'Legal Waiting / Pending' },
         { value: 'HOD_PENDING', label: 'HOD Pending' },
         { value: 'FINAL_APPROVED', label: 'Final Approved' },
         { value: 'LEGAL_QUERY', label: 'Legal Query' },
@@ -97,7 +98,7 @@ function getRoleConfig(role?: string): DashboardRoleConfig {
       showApproveCard: true,
       filters: [
         { value: 'HOD_PENDING', label: 'HOD Pending' },
-        { value: 'LEGAL_PENDING', label: 'Legal Pending' },
+        { value: 'LEGAL_PENDING', label: 'Legal Waiting / Pending' },
         { value: 'FINAL_APPROVED', label: 'Final Approved' },
         { value: 'LEGAL_QUERY', label: 'Legal Query' },
       ],
@@ -110,7 +111,7 @@ function getRoleConfig(role?: string): DashboardRoleConfig {
     showApproveCard: false,
     filters: [
       { value: 'HOD_PENDING', label: 'HOD Pending' },
-      { value: 'LEGAL_PENDING', label: 'Legal Pending' },
+      { value: 'LEGAL_PENDING', label: 'Legal Waiting / Pending' },
       { value: 'FINAL_APPROVED', label: 'Final Approved' },
       { value: 'LEGAL_QUERY', label: 'Legal Query' },
     ],
@@ -145,6 +146,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   })
   const [filterCounts, setFilterCounts] = useState<Partial<Record<DashboardContractsFilter, number>>>({})
   const [activeFilterTotal, setActiveFilterTotal] = useState(0)
+  const [actionableAdditionalApprovals, setActionableAdditionalApprovals] = useState<ContractRecord[]>([])
 
   const loadPendingApprovals = useCallback(async () => {
     if (!roleConfig.showApproveCard) {
@@ -180,6 +182,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
         filter,
         cursor: options?.cursor,
         limit: limits.dashboardContractsPageSize,
+        includeExtras: true,
       })
 
       if (!response.ok || !response.data) {
@@ -201,6 +204,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
       const responseData = response.data
 
       setContracts(responseData.contracts)
+      setActionableAdditionalApprovals(responseData.additionalApproverSections?.actionableContracts ?? [])
       setContractsCursor(responseData.pagination.cursor)
       setActiveFilterTotal(responseData.pagination.total)
       if (typeof options?.pageIndex === 'number') {
@@ -279,6 +283,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
     <ProtectedAppShell
       session={{ fullName: session.fullName, email: session.email, team: session.team, role: session.role }}
       activeNav="home"
+      canAccessApproverHistory={session.canAccessApproverHistory}
     >
       <main className={styles.main}>
         <section className={styles.greeting}>
@@ -326,6 +331,52 @@ export default function DashboardClient({ session }: DashboardClientProps) {
             </div>
           </div>
         </section>
+
+        {actionableAdditionalApprovals.length > 0 && (
+          <section className={styles.approverInsightSection}>
+            {actionableAdditionalApprovals.length > 0 ? (
+              <div className={styles.approverInsightCard}>
+                <div className={styles.approverInsightHeader}>
+                  <span className={styles.approverInsightTitle}>Your Approval Needed</span>
+                  <span className={styles.approverInsightCount}>{actionableAdditionalApprovals.length}</span>
+                </div>
+                <div className={styles.approverInsightList}>
+                  {actionableAdditionalApprovals.map((contract) => (
+                    <div key={contract.id} className={styles.approverInsightItem}>
+                      <div className={styles.approverInsightContent}>
+                        <div className={styles.approverInsightItemTitle}>{contract.title}</div>
+                        <div className={styles.approverInsightItemMeta}>Assigned to you for additional approval</div>
+                        {contract.latestAdditionalApproverRejectionReason ? (
+                          <div className={styles.approverInsightReason}>
+                            Latest rejection reason: {contract.latestAdditionalApproverRejectionReason}
+                          </div>
+                        ) : null}
+                      </div>
+                      <div className={styles.approverInsightActions}>
+                        <span className={styles.approverNeededTag}>Your approval needed</span>
+                        <ContractStatusBadge status={contract.status} displayLabel={contract.displayStatusLabel} />
+                        <button
+                          type="button"
+                          className={`${styles.contractActionButton} ${styles.contractActionPrimary}`}
+                          onClick={() =>
+                            router.push(
+                              contractsClient.resolveProtectedContractPath(contract.id, {
+                                from: 'dashboard',
+                                filter: activeFilter,
+                              })
+                            )
+                          }
+                        >
+                          Open
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </section>
+        )}
 
         <section className={styles.contractsSection} ref={contractsSectionRef}>
           <div className={styles.contractsHeader}>
@@ -393,7 +444,10 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                       </div>
                     </div>
                     <div className={styles.contractActions}>
-                      <ContractStatusBadge status={contract.status} />
+                      <ContractStatusBadge status={contract.status} displayLabel={contract.displayStatusLabel} />
+                      {contract.isAdditionalApproverActionable ? (
+                        <span className={styles.approverNeededTag}>Your approval needed</span>
+                      ) : null}
                       <button
                         type="button"
                         className={`${styles.contractActionButton} ${styles.contractActionPrimary}`}

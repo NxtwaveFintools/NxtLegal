@@ -15,6 +15,7 @@ type RepositoryWorkspaceProps = {
     email?: string | null
     team?: string | null
     role?: string | null
+    canAccessApproverHistory?: boolean
   }
 }
 
@@ -106,7 +107,9 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
       {
         accessorKey: 'status',
         header: 'Status',
-        cell: ({ row }) => <ContractStatusBadge status={row.original.status} />,
+        cell: ({ row }) => (
+          <ContractStatusBadge status={row.original.status} displayLabel={row.original.displayStatusLabel} />
+        ),
       },
     ],
     []
@@ -129,6 +132,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     <ProtectedAppShell
       session={{ fullName: session.fullName, email: session.email, team: session.team, role: session.role }}
       activeNav="repository"
+      canAccessApproverHistory={session.canAccessApproverHistory}
     >
       <main className={styles.main}>
         <section className={styles.header}>
@@ -150,7 +154,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
             >
               <option value="">All statuses</option>
               <option value={contractStatuses.hodPending}>HOD Pending</option>
-              <option value={contractStatuses.legalPending}>Legal Pending</option>
+              <option value={contractStatuses.legalPending}>Legal Waiting / Pending</option>
               <option value={contractStatuses.finalApproved}>Final Approved</option>
               <option value={contractStatuses.legalQuery}>Legal Query</option>
               <option value={contractStatuses.hodApproved}>HOD Approved</option>

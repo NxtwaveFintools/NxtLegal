@@ -537,6 +537,134 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
     }
   }
 
+  async hasAdditionalApproverParticipation({ email, tenantId }: EmployeeByEmail): Promise<boolean> {
+    try {
+      const normalizedEmail = email.trim().toLowerCase()
+      if (!normalizedEmail) {
+        return false
+      }
+
+      const supabase = createServiceSupabase()
+      const { count, error } = await supabase
+        .from('contract_additional_approvers')
+        .select('id', { head: true, count: 'exact' })
+        .eq('tenant_id', tenantId)
+        .eq('approver_email', normalizedEmail)
+        .is('deleted_at', null)
+
+      if (error) {
+        logger.error('Failed to load additional approver participation by email', {
+          tenantId,
+          email: normalizedEmail,
+          error: error.message,
+          errorCode: error.code,
+        })
+        return false
+      }
+
+      return (count ?? 0) > 0
+    } catch (error) {
+      logger.error('Additional approver participation lookup threw error', { email, tenantId, error: String(error) })
+      return false
+    }
+  }
+
+  async hasActionableAdditionalApproverAssignments({ email, tenantId }: EmployeeByEmail): Promise<boolean> {
+    try {
+      const normalizedEmail = email.trim().toLowerCase()
+      if (!normalizedEmail) {
+        return false
+      }
+
+      const supabase = createServiceSupabase()
+      const { data: approverRows, error: approverError } = await supabase
+        .from('contract_additional_approvers')
+        .select('contract_id, sequence_order')
+        .eq('tenant_id', tenantId)
+        .eq('approver_email', normalizedEmail)
+        .eq('status', 'PENDING')
+        .is('deleted_at', null)
+
+      if (approverError) {
+        logger.error('Failed to load additional approver assignments by email', {
+          tenantId,
+          email: normalizedEmail,
+          error: approverError.message,
+          errorCode: approverError.code,
+        })
+        return false
+      }
+
+      if (!approverRows || approverRows.length === 0) {
+        return false
+      }
+
+      const contractIds = Array.from(new Set(approverRows.map((row) => row.contract_id)))
+
+      const { data: legalPendingContracts, error: contractError } = await supabase
+        .from('contracts')
+        .select('id')
+        .eq('tenant_id', tenantId)
+        .eq('status', 'LEGAL_PENDING')
+        .in('id', contractIds)
+
+      if (contractError) {
+        logger.error('Failed to resolve legal-pending contracts for additional approver login', {
+          tenantId,
+          email: normalizedEmail,
+          error: contractError.message,
+          errorCode: contractError.code,
+        })
+        return false
+      }
+
+      const legalPendingContractIds = new Set((legalPendingContracts ?? []).map((row) => row.id))
+      if (legalPendingContractIds.size === 0) {
+        return false
+      }
+
+      const actionableApproverRows = approverRows.filter((row) => legalPendingContractIds.has(row.contract_id))
+      if (actionableApproverRows.length === 0) {
+        return false
+      }
+
+      const { data: pendingRows, error: pendingError } = await supabase
+        .from('contract_additional_approvers')
+        .select('contract_id, sequence_order')
+        .eq('tenant_id', tenantId)
+        .eq('status', 'PENDING')
+        .is('deleted_at', null)
+        .in('contract_id', Array.from(new Set(actionableApproverRows.map((row) => row.contract_id))))
+
+      if (pendingError) {
+        logger.error('Failed to resolve sequential pending approver state for login eligibility', {
+          tenantId,
+          email: normalizedEmail,
+          error: pendingError.message,
+          errorCode: pendingError.code,
+        })
+        return false
+      }
+
+      const minSequenceByContract = new Map<string, number>()
+      for (const row of pendingRows ?? []) {
+        const currentMin = minSequenceByContract.get(row.contract_id)
+        if (currentMin === undefined || row.sequence_order < currentMin) {
+          minSequenceByContract.set(row.contract_id, row.sequence_order)
+        }
+      }
+
+      return actionableApproverRows.some((row) => row.sequence_order === minSequenceByContract.get(row.contract_id))
+    } catch (error) {
+      logger.error('Additional approver login eligibility lookup threw error', {
+        email,
+        tenantId,
+        error: String(error),
+      })
+      return false
+    }
+  }
+
   async create(employee: Omit<EmployeeRecord, 'createdAt' | 'updatedAt' | 'deletedAt'>): Promise<EmployeeRecord> {
     const supabase = createServiceSupabase()
     const { data, error } = await supabase

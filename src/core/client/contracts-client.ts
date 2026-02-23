@@ -10,6 +10,7 @@ type ContractActionName =
   | 'legal.query'
   | 'legal.query.reroute'
   | 'approver.approve'
+  | 'approver.reject'
 
 type ContractRecord = {
   id: string
@@ -18,10 +19,14 @@ type ContractRecord = {
   contractTypeName?: string
   counterpartyName?: string | null
   status: string
+  displayStatusLabel?: string
   uploadedByEmployeeId: string
   uploadedByEmail: string
   currentAssigneeEmployeeId: string
   currentAssigneeEmail: string
+  latestAdditionalApproverRejectionReason?: string | null
+  latestAdditionalApproverRejectionAt?: string | null
+  isAdditionalApproverActionable?: boolean
   hodApprovedAt?: string | null
   departmentId?: string
   departmentName?: string
@@ -84,7 +89,7 @@ type ContractAdditionalApprover = {
   approverEmployeeId: string
   approverEmail: string
   sequenceOrder: number
-  status: 'PENDING' | 'APPROVED'
+  status: 'PENDING' | 'APPROVED' | 'REJECTED'
   approvedAt: string | null
 }
 
@@ -106,6 +111,31 @@ type ContractListResponse = {
 
 type DashboardContractsResponse = ContractListResponse & {
   filter: DashboardContractsFilter
+  additionalApproverSections?: {
+    actionableContracts: ContractRecord[]
+  }
+}
+
+type AdditionalApproverDecisionHistoryRecord = {
+  contractId: string
+  contractTitle: string
+  contractStatus: string
+  contractDisplayStatusLabel: string
+  departmentId: string | null
+  departmentName: string | null
+  actorEmail: string | null
+  decision: 'APPROVED' | 'REJECTED'
+  decidedAt: string
+  reason: string | null
+}
+
+type AdditionalApproverHistoryResponse = {
+  history: AdditionalApproverDecisionHistoryRecord[]
+  pagination: {
+    cursor: string | null
+    limit: number
+    total: number
+  }
 }
 
 type DepartmentOption = {
@@ -231,6 +261,7 @@ export const contractsClient = {
     filter: DashboardContractsFilter
     cursor?: string
     limit?: number
+    includeExtras?: boolean
   }): Promise<ApiResponse<DashboardContractsResponse>> {
     const query = new URLSearchParams()
     query.set('filter', params.filter)
@@ -243,6 +274,10 @@ export const contractsClient = {
       query.set('limit', String(params.limit))
     }
 
+    if (typeof params.includeExtras === 'boolean') {
+      query.set('includeExtras', String(params.includeExtras))
+    }
+
     const response = await fetch(`${routeRegistry.api.contracts.dashboard}?${query.toString()}`, {
       method: 'GET',
       credentials: 'include',
@@ -250,6 +285,39 @@ export const contractsClient = {
     })
 
     return parseApiResponse<DashboardContractsResponse>(response)
+  },
+
+  async additionalApproverHistory(params?: {
+    cursor?: string
+    limit?: number
+    departmentId?: string
+  }): Promise<ApiResponse<AdditionalApproverHistoryResponse>> {
+    const query = new URLSearchParams()
+
+    if (params?.cursor) {
+      query.set('cursor', params.cursor)
+    }
+
+    if (params?.limit) {
+      query.set('limit', String(params.limit))
+    }
+
+    if (params?.departmentId) {
+      query.set('departmentId', params.departmentId)
+    }
+
+    const url =
+      query.size > 0
+        ? `${routeRegistry.api.contracts.additionalApproverHistory}?${query.toString()}`
+        : routeRegistry.api.contracts.additionalApproverHistory
+
+    const response = await fetch(url, {
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store',
+    })
+
+    return parseApiResponse<AdditionalApproverHistoryResponse>(response)
   },
 
   async repositoryList(params?: {
@@ -459,6 +527,8 @@ export type {
   ContractActionName,
   ContractAllowedAction,
   ContractAdditionalApprover,
+  AdditionalApproverDecisionHistoryRecord,
+  AdditionalApproverHistoryResponse,
   ContractDetailResponse,
   DashboardContractsFilter,
   RepositorySortBy,

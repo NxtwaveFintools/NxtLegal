@@ -11,6 +11,7 @@ export const contractActionNames = [
   'legal.query',
   'legal.query.reroute',
   'approver.approve',
+  'approver.reject',
 ] as const
 
 export const listContractsQuerySchema = z.object({
@@ -30,6 +31,18 @@ export const dashboardContractsQuerySchema = z.object({
   filter: z.enum(dashboardContractsFilterValues),
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(limits.paginationPageSize).default(limits.dashboardContractsPageSize),
+  includeExtras: z.coerce.boolean().optional().default(false),
+})
+
+export const additionalApproverHistoryQuerySchema = z.object({
+  cursor: z.string().optional(),
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(limits.dashboardContractsPageSize)
+    .default(limits.dashboardContractsPageSize),
+  departmentId: z.string().uuid().optional(),
 })
 
 export const pendingApprovalsQuerySchema = z.object({
@@ -54,7 +67,14 @@ export const contractActionSchema = z
     noteText: z.string().trim().max(2000).optional(),
   })
   .superRefine((value, context) => {
-    if ((value.action === 'legal.query.reroute' || value.action === 'hod.bypass') && !value.noteText?.trim()) {
+    const isRemarkMandatoryAction =
+      value.action === 'legal.query.reroute' ||
+      value.action === 'hod.bypass' ||
+      value.action === 'hod.reject' ||
+      value.action === 'legal.reject' ||
+      value.action === 'approver.reject'
+
+    if (isRemarkMandatoryAction && !value.noteText?.trim()) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         path: ['noteText'],

@@ -1,6 +1,7 @@
 import { AuthorizationError, BusinessRuleError, NotFoundError } from '@/core/http/errors'
 import type { ContractStatus } from '@/core/constants/contracts'
 import type {
+  AdditionalApproverDecisionHistoryItem,
   DashboardContractFilter,
   ContractDetail,
   ContractDetailView,
@@ -43,6 +44,25 @@ export class ContractQueryService {
     limit: number
   }): Promise<{ items: ContractListItem[]; nextCursor?: string; total: number }> {
     return this.contractRepository.getDashboardContracts(params)
+  }
+
+  async getActionableAdditionalApprovals(params: {
+    tenantId: string
+    employeeId: string
+    limit: number
+  }): Promise<ContractListItem[]> {
+    return this.contractRepository.getActionableAdditionalApprovals(params)
+  }
+
+  async getAdditionalApproverDecisionHistory(params: {
+    tenantId: string
+    employeeId: string
+    role?: string
+    cursor?: string
+    limit: number
+    departmentId?: string
+  }): Promise<{ items: AdditionalApproverDecisionHistoryItem[]; nextCursor?: string; total: number }> {
+    return this.contractRepository.getAdditionalApproverDecisionHistory(params)
   }
 
   async listRepositoryContracts(params: {
@@ -145,7 +165,14 @@ export class ContractQueryService {
       throw new BusinessRuleError('ACTOR_EMAIL_REQUIRED', 'Actor email is required')
     }
 
-    if (params.action === 'legal.query.reroute' || params.action === 'hod.bypass') {
+    const isRemarkMandatoryAction =
+      params.action === 'legal.query.reroute' ||
+      params.action === 'hod.bypass' ||
+      params.action === 'hod.reject' ||
+      params.action === 'legal.reject' ||
+      params.action === 'approver.reject'
+
+    if (isRemarkMandatoryAction) {
       if (!params.noteText?.trim()) {
         throw new BusinessRuleError('REMARK_REQUIRED', 'Remarks are mandatory for this action')
       }
