@@ -152,10 +152,8 @@ export default function ProtectedAppShell({ session, activeNav, children }: Prot
             <span className={styles.companyBadge}>NxtWave Disruptive Technologies Private Limited</span>
             <div className={styles.userIdentity}>
               <span className={styles.userEmail}>{session.email ?? 'unknown@user'}</span>
-              <span className={styles.userRole}>
-                {displayRole}
-                {session.team ? ` • ${session.team}` : ''}
-              </span>
+              <span className={styles.userRole}>{displayRole}</span>
+              {session.team ? <span className={styles.userTeam}>{session.team}</span> : null}
             </div>
             <div className={styles.profileBadge}>{displayName.slice(0, 1).toUpperCase()}</div>
             <LogoutButton />

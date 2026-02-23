@@ -62,27 +62,41 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const [previewingDocumentId, setPreviewingDocumentId] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  const loadContracts = useCallback(async () => {
-    const response = await contractsClient.list({ limit: 20 })
+  // Pagination state
+  const [nextCursor, setNextCursor] = useState<string | null>(null)
+  const [hasMore, setHasMore] = useState(false)
+  const [isLoadingMore, setIsLoadingMore] = useState(false)
+  const [totalContracts, setTotalContracts] = useState(0)
+
+  const PAGE_SIZE = 15
+
+  const loadContracts = useCallback(async (cursor?: string) => {
+    const response = await contractsClient.list({ cursor, limit: PAGE_SIZE })
 
     if (!response.ok || !response.data) {
       setError(response.error?.message ?? 'Failed to load contracts')
-      setContracts([])
+      if (!cursor) {
+        setContracts([])
+      }
       return
     }
 
-    const contractsList = response.data.contracts
+    const { contracts: newContracts, pagination } = response.data
 
-    setContracts(contractsList)
+    setContracts((prev) => (cursor ? [...prev, ...newContracts] : newContracts))
+    setNextCursor(pagination.cursor)
+    setHasMore(pagination.cursor !== null)
+    setTotalContracts(pagination.total)
     setError(null)
 
-    setSelectedContractId((current) => {
-      if (current || contractsList.length === 0) {
-        return current
-      }
-
-      return contractsList[0].id
-    })
+    if (!cursor) {
+      setSelectedContractId((current) => {
+        if (current || newContracts.length === 0) {
+          return current
+        }
+        return newContracts[0].id
+      })
+    }
   }, [])
 
   const applyContractView = (contractView: ContractDetailResponse) => {
@@ -178,6 +192,13 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     setShowAllLogs(false)
   }
 
+  const loadMore = async () => {
+    if (!nextCursor || isLoadingMore) return
+    setIsLoadingMore(true)
+    await loadContracts(nextCursor)
+    setIsLoadingMore(false)
+  }
+
   const executeAction = async (actionItem: ContractAllowedAction) => {
     if (!selectedContractId) {
       return
@@ -211,6 +232,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       applyContractView(response.data)
     }
 
+    // Full refresh on action to keep sidebar consistent
     await loadContracts()
     await loadContractContext(selectedContractId)
     router.refresh()
@@ -435,8 +457,17 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
   return (
     <div className={styles.layout}>
-      <section className={styles.panel}>
-        <div className={styles.title}>Contracts</div>
+      {/* ── Left Sidebar ── */}
+      <aside className={styles.sidebar}>
+        <div className={styles.sidebarHeader}>
+          <span className={styles.sidebarTitle}>Contracts</span>
+          {!isLoading && (
+            <span className={styles.sidebarCount}>
+              {contracts.length}
+              {totalContracts > 0 ? ` / ${totalContracts}` : ''}
+            </span>
+          )}
+        </div>
         {isLoading ? (
           <div className={styles.list}>
             {[1, 2, 3, 4, 5].map((i) => (
@@ -461,14 +492,25 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                 </div>
               </button>
             ))}
+            {hasMore && (
+              <button
+                type="button"
+                className={styles.loadMoreButton}
+                disabled={isLoadingMore}
+                onClick={() => void loadMore()}
+              >
+                {isLoadingMore ? 'Loading…' : `Load More (${contracts.length} of ${totalContracts})`}
+              </button>
+            )}
           </div>
         )}
-      </section>
+      </aside>
 
-      <section className={styles.panel}>
+      {/* ── Right Detail Panel ── */}
+      <section className={styles.detail}>
         <div className={styles.headerRow}>
           <button type="button" className={styles.backButton} onClick={handleBackNavigation}>
-            Back
+            ← Back
           </button>
           <div className={styles.title}>{selectedContract?.title ?? 'Contract Details'}</div>
           <div className={styles.headerActions}>
@@ -481,22 +523,24 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                 disabled={Boolean(activeAction) || isMutating}
                 onClick={() => void executeAction(item)}
               >
-                {activeAction === item.action ? 'Processing...' : item.label}
+                {activeAction === item.action ? 'Processing…' : item.label}
               </button>
             ))}
           </div>
         </div>
+
         {!selectedContract ? (
           <div className={styles.emptyState}>
             <div className={styles.emptyStateIcon}>📄</div>
             <div style={{ fontWeight: 600 }}>Select a contract</div>
-            <div className={styles.itemMeta}>Choose a contract from the list to view its details</div>
+            <div className={styles.itemMeta}>Choose a contract from the sidebar to view details</div>
           </div>
         ) : (
           <div className={styles.detailsShell}>
+            {/* ── Summary Column (flat sections) ── */}
             <aside className={styles.summaryColumn}>
-              <div className={styles.card}>
-                <div className={styles.sectionTitle}>Contract Summary</div>
+              <div className={styles.sectionBlock}>
+                <div className={styles.sectionLabel}>Contract Summary</div>
                 <div className={styles.row}>
                   <span>Title</span>
                   <span className={styles.rowValue}>{selectedContract.title}</span>
@@ -511,8 +555,8 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                 </div>
               </div>
 
-              <div className={styles.card}>
-                <div className={styles.sectionTitle}>Department</div>
+              <div className={styles.sectionBlock}>
+                <div className={styles.sectionLabel}>Department</div>
                 <div className={styles.row}>
                   <span>Name</span>
                   <span>{selectedContract.departmentName ?? '—'}</span>
@@ -527,8 +571,8 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                 </div>
               </div>
 
-              <div className={styles.card}>
-                <div className={styles.sectionTitle}>Assignee</div>
+              <div className={styles.sectionBlock}>
+                <div className={styles.sectionLabel}>Assignee</div>
                 <div className={styles.row}>
                   <span>Current</span>
                   <span>{selectedContract.currentAssigneeEmail}</span>
@@ -539,8 +583,8 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                 </div>
               </div>
 
-              <div className={styles.card}>
-                <div className={styles.sectionTitle}>Quick Metadata</div>
+              <div className={styles.sectionBlock}>
+                <div className={styles.sectionLabel}>Metadata</div>
                 {quickMetadata.map((item) => (
                   <div key={item.label} className={styles.row}>
                     <span>{item.label}</span>
@@ -550,6 +594,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
               </div>
             </aside>
 
+            {/* ── Tab Column ── */}
             <div className={styles.tabColumn}>
               <div
                 className={styles.tabHeader}
@@ -622,7 +667,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                         aria-controls="intake-details-panel"
                         onClick={() => setIsIntakeOpen((current) => !current)}
                       >
-                        Intake Details
+                        {isIntakeOpen ? '▾' : '▸'} Intake Details
                       </button>
                       {isIntakeOpen ? (
                         <div id="intake-details-panel" className={styles.accordionBody}>
@@ -727,8 +772,9 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                       {formattedLogs.length > 5 ? (
                         <button
                           type="button"
-                          className={styles.button}
+                          className={`${styles.button} ${styles.buttonGhost}`}
                           onClick={() => setShowAllLogs((current) => !current)}
+                          style={{ marginTop: 8 }}
                         >
                           {showAllLogs ? 'Show Latest 5' : `Show All (${formattedLogs.length})`}
                         </button>
@@ -795,11 +841,11 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                                   disabled={Boolean(previewingDocumentId)}
                                   onClick={() => void handleViewDocument(document)}
                                 >
-                                  {previewingDocumentId === document.id ? 'Opening...' : 'Preview'}
+                                  {previewingDocumentId === document.id ? 'Opening…' : 'Preview'}
                                 </button>
                                 <button
                                   type="button"
-                                  className={styles.button}
+                                  className={`${styles.button} ${styles.buttonGhost}`}
                                   onClick={() => void handleDownload(document)}
                                 >
                                   Download

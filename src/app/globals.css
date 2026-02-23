@@ -3,7 +3,7 @@
 :root {
   --color-background: #f6f8fb;
   --color-surface: #ffffff;
-  --color-surface-muted: #f2f4f8;
+  --color-surface-muted: #f1f5f9;
   --color-text: #1f2937;
   --color-text-muted: #6b7280;
   --color-border: #e2e8f0;
@@ -17,7 +17,17 @@
   --color-success: #16a34a;
   --color-success-soft: #dcfce7;
   --color-danger: #dc2626;
+  --color-danger-soft: #fef2f2;
+  --color-warning: #d97706;
+  --color-warning-soft: #fffbeb;
   --color-overlay: rgba(15, 23, 42, 0.35);
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 16px;
+  --radius-pill: 999px;
+  --shadow-button: 0 1px 3px rgba(15, 23, 42, 0.08);
+  --shadow-card: 0 1px 4px rgba(15, 23, 42, 0.04);
   --background: var(--color-background);
   --foreground: var(--color-text);
 }
@@ -47,7 +57,12 @@
     --color-success: #4ade80;
     --color-success-soft: rgba(74, 222, 128, 0.16);
     --color-danger: #f87171;
+    --color-danger-soft: rgba(248, 113, 113, 0.12);
+    --color-warning: #fbbf24;
+    --color-warning-soft: rgba(251, 191, 36, 0.12);
     --color-overlay: rgba(2, 6, 23, 0.65);
+    --shadow-button: 0 1px 3px rgba(2, 6, 23, 0.25);
+    --shadow-card: 0 1px 4px rgba(2, 6, 23, 0.15);
     --background: var(--color-background);
     --foreground: var(--color-text);
   }
@@ -56,7 +71,7 @@
 [data-theme='light'] {
   --color-background: #f6f8fb;
   --color-surface: #ffffff;
-  --color-surface-muted: #f2f4f8;
+  --color-surface-muted: #f1f5f9;
   --color-text: #1f2937;
   --color-text-muted: #6b7280;
   --color-border: #e2e8f0;
@@ -70,7 +85,12 @@
   --color-success: #16a34a;
   --color-success-soft: #dcfce7;
   --color-danger: #dc2626;
+  --color-danger-soft: #fef2f2;
+  --color-warning: #d97706;
+  --color-warning-soft: #fffbeb;
   --color-overlay: rgba(15, 23, 42, 0.35);
+  --shadow-button: 0 1px 3px rgba(15, 23, 42, 0.08);
+  --shadow-card: 0 1px 4px rgba(15, 23, 42, 0.04);
   --background: var(--color-background);
   --foreground: var(--color-text);
 }
@@ -92,7 +112,12 @@
   --color-success: #4ade80;
   --color-success-soft: rgba(74, 222, 128, 0.16);
   --color-danger: #f87171;
+  --color-danger-soft: rgba(248, 113, 113, 0.12);
+  --color-warning: #fbbf24;
+  --color-warning-soft: rgba(251, 191, 36, 0.12);
   --color-overlay: rgba(2, 6, 23, 0.65);
+  --shadow-button: 0 1px 3px rgba(2, 6, 23, 0.25);
+  --shadow-card: 0 1px 4px rgba(2, 6, 23, 0.15);
   --background: var(--color-background);
   --foreground: var(--color-text);
 }
@@ -109,6 +134,7 @@ body {
   0% {
     background-position: -400px 0;
   }
+
   100% {
     background-position: 400px 0;
   }
@@ -119,6 +145,7 @@ body {
     opacity: 0;
     transform: translateY(12px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -129,6 +156,7 @@ body {
   from {
     opacity: 0;
   }
+
   to {
     opacity: 1;
   }
@@ -139,6 +167,7 @@ body {
   100% {
     transform: translateY(0);
   }
+
   50% {
     transform: translateY(-6px);
   }
@@ -149,6 +178,7 @@ body {
     opacity: 0;
     transform: scale(0.95);
   }
+
   to {
     opacity: 1;
     transform: scale(1);
@@ -159,6 +189,7 @@ body {
   from {
     transform: translateX(100%);
   }
+
   to {
     transform: translateX(0);
   }
@@ -169,6 +200,7 @@ body {
   100% {
     box-shadow: 0 0 0 0 rgba(47, 109, 246, 0.15);
   }
+
   50% {
     box-shadow: 0 0 0 4px rgba(47, 109, 246, 0.08);
   }

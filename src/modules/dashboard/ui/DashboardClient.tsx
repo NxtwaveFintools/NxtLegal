@@ -283,8 +283,10 @@ export default function DashboardClient({ session }: DashboardClientProps) {
       <main className={styles.main}>
         <section className={styles.greeting}>
           <div>
-            <div className={styles.greetingTitle}>Dashboard</div>
-            <div className={styles.greetingSubtitle}>Tasks pending on you</div>
+            <div className={styles.greetingTitle}>
+              {session.fullName ? `Welcome, ${session.fullName.split(' ')[0]}` : 'Dashboard'}
+            </div>
+            <div className={styles.greetingSubtitle}>Here&apos;s what needs your attention today</div>
           </div>
         </section>
 
@@ -327,8 +329,10 @@ export default function DashboardClient({ session }: DashboardClientProps) {
 
         <section className={styles.contractsSection} ref={contractsSectionRef}>
           <div className={styles.contractsHeader}>
-            <span>My Contracts</span>
-            <span>Looking for a specific contract? Open Repository</span>
+            <span className={styles.contractsHeaderTitle}>My Contracts</span>
+            <button type="button" className={styles.repositoryLink} onClick={() => router.push('/repository')}>
+              Looking for a specific contract? Open Repository →
+            </button>
           </div>
           <div className={styles.contractsTabs}>
             {roleConfig.filters.map((filterOption) => (
@@ -357,8 +361,8 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                 ))}
               </div>
             ) : contractsError ? (
-              <div>
-                <div className={styles.emptyTitle}>!</div>
+              <div className={styles.emptyBody}>
+                <div className={styles.emptyTitle}>⚠️</div>
                 <div className={styles.emptySubtitle}>{contractsError}</div>
                 <button
                   type="button"
@@ -371,7 +375,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                 </button>
               </div>
             ) : contracts.length === 0 ? (
-              <div>
+              <div className={styles.emptyBody}>
                 <div className={styles.emptyTitle}>No contracts found</div>
                 <div className={styles.emptySubtitle}>No contracts match the selected filter.</div>
               </div>
@@ -392,7 +396,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                       <ContractStatusBadge status={contract.status} />
                       <button
                         type="button"
-                        className={styles.emptyAction}
+                        className={`${styles.contractActionButton} ${styles.contractActionPrimary}`}
                         onClick={() =>
                           router.push(
                             contractsClient.resolveProtectedContractPath(contract.id, {
@@ -406,7 +410,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                       </button>
                       <button
                         type="button"
-                        className={styles.emptyAction}
+                        className={styles.contractActionButton}
                         onClick={async () => {
                           const response = await contractsClient.download(contract.id)
 
@@ -438,8 +442,9 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                     }}
                     disabled={pageIndex === 0 || isLoadingPageChange}
                   >
-                    Previous
+                    ← Previous
                   </button>
+                  <span className={styles.pageIndicator}>Page {pageIndex + 1}</span>
                   <button
                     type="button"
                     className={styles.paginationButton}
@@ -457,7 +462,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                     }}
                     disabled={!contractsCursor || isLoadingPageChange}
                   >
-                    Next
+                    Next →
                   </button>
                 </div>
               </div>

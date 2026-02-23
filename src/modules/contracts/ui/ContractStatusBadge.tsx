@@ -6,7 +6,7 @@ type ContractStatusBadgeProps = {
 }
 
 const statusClassName: Record<ContractStatus, string> = {
-  DRAFT: styles.uploaded,
+  DRAFT: styles.draft,
   UPLOADED: styles.uploaded,
   HOD_PENDING: styles.hodPending,
   HOD_APPROVED: styles.hodApproved,

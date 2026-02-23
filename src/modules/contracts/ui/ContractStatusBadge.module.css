@@ -1,45 +1,46 @@
 .badge {
   display: inline-flex;
   align-items: center;
-  border-radius: 999px;
-  padding: 2px 10px;
-  font-size: 11px;
-  font-weight: 700;
-  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  border: none;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+/* Neutral / Draft / Uploaded */
+.uploaded,
+.draft {
   background: var(--color-surface-muted);
-  color: var(--color-text);
-  animation: fadeIn 0.3s ease;
-  transition: transform 0.2s ease;
+  color: var(--color-text-muted);
 }
 
-.uploaded {
-  border-color: var(--color-border);
-}
-
+/* Pending states */
 .hodPending,
 .legalPending {
-  border-color: var(--color-accent);
   background: var(--color-accent-soft);
   color: var(--color-accent);
-  animation:
-    fadeIn 0.3s ease,
-    pulseGlow 3s ease-in-out infinite;
 }
 
-.hodApproved,
+/* HOD approved — accent tinted */
+.hodApproved {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+/* Final approved — green */
 .finalApproved {
-  border-color: var(--color-success);
   background: var(--color-success-soft);
   color: var(--color-success);
 }
 
-.hodApproved {
-  border-color: var(--color-accent);
-  background: var(--color-accent-soft);
-  color: var(--color-accent);
-}
-
+/* Legal query / Rejected — soft red */
 .legalQuery {
-  border-color: var(--color-danger);
+  background: var(--color-danger-soft);
   color: var(--color-danger);
 }

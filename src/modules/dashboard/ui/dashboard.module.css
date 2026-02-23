@@ -145,8 +145,8 @@
   gap: 8px;
   background: var(--color-surface-muted);
   border: 1px solid var(--color-border);
-  border-radius: 999px;
-  padding: 6px 12px;
+  border-radius: var(--radius-pill);
+  padding: 6px 14px;
   color: var(--color-text-muted);
   font-size: 13px;
   transition:
@@ -203,13 +203,20 @@
   letter-spacing: 0.02em;
 }
 
+.userTeam {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  letter-spacing: 0.01em;
+}
+
 .companyBadge {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 10px;
+  padding: 6px 12px;
   border: 1px solid var(--color-border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: 12px;
   color: var(--color-text-muted);
   background: var(--color-surface);
@@ -223,7 +230,7 @@
 .profileBadge {
   width: 32px;
   height: 32px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: var(--color-surface-muted);
   border: 1px solid var(--color-border);
   display: flex;
@@ -247,7 +254,7 @@
   padding: 28px;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 24px;
 }
 
 .greeting {
@@ -279,11 +286,12 @@
 .tasksCardGroup {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
-  border-radius: 16px;
-  padding: 16px;
+  border-radius: var(--radius-xl);
+  padding: 18px;
   display: flex;
   flex-direction: column;
   gap: 16px;
+  box-shadow: var(--shadow-card);
 }
 
 .tasksHeader {
@@ -299,10 +307,10 @@
 }
 
 .actionCard {
-  border-radius: 14px;
+  border-radius: var(--radius-xl);
   border: 1px solid var(--color-border);
   background: var(--color-surface);
-  padding: 14px;
+  padding: 18px;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -331,8 +339,8 @@
 
 .actionCard:hover {
   border-color: var(--color-accent);
-  box-shadow: 0 8px 24px rgba(47, 109, 246, 0.12);
-  transform: translateY(-3px);
+  box-shadow: 0 6px 20px rgba(47, 109, 246, 0.1);
+  transform: translateY(-2px);
   background: var(--color-accent-soft);
 }
 
@@ -396,10 +404,10 @@
 }
 
 .secondaryTaskCard {
-  border-radius: 14px;
+  border-radius: var(--radius-xl);
   border: 1px solid var(--color-border);
   background: var(--color-surface);
-  padding: 14px;
+  padding: 16px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -413,7 +421,7 @@
 
 .secondaryTaskCard:hover {
   border-color: var(--color-accent);
-  box-shadow: 0 6px 18px rgba(47, 109, 246, 0.1);
+  box-shadow: 0 4px 14px rgba(47, 109, 246, 0.08);
   transform: translateY(-2px);
 }
 
@@ -429,14 +437,15 @@
 }
 
 .contractsSection {
-  border-radius: 18px;
+  border-radius: var(--radius-xl);
   border: 1px solid var(--color-border);
   background: var(--color-surface);
-  padding: 18px;
+  padding: 20px;
   display: flex;
   flex-direction: column;
   gap: 16px;
   animation: fadeInUp 0.5s ease 0.2s both;
+  box-shadow: var(--shadow-card);
 }
 
 .contractsHeader {
@@ -448,17 +457,40 @@
   color: var(--color-text-muted);
 }
 
+.contractsHeaderTitle {
+  font-weight: 700;
+  font-size: 16px;
+  color: var(--color-text);
+}
+
+.repositoryLink {
+  font-size: 12px;
+  color: var(--color-accent);
+  cursor: pointer;
+  border: none;
+  background: none;
+  font-weight: 600;
+  padding: 0;
+  transition: opacity 0.2s ease;
+}
+
+.repositoryLink:hover {
+  opacity: 0.7;
+}
+
 .contractsTabs {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .tab {
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   border: 1px solid var(--color-border);
-  padding: 6px 12px;
+  padding: 7px 14px;
   font-size: 12px;
+  font-weight: 600;
   color: var(--color-text-muted);
   cursor: pointer;
   background: var(--color-surface);
@@ -482,17 +514,23 @@
 }
 
 .contractsBody {
-  display: grid;
-  grid-template-columns: 1fr;
-  gap: 18px;
+  min-height: 200px;
+  border-radius: var(--radius-lg);
+  padding: 0;
+}
+
+.emptyBody {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
   min-height: 260px;
-  border-radius: 14px;
+  border-radius: var(--radius-lg);
   border: 1px dashed var(--color-border);
   background: var(--color-surface-muted);
-  align-items: center;
-  justify-items: center;
-  text-align: center;
-  padding: 18px;
+  padding: 24px;
+  animation: fadeIn 0.3s ease;
 }
 
 .emptyTitle {
@@ -511,8 +549,8 @@
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 14px;
-  border-radius: 10px;
+  padding: 8px 16px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--color-accent);
   color: var(--color-accent);
   background: transparent;
@@ -533,11 +571,63 @@
   box-shadow: 0 4px 12px rgba(47, 109, 246, 0.2);
 }
 
+.contractActionButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  color: var(--color-text);
+  background: var(--color-surface);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease,
+    color 0.2s ease,
+    transform 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.contractActionButton:hover {
+  border-color: var(--color-accent);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  transform: translateY(-1px);
+}
+
+.contractActionPrimary {
+  border-color: var(--color-accent);
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
+  box-shadow: var(--shadow-button);
+}
+
+.contractActionPrimary:hover {
+  background: #2560d9;
+  border-color: #2560d9;
+  color: var(--color-accent-contrast);
+  box-shadow: 0 4px 14px rgba(47, 109, 246, 0.2);
+  transform: translateY(-1px);
+}
+
+.pageIndicator {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
 .contractList {
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
 }
 
 .contractItem {
@@ -546,25 +636,28 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 10px;
-  border-radius: 10px;
+  padding: 14px 18px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--color-border);
   background: var(--color-surface);
   animation: fadeIn 0.3s ease both;
+  text-align: left;
   transition:
     border-color 0.2s ease,
     box-shadow 0.2s ease,
-    transform 0.2s ease;
+    transform 0.2s ease,
+    background 0.2s ease;
 }
 
 .contractItem:hover {
   border-color: var(--color-accent);
-  box-shadow: 0 4px 14px rgba(47, 109, 246, 0.08);
+  box-shadow: 0 2px 10px rgba(47, 109, 246, 0.06);
   transform: translateX(2px);
+  background: var(--color-surface-muted);
 }
 
 .contractTitle {
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
 }
 
@@ -591,8 +684,8 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 8px 14px;
-  border-radius: 10px;
+  padding: 8px 16px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--color-border);
   background: var(--color-surface);
   color: var(--color-text);
@@ -622,7 +715,7 @@
 
 .shimmerLine {
   height: 14px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: linear-gradient(
     90deg,
     var(--color-surface-muted) 25%,
@@ -634,10 +727,10 @@
 }
 
 .shimmerCard {
-  border-radius: 14px;
+  border-radius: var(--radius-xl);
   border: 1px solid var(--color-border);
   background: var(--color-surface);
-  padding: 14px;
+  padding: 18px;
   display: flex;
   flex-direction: column;
   gap: 10px;
@@ -648,8 +741,8 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 12px 10px;
-  border-radius: 10px;
+  padding: 14px 12px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--color-border);
   background: var(--color-surface);
 }
@@ -657,7 +750,7 @@
 .shimmerAvatar {
   width: 36px;
   height: 36px;
-  border-radius: 10px;
+  border-radius: var(--radius-md);
   background: linear-gradient(
     90deg,
     var(--color-surface-muted) 25%,
