@@ -212,8 +212,15 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       .order('id', { ascending: false })
       .limit(params.limit)
 
-    if (params.role === 'HOD' || params.role === 'LEGAL_TEAM') {
+    if (params.role === 'LEGAL_TEAM') {
       query = query.eq('current_assignee_employee_id', params.employeeId)
+    }
+
+    if (params.role === 'HOD') {
+      const visibilityFilter = await this.getVisibilityFilter(params.tenantId, params.role, params.employeeId)
+      if (visibilityFilter) {
+        query = query.or(visibilityFilter)
+      }
     }
 
     const { data, error } = await query
@@ -282,10 +289,6 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       query = query.or(visibilityFilter)
     }
 
-    if (params.role === 'HOD' && resolvedFilter === 'HOD_PENDING') {
-      query = query.eq('current_assignee_employee_id', params.employeeId)
-    }
-
     let totalQuery = supabase
       .from('contracts_repository_view')
       .select('id', { count: 'exact', head: true })
@@ -297,10 +300,6 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
     if (visibilityFilter) {
       totalQuery = totalQuery.or(visibilityFilter)
-    }
-
-    if (params.role === 'HOD' && resolvedFilter === 'HOD_PENDING') {
-      totalQuery = totalQuery.eq('current_assignee_employee_id', params.employeeId)
     }
 
     const { count: totalCount, error: totalError } = await totalQuery
@@ -545,26 +544,26 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         .is('deleted_at', null)
         .maybeSingle<{ name: string }>(),
       supabase
-        .from('team_members')
-        .select('user_id, is_primary, created_at')
+        .from('team_role_mappings')
+        .select('email')
         .eq('tenant_id', tenantId)
         .eq('team_id', departmentId)
         .eq('role_type', 'HOD')
-        .order('is_primary', { ascending: false })
-        .order('created_at', { ascending: true })
+        .eq('active_flag', true)
+        .is('deleted_at', null)
         .limit(1),
     ])
 
     let departmentHodName: string | null = null
     let departmentHodEmail: string | null = null
 
-    const hodUserId = (hodMembers ?? [])[0]?.user_id
-    if (hodUserId) {
+    const hodEmail = (hodMembers ?? [])[0]?.email
+    if (hodEmail) {
       const { data: hodUser } = await supabase
         .from('users')
         .select('full_name, email')
         .eq('tenant_id', tenantId)
-        .eq('id', hodUserId)
+        .eq('email', hodEmail)
         .eq('is_active', true)
         .is('deleted_at', null)
         .maybeSingle<{ full_name: string | null; email: string }>()
@@ -683,7 +682,11 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
     const actions = actionsFromGraph.filter((item) => {
       if (params.actorRole !== 'ADMIN' && item.action !== 'approver.approve' && !isAssignee) {
-        return false
+        const isHodAction =
+          item.action === 'hod.approve' || item.action === 'hod.reject' || item.action === 'hod.bypass'
+        if (!(params.actorRole === 'HOD' && isHodAction && params.contract.status === contractStatuses.hodPending)) {
+          return false
+        }
       }
 
       if (item.action === 'hod.bypass' && !bypassAllowedRoles.has(actorRole)) {
@@ -740,7 +743,12 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     }
 
     const isAssignee = contract.currentAssigneeEmployeeId === params.actorEmployeeId
-    if (params.action !== 'approver.approve' && params.actorRole !== 'ADMIN' && !isAssignee) {
+    const isHodAction =
+      params.action === 'hod.approve' || params.action === 'hod.reject' || params.action === 'hod.bypass'
+    const allowMappedHodAction =
+      params.actorRole === 'HOD' && isHodAction && contract.status === contractStatuses.hodPending
+
+    if (params.action !== 'approver.approve' && params.actorRole !== 'ADMIN' && !isAssignee && !allowMappedHodAction) {
       throw new AuthorizationError('CONTRACT_ACTION_FORBIDDEN', 'Only the current assignee can perform this action')
     }
 
@@ -1271,9 +1279,13 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       return true
     }
 
+    if (params.contract.uploadedByEmployeeId === params.actorEmployeeId) {
+      return true
+    }
+
     if (
-      params.contract.uploadedByEmployeeId === params.actorEmployeeId ||
-      params.contract.currentAssigneeEmployeeId === params.actorEmployeeId
+      params.contract.currentAssigneeEmployeeId === params.actorEmployeeId &&
+      (params.actorRole === 'HOD' || params.actorRole === 'LEGAL_TEAM')
     ) {
       return true
     }
@@ -1300,12 +1312,12 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     }
 
     if (role !== 'HOD') {
-      return `uploaded_by_employee_id.eq.${employeeId},current_assignee_employee_id.eq.${employeeId}`
+      return `uploaded_by_employee_id.eq.${employeeId}`
     }
 
     const hodDepartmentIds = await this.getHodDepartmentIds(tenantId, employeeId)
     if (hodDepartmentIds.length === 0) {
-      return `uploaded_by_employee_id.eq.${employeeId},current_assignee_employee_id.eq.${employeeId}`
+      return `uploaded_by_employee_id.eq.${employeeId}`
     }
 
     const serializedIds = hodDepartmentIds.join(',')
@@ -1378,12 +1390,37 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
   private async getHodDepartmentIds(tenantId: string, employeeId: string): Promise<string[]> {
     const supabase = createServiceSupabase()
 
+    const { data: employee, error: employeeError } = await supabase
+      .from('users')
+      .select('email')
+      .eq('tenant_id', tenantId)
+      .eq('id', employeeId)
+      .eq('is_active', true)
+      .is('deleted_at', null)
+      .maybeSingle<{ email: string }>()
+
+    if (employeeError) {
+      throw new DatabaseError(
+        'Failed to resolve employee email for HOD access checks',
+        new Error(employeeError.message),
+        {
+          code: employeeError.code,
+        }
+      )
+    }
+
+    if (!employee?.email) {
+      return []
+    }
+
     const { data: hodTeams, error: hodTeamsError } = await supabase
-      .from('team_members')
+      .from('team_role_mappings')
       .select('team_id')
       .eq('tenant_id', tenantId)
-      .eq('user_id', employeeId)
+      .eq('email', employee.email.toLowerCase())
       .eq('role_type', 'HOD')
+      .eq('active_flag', true)
+      .is('deleted_at', null)
 
     if (hodTeamsError) {
       throw new DatabaseError('Failed to resolve HOD departments for access checks', new Error(hodTeamsError.message), {
@@ -1473,18 +1510,18 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
   private async getTeamHodAssignee(tenantId: string, departmentId: string): Promise<{ id: string; email: string }> {
     const supabase = createServiceSupabase()
 
-    const { data: hodMember, error: hodMemberError } = await supabase
-      .from('team_members')
-      .select('user_id')
+    const { data: hodMapping, error: hodMappingError } = await supabase
+      .from('team_role_mappings')
+      .select('email')
       .eq('tenant_id', tenantId)
       .eq('team_id', departmentId)
       .eq('role_type', 'HOD')
-      .order('is_primary', { ascending: false })
-      .order('created_at', { ascending: true })
+      .eq('active_flag', true)
+      .is('deleted_at', null)
       .limit(1)
-      .maybeSingle<{ user_id: string }>()
+      .maybeSingle<{ email: string }>()
 
-    if (hodMemberError || !hodMember?.user_id) {
+    if (hodMappingError || !hodMapping?.email) {
       throw new BusinessRuleError('HOD_ASSIGNEE_NOT_FOUND', 'Department HOD is not configured for reroute')
     }
 
@@ -1492,7 +1529,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       .from('users')
       .select('id, email')
       .eq('tenant_id', tenantId)
-      .eq('id', hodMember.user_id)
+      .eq('email', hodMapping.email)
       .eq('is_active', true)
       .is('deleted_at', null)
       .single<{ id: string; email: string }>()

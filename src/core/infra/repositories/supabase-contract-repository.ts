@@ -40,6 +40,89 @@ type ContractRow = {
 class SupabaseContractRepository implements ContractRepository {
   private readonly validStatuses = new Set<ContractStatus>(Object.values(contractStatuses))
 
+  private async ensureCurrentHodAssignee(contract: ContractRecord): Promise<ContractRecord> {
+    if (contract.status !== contractStatuses.hodPending) {
+      return contract
+    }
+
+    const supabase = createServiceSupabase()
+    const { data: activeHodMapping, error: activeHodMappingError } = await supabase
+      .from('team_role_mappings')
+      .select('email')
+      .eq('tenant_id', contract.tenantId)
+      .eq('team_id', contract.departmentId)
+      .eq('role_type', 'HOD')
+      .eq('active_flag', true)
+      .is('deleted_at', null)
+      .limit(1)
+      .maybeSingle<{ email: string }>()
+
+    if (activeHodMappingError) {
+      throw new DatabaseError(
+        'Failed to resolve active HOD mapping after contract initialization',
+        new Error(activeHodMappingError.message),
+        {
+          code: activeHodMappingError.code,
+        }
+      )
+    }
+
+    const activeHodEmail = activeHodMapping?.email?.trim().toLowerCase()
+    if (!activeHodEmail || activeHodEmail === contract.currentAssigneeEmail.trim().toLowerCase()) {
+      return contract
+    }
+
+    const { data: activeHodUser, error: activeHodUserError } = await supabase
+      .from('users')
+      .select('id, email')
+      .eq('tenant_id', contract.tenantId)
+      .eq('email', activeHodEmail)
+      .eq('is_active', true)
+      .is('deleted_at', null)
+      .maybeSingle<{ id: string; email: string }>()
+
+    if (activeHodUserError) {
+      throw new DatabaseError(
+        'Failed to resolve active HOD user after contract initialization',
+        new Error(activeHodUserError.message),
+        {
+          code: activeHodUserError.code,
+        }
+      )
+    }
+
+    if (!activeHodUser) {
+      return contract
+    }
+
+    const { error: assigneeUpdateError } = await supabase
+      .from('contracts')
+      .update({
+        current_assignee_employee_id: activeHodUser.id,
+        current_assignee_email: activeHodUser.email,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('tenant_id', contract.tenantId)
+      .eq('id', contract.id)
+      .is('deleted_at', null)
+
+    if (assigneeUpdateError) {
+      throw new DatabaseError(
+        'Failed to correct contract assignee after initialization',
+        new Error(assigneeUpdateError.message),
+        {
+          code: assigneeUpdateError.code,
+        }
+      )
+    }
+
+    return {
+      ...contract,
+      currentAssigneeEmployeeId: activeHodUser.id,
+      currentAssigneeEmail: activeHodUser.email,
+    }
+  }
+
   async createWithAudit(input: CreateContractUploadInput): Promise<ContractRecord> {
     const supabase = createServiceSupabase()
 
@@ -70,7 +153,8 @@ class SupabaseContractRepository implements ContractRepository {
       })
     }
 
-    return this.loadCreatedContract(input.contractId, input.tenantId)
+    const createdContract = await this.loadCreatedContract(input.contractId, input.tenantId)
+    return this.ensureCurrentHodAssignee(createdContract)
   }
 
   private async loadCreatedContract(contractId: string, tenantId: string): Promise<ContractRecord> {

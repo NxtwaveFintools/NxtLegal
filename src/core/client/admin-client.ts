@@ -42,7 +42,7 @@ export type DepartmentUpdateRequest = {
 
 export type AssignPrimaryRoleRequest = {
   roleType: 'POC' | 'HOD'
-  userId: string
+  newEmail: string
   reason?: string
 }
 
@@ -67,6 +67,25 @@ export type RoleChangeResponse = {
     required: boolean
     message: string | null
   }
+}
+
+export type DepartmentMutationResponse = {
+  teamId: string
+  departmentName: string
+  isActive: boolean
+  pocEmail: string | null
+  hodEmail: string | null
+  beforeStateSnapshot: Record<string, unknown>
+  afterStateSnapshot: Record<string, unknown>
+}
+
+export type PrimaryRoleAssignmentResponse = {
+  teamId: string
+  roleType: 'POC' | 'HOD'
+  previousEmail: string | null
+  nextEmail: string
+  beforeStateSnapshot: Record<string, unknown>
+  afterStateSnapshot: Record<string, unknown>
 }
 
 async function parseApiResponse<T>(response: Response): Promise<ApiResponse<T>> {
@@ -130,7 +149,12 @@ export const adminClient = {
     return parseApiResponse<{ departments: AdminDepartmentOption[] }>(response)
   },
 
-  async createDepartment(payload: { name: string; reason?: string }): Promise<ApiResponse<{ department: unknown }>> {
+  async createDepartment(payload: {
+    name: string
+    pocEmail: string
+    hodEmail: string
+    reason?: string
+  }): Promise<ApiResponse<{ department: DepartmentMutationResponse }>> {
     const response = await fetch(routeRegistry.api.admin.teams, {
       method: 'POST',
       credentials: 'include',
@@ -140,7 +164,7 @@ export const adminClient = {
       body: JSON.stringify(payload),
     })
 
-    return parseApiResponse<{ department: unknown }>(response)
+    return parseApiResponse<{ department: DepartmentMutationResponse }>(response)
   },
 
   async updateDepartment(
@@ -162,7 +186,7 @@ export const adminClient = {
   async assignPrimaryRole(
     teamId: string,
     payload: AssignPrimaryRoleRequest
-  ): Promise<ApiResponse<{ assignment: unknown }>> {
+  ): Promise<ApiResponse<{ assignment: PrimaryRoleAssignmentResponse }>> {
     const response = await fetch(resolveTeamPrimaryRolePath(teamId), {
       method: 'PUT',
       credentials: 'include',
@@ -172,7 +196,7 @@ export const adminClient = {
       body: JSON.stringify(payload),
     })
 
-    return parseApiResponse<{ assignment: unknown }>(response)
+    return parseApiResponse<{ assignment: PrimaryRoleAssignmentResponse }>(response)
   },
 
   async setLegalMatrix(teamId: string, payload: LegalMatrixRequest): Promise<ApiResponse<{ legalMatrix: unknown }>> {

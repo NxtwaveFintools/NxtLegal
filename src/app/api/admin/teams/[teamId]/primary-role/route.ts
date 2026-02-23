@@ -26,7 +26,7 @@ const PUTHandler = withAuth(async (request: NextRequest, { session, params }) =>
       session,
       teamId: parsedParams.teamId,
       roleType: payload.roleType,
-      userId: payload.userId,
+      newEmail: payload.newEmail,
       reason: payload.reason,
     })
 

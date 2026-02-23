@@ -3,6 +3,7 @@ import { createServerSupabase } from '@/lib/supabase/server'
 import { getAuthService } from '@/core/registry/service-registry'
 import { authErrorCodes } from '@/core/constants/auth-errors'
 import { appConfig } from '@/core/config/app-config'
+import { DEFAULT_TENANT_ID } from '@/core/constants/tenants'
 
 const resolveUserEmail = (user: {
   email?: string | null
@@ -84,16 +85,6 @@ export async function GET(request: Request) {
       return NextResponse.redirect(`${origin}${appConfig.routes.public.login}?error=${authErrorCodes.unauthorized}`)
     }
 
-    // Log all user metadata from Azure AD
-    console.log('=== OAUTH USER METADATA ===')
-    console.log('User ID:', user.id)
-    console.log('User email:', user.email)
-    console.log('Resolved email:', email)
-    console.log('User metadata keys:', Object.keys(user.user_metadata || {}))
-    console.log('User metadata:', JSON.stringify(user.user_metadata, null, 2))
-    console.log('User identities:', JSON.stringify(user.identities, null, 2))
-    console.log('=== END METADATA ===')
-
     // Extract user name from OAuth metadata or derive from email
     let name = (user.user_metadata?.name || user.user_metadata?.full_name || user.user_metadata?.given_name) as
       | string
@@ -108,11 +99,8 @@ export async function GET(request: Request) {
         .join(' ') // Join with space
     }
 
-    console.log('Final name value:', name)
-
     const authService = getAuthService()
-    // Extract tenant ID from OAuth callback state or use default
-    const tenantId = requestUrl.searchParams.get('tenantId') || '00000000-0000-0000-0000-000000000000'
+    const tenantId = DEFAULT_TENANT_ID
     await authService.loginWithOAuth({ email, name }, tenantId)
 
     return NextResponse.redirect(`${origin}${appConfig.routes.protected.dashboard}`)

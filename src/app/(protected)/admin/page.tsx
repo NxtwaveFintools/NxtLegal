@@ -13,6 +13,14 @@ export default async function AdminConsolePage() {
   }
 
   return (
-    <AdminConsoleClient session={{ employeeId: session.employeeId, fullName: session.fullName, role: session.role }} />
+    <AdminConsoleClient
+      session={{
+        employeeId: session.employeeId,
+        fullName: session.fullName,
+        email: session.email,
+        team: session.team,
+        role: session.role,
+      }}
+    />
   )
 }

@@ -28,6 +28,7 @@ export type EmployeeByEmail = {
 export interface EmployeeRepository {
   findByEmployeeId: (lookup: EmployeeLookup) => Promise<EmployeeRecord | null>
   findByEmail: (lookup: EmployeeByEmail) => Promise<EmployeeRecord | null>
+  findMappedTeamRolesByEmail: (lookup: EmployeeByEmail) => Promise<Array<'POC' | 'HOD'>>
   create: (employee: Omit<EmployeeRecord, 'createdAt' | 'updatedAt' | 'deletedAt'>) => Promise<EmployeeRecord>
   softDelete: (id: string, tenantId: string) => Promise<void>
   restore: (id: string, tenantId: string) => Promise<void>

@@ -1,10 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { adminClient, type AdminUserOption, type AdminRoleOption } from '@/core/client/admin-client'
-import { authClient } from '@/core/client/auth-client'
-import { routeRegistry } from '@/core/config/route-registry'
+import { adminClient, type AdminDepartmentOption } from '@/core/client/admin-client'
 import ProtectedAppShell from '@/modules/dashboard/ui/ProtectedAppShell'
 import styles from './admin-console.module.css'
 
@@ -12,6 +9,8 @@ type AdminConsoleClientProps = {
   session: {
     employeeId: string
     fullName?: string | null
+    email?: string | null
+    team?: string | null
     role?: string | null
   }
 }
@@ -26,16 +25,22 @@ const sectionTitles = [
   'Audit Logs Viewer',
 ] as const
 
+const emailPattern = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/
+
 export default function AdminConsoleClient({ session }: AdminConsoleClientProps) {
-  const router = useRouter()
-  const [users, setUsers] = useState<AdminUserOption[]>([])
-  const [roles, setRoles] = useState<AdminRoleOption[]>([])
-  const [selectedUserId, setSelectedUserId] = useState('')
-  const [selectedRoleKey, setSelectedRoleKey] = useState('')
-  const [operation, setOperation] = useState<'grant' | 'revoke'>('grant')
+  const [departments, setDepartments] = useState<AdminDepartmentOption[]>([])
+  const [selectedTeamId, setSelectedTeamId] = useState('')
+
+  const [teamName, setTeamName] = useState('')
+  const [pocEmail, setPocEmail] = useState('')
+  const [hodEmail, setHodEmail] = useState('')
+
+  const [replaceRoleType, setReplaceRoleType] = useState<'POC' | 'HOD'>('POC')
+  const [newRoleEmail, setNewRoleEmail] = useState('')
+
   const [reason, setReason] = useState('')
-  const [showConfirmModal, setShowConfirmModal] = useState(false)
-  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isSubmittingCreate, setIsSubmittingCreate] = useState(false)
+  const [isSubmittingReplace, setIsSubmittingReplace] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
   const [toastMessage, setToastMessage] = useState<string | null>(null)
 
@@ -43,41 +48,27 @@ export default function AdminConsoleClient({ session }: AdminConsoleClientProps)
     const loadData = async () => {
       try {
         setToastMessage(null)
-        const [usersResponse, rolesResponse] = await Promise.all([adminClient.users(), adminClient.roles()])
+        const departmentsResponse = await adminClient.departments()
 
-        if (!usersResponse.ok || !usersResponse.data) {
-          setUsers([])
-          setSelectedUserId('')
-          setToastMessage(usersResponse.error?.message ?? 'Failed to load users')
+        if (!departmentsResponse.ok || !departmentsResponse.data) {
+          setDepartments([])
+          setSelectedTeamId('')
+          setToastMessage(departmentsResponse.error?.message ?? 'Failed to load departments')
         } else {
-          const nextUsers = usersResponse.data.users
-          setUsers(nextUsers)
-          setSelectedUserId((current) => {
+          const nextDepartments = departmentsResponse.data.departments
+          setDepartments(nextDepartments)
+          setSelectedTeamId((current) => {
             if (!current) {
-              return nextUsers[0]?.id || ''
+              return nextDepartments[0]?.id || ''
             }
 
-            return nextUsers.some((user) => user.id === current) ? current : nextUsers[0]?.id || ''
-          })
-        }
-
-        if (!rolesResponse.ok || !rolesResponse.data) {
-          setRoles([])
-          setSelectedRoleKey('')
-          setToastMessage((current) => current ?? rolesResponse.error?.message ?? 'Failed to load roles')
-        } else {
-          const nextRoles = rolesResponse.data.roles
-          setRoles(nextRoles)
-          setSelectedRoleKey((current) => {
-            if (!current) {
-              return nextRoles[0]?.roleKey || ''
-            }
-
-            return nextRoles.some((role) => role.roleKey === current) ? current : nextRoles[0]?.roleKey || ''
+            return nextDepartments.some((department) => department.id === current)
+              ? current
+              : nextDepartments[0]?.id || ''
           })
         }
       } catch {
-        setToastMessage('Failed to load admin role management data')
+        setToastMessage('Failed to load admin team governance data')
       } finally {
         setIsLoading(false)
       }
@@ -86,89 +77,124 @@ export default function AdminConsoleClient({ session }: AdminConsoleClientProps)
     void loadData()
   }, [])
 
-  const selectedUser = useMemo(() => users.find((user) => user.id === selectedUserId) ?? null, [users, selectedUserId])
+  const selectedDepartment = useMemo(
+    () => departments.find((department) => department.id === selectedTeamId) ?? null,
+    [departments, selectedTeamId]
+  )
 
-  const roleImpactPreview = useMemo(() => {
-    if (!selectedUser) {
-      return 'Select a user to preview role impact.'
-    }
+  const normalizedPocEmail = pocEmail.trim().toLowerCase()
+  const normalizedHodEmail = hodEmail.trim().toLowerCase()
+  const normalizedNewRoleEmail = newRoleEmail.trim().toLowerCase()
 
-    const hasRole = selectedUser.roles.includes(selectedRoleKey)
-    const impactLine =
-      operation === 'grant'
-        ? hasRole
-          ? 'No role change will occur because this user already has the selected role.'
-          : `This action will add ${selectedRoleKey} to active roles.`
-        : hasRole
-          ? `This action will remove ${selectedRoleKey} from active roles and revoke active sessions.`
-          : `No role change will occur because this user does not currently have ${selectedRoleKey}.`
+  const isPocEmailValid = normalizedPocEmail.length > 0 && emailPattern.test(normalizedPocEmail)
+  const isHodEmailValid = normalizedHodEmail.length > 0 && emailPattern.test(normalizedHodEmail)
+  const arePrimaryEmailsDifferent =
+    normalizedPocEmail !== '' && normalizedHodEmail !== '' && normalizedPocEmail !== normalizedHodEmail
 
-    return impactLine
-  }, [operation, selectedRoleKey, selectedUser])
+  const isNewRoleEmailValid = normalizedNewRoleEmail.length > 0 && emailPattern.test(normalizedNewRoleEmail)
+  const selectedOppositeRoleEmail =
+    replaceRoleType === 'POC'
+      ? (selectedDepartment?.hodEmail?.toLowerCase() ?? null)
+      : (selectedDepartment?.pocEmail?.toLowerCase() ?? null)
+  const isReplacementDifferentFromOtherRole =
+    !selectedOppositeRoleEmail || selectedOppositeRoleEmail !== normalizedNewRoleEmail
 
-  const hodWarning = operation === 'revoke' && selectedRoleKey === 'HOD'
-  const isCurrentUserSelected = selectedUser?.id === session.employeeId
-
-  const canSubmit =
+  const canCreate =
     !isLoading &&
-    !isSubmitting &&
-    Boolean(selectedUser) &&
-    Boolean(selectedRoleKey) &&
-    users.length > 0 &&
-    roles.length > 0
+    !isSubmittingCreate &&
+    teamName.trim().length >= 2 &&
+    isPocEmailValid &&
+    isHodEmailValid &&
+    arePrimaryEmailsDifferent
 
-  const handleConfirm = async () => {
-    if (!selectedUser) {
+  const canReplace =
+    !isLoading &&
+    !isSubmittingReplace &&
+    Boolean(selectedDepartment) &&
+    isNewRoleEmailValid &&
+    isReplacementDifferentFromOtherRole
+
+  const refreshDepartments = async () => {
+    const response = await adminClient.departments()
+    if (!response.ok || !response.data) {
+      setToastMessage(response.error?.message ?? 'Failed to load departments')
       return
     }
 
-    setIsSubmitting(true)
+    setDepartments(response.data.departments)
+    const refreshedDepartments = response.data.departments
+    setSelectedTeamId((current) => {
+      if (!current) {
+        return refreshedDepartments[0]?.id ?? ''
+      }
+
+      const stillExists = refreshedDepartments.some((department) => department.id === current)
+      return stillExists ? current : (refreshedDepartments[0]?.id ?? '')
+    })
+  }
+
+  const handleCreateTeam = async () => {
+    if (!canCreate) {
+      return
+    }
+
+    setIsSubmittingCreate(true)
     try {
-      const response = await adminClient.changeUserRole(selectedUser.id, {
-        operation,
-        roleKey: selectedRoleKey,
+      const response = await adminClient.createDepartment({
+        name: teamName.trim(),
+        pocEmail: normalizedPocEmail,
+        hodEmail: normalizedHodEmail,
         reason: reason.trim() || undefined,
       })
 
-      setShowConfirmModal(false)
-
       if (!response.ok || !response.data) {
-        setToastMessage(response.error?.message ?? 'Role update failed')
+        setToastMessage(response.error?.message ?? 'Department creation failed')
         return
       }
 
-      const afterRolesRaw = response.data.roleChange.afterStateSnapshot.role_keys
-      const afterRoles = Array.isArray(afterRolesRaw)
-        ? afterRolesRaw.filter((item): item is string => typeof item === 'string')
-        : selectedUser.roles
-
-      setUsers((current) =>
-        current.map((user) => (user.id === selectedUser.id ? { ...user, roles: afterRoles } : user))
-      )
-
-      const resultLabel = response.data.roleChange.changed ? 'updated successfully' : 'had no changes'
-      const messageParts = [`Role ${resultLabel}.`]
-
-      if (response.data.reauthentication.required && response.data.reauthentication.message) {
-        messageParts.push(response.data.reauthentication.message)
-      }
-
+      setTeamName('')
+      setPocEmail('')
+      setHodEmail('')
       setReason('')
-      setToastMessage(messageParts.join(' '))
-
-      const isSelfChange = response.data.roleChange.targetUserId === session.employeeId
-      if (isSelfChange && response.data.reauthentication.required) {
-        await authClient.logout()
-        router.push(routeRegistry.public.login)
-        router.refresh()
-      }
+      await refreshDepartments()
+      setToastMessage('Department created. Access will be granted on next Microsoft login for mapped emails.')
     } finally {
-      setIsSubmitting(false)
+      setIsSubmittingCreate(false)
+    }
+  }
+
+  const handleReplaceRole = async () => {
+    if (!selectedDepartment || !canReplace) {
+      return
+    }
+
+    setIsSubmittingReplace(true)
+    try {
+      const response = await adminClient.assignPrimaryRole(selectedDepartment.id, {
+        roleType: replaceRoleType,
+        newEmail: normalizedNewRoleEmail,
+        reason: reason.trim() || undefined,
+      })
+
+      if (!response.ok || !response.data) {
+        setToastMessage(response.error?.message ?? 'Role replacement failed')
+        return
+      }
+
+      setNewRoleEmail('')
+      setReason('')
+      await refreshDepartments()
+      setToastMessage('Primary role mapping replaced. Old email access is revoked immediately.')
+    } finally {
+      setIsSubmittingReplace(false)
     }
   }
 
   return (
-    <ProtectedAppShell session={{ fullName: session.fullName, role: session.role }} activeNav="admin">
+    <ProtectedAppShell
+      session={{ fullName: session.fullName, email: session.email, team: session.team, role: session.role }}
+      activeNav="admin"
+    >
       <main className={styles.main}>
         <section className={styles.header}>
           <h1 className={styles.title}>Admin Console</h1>
@@ -189,48 +215,36 @@ export default function AdminConsoleClient({ session }: AdminConsoleClientProps)
 
         <section className={styles.workspace}>
           <div className={styles.panel}>
-            <h2 className={styles.panelTitle}>Role Management</h2>
+            <h2 className={styles.panelTitle}>Team Management</h2>
 
             <label className={styles.field}>
-              <span className={styles.label}>User</span>
-              <select
-                className={styles.select}
-                value={selectedUserId}
-                onChange={(event) => setSelectedUserId(event.target.value)}
-              >
-                {users.map((user) => (
-                  <option key={user.id} value={user.id}>
-                    {user.email}
-                  </option>
-                ))}
-              </select>
+              <span className={styles.label}>Team Name</span>
+              <input
+                className={styles.input}
+                value={teamName}
+                onChange={(event) => setTeamName(event.target.value)}
+                placeholder="Enter department/team name"
+              />
             </label>
 
             <label className={styles.field}>
-              <span className={styles.label}>Operation</span>
-              <select
-                className={styles.select}
-                value={operation}
-                onChange={(event) => setOperation(event.target.value as 'grant' | 'revoke')}
-              >
-                <option value="grant">Grant role</option>
-                <option value="revoke">Revoke role</option>
-              </select>
+              <span className={styles.label}>POC Microsoft Email</span>
+              <input
+                className={styles.input}
+                value={pocEmail}
+                onChange={(event) => setPocEmail(event.target.value)}
+                placeholder="poc@yourdomain.com"
+              />
             </label>
 
             <label className={styles.field}>
-              <span className={styles.label}>Role</span>
-              <select
-                className={styles.select}
-                value={selectedRoleKey}
-                onChange={(event) => setSelectedRoleKey(event.target.value)}
-              >
-                {roles.map((role) => (
-                  <option key={role.roleKey} value={role.roleKey}>
-                    {role.displayName}
-                  </option>
-                ))}
-              </select>
+              <span className={styles.label}>HOD Microsoft Email</span>
+              <input
+                className={styles.input}
+                value={hodEmail}
+                onChange={(event) => setHodEmail(event.target.value)}
+                placeholder="hod@yourdomain.com"
+              />
             </label>
 
             <label className={styles.field}>
@@ -243,83 +257,100 @@ export default function AdminConsoleClient({ session }: AdminConsoleClientProps)
               />
             </label>
 
+            {!arePrimaryEmailsDifferent && normalizedPocEmail && normalizedHodEmail ? (
+              <div className={styles.warning}>POC and HOD must use different email addresses.</div>
+            ) : null}
+
             <div className={styles.actions}>
               <button
                 type="button"
                 className={`${styles.button} ${styles.buttonPrimary}`}
-                onClick={() => setShowConfirmModal(true)}
-                disabled={!canSubmit}
+                onClick={handleCreateTeam}
+                disabled={!canCreate}
               >
-                Review & Confirm
+                {isSubmittingCreate ? 'Creating...' : 'Create Team'}
+              </button>
+            </div>
+
+            <div className={styles.preview}>Access will be granted when this email logs in via Microsoft SSO.</div>
+
+            <label className={styles.field}>
+              <span className={styles.label}>Select Team for Replacement</span>
+              <select
+                className={styles.select}
+                value={selectedTeamId}
+                onChange={(event) => setSelectedTeamId(event.target.value)}
+              >
+                {departments.map((department) => (
+                  <option key={department.id} value={department.id}>
+                    {department.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label className={styles.field}>
+              <span className={styles.label}>Role To Replace</span>
+              <select
+                className={styles.select}
+                value={replaceRoleType}
+                onChange={(event) => setReplaceRoleType(event.target.value as 'POC' | 'HOD')}
+              >
+                <option value="POC">POC</option>
+                <option value="HOD">HOD</option>
+              </select>
+            </label>
+
+            <label className={styles.field}>
+              <span className={styles.label}>New Microsoft Email</span>
+              <input
+                className={styles.input}
+                value={newRoleEmail}
+                onChange={(event) => setNewRoleEmail(event.target.value)}
+                placeholder="new.owner@yourdomain.com"
+              />
+            </label>
+
+            {!isReplacementDifferentFromOtherRole && normalizedNewRoleEmail ? (
+              <div className={styles.warning}>Replacement email cannot match the other primary role email.</div>
+            ) : null}
+
+            <div className={styles.actions}>
+              <button type="button" className={styles.button} onClick={handleReplaceRole} disabled={!canReplace}>
+                {isSubmittingReplace ? 'Replacing...' : 'Replace'}
               </button>
             </div>
           </div>
 
           <div className={styles.panel}>
-            <h2 className={styles.panelTitle}>Role Impact Preview</h2>
+            <h2 className={styles.panelTitle}>Team Details</h2>
 
             <div className={styles.field}>
-              <span className={styles.label}>Selected user</span>
-              <input className={styles.input} value={selectedUser?.email ?? 'No user selected'} readOnly />
+              <span className={styles.label}>Selected Team</span>
+              <input className={styles.input} value={selectedDepartment?.name ?? 'No team selected'} readOnly />
             </div>
 
             <div className={styles.field}>
-              <span className={styles.label}>Current roles</span>
-              <div className={styles.rolePills}>
-                {(selectedUser?.roles ?? []).length === 0 ? (
-                  <span className={styles.rolePill}>No active roles</span>
-                ) : (
-                  selectedUser?.roles.map((role) => (
-                    <span key={role} className={styles.rolePill}>
-                      {role}
-                    </span>
-                  ))
-                )}
-              </div>
+              <span className={styles.label}>Current POC</span>
+              <input className={styles.input} value={selectedDepartment?.pocEmail ?? 'Not assigned'} readOnly />
             </div>
 
-            <div className={styles.preview}>{roleImpactPreview}</div>
+            <div className={styles.field}>
+              <span className={styles.label}>Current HOD</span>
+              <input className={styles.input} value={selectedDepartment?.hodEmail ?? 'Not assigned'} readOnly />
+            </div>
 
-            {hodWarning ? (
-              <div className={styles.warning}>Warning: Removing active HOD may interrupt pending approvals.</div>
-            ) : null}
-            {isCurrentUserSelected ? (
-              <div className={styles.warning}>Changing your own role will force re-authentication.</div>
-            ) : null}
+            <div className={styles.preview}>
+              This console only supports replacement for primary team roles. Deleting POC/HOD without replacement is not
+              allowed.
+            </div>
+
+            <div className={styles.warning}>
+              Role checks are backend-enforced from verified Microsoft email identity.
+            </div>
           </div>
         </section>
       </main>
-
-      {showConfirmModal ? (
-        <div className={styles.modalOverlay} role="dialog" aria-modal="true" aria-label="Confirm role change">
-          <div className={styles.modal}>
-            <div className={styles.modalTitle}>Confirm role replacement</div>
-            <div className={styles.modalBody}>
-              You are about to {operation} role <strong>{selectedRoleKey}</strong> for{' '}
-              <strong>{selectedUser?.email ?? 'selected user'}</strong>. This action is audit logged and may force
-              session re-authentication.
-            </div>
-            {hodWarning ? (
-              <div className={styles.warning}>
-                Warning: HOD removal should be coordinated with replacement planning.
-              </div>
-            ) : null}
-            <div className={styles.modalActions}>
-              <button type="button" className={styles.button} onClick={() => setShowConfirmModal(false)}>
-                Cancel
-              </button>
-              <button
-                type="button"
-                className={`${styles.button} ${styles.buttonPrimary}`}
-                onClick={handleConfirm}
-                disabled={isSubmitting}
-              >
-                {isSubmitting ? 'Updating...' : 'Confirm'}
-              </button>
-            </div>
-          </div>
-        </div>
-      ) : null}
     </ProtectedAppShell>
   )
 }

@@ -5,11 +5,19 @@
 import { AuthService } from '@/core/domain/auth/auth-service'
 import type { EmployeeRepository } from '@/core/domain/users/employee-repository'
 import type { Logger } from '@/core/infra/logging/types'
+import { createSession } from '@/core/infra/session/jwt-session-store'
+
+jest.mock('@/core/infra/session/jwt-session-store', () => ({
+  createSession: jest.fn().mockResolvedValue(undefined),
+  deleteSession: jest.fn().mockResolvedValue(undefined),
+  getSession: jest.fn().mockResolvedValue(null),
+}))
 
 // Mock repository
 const mockEmployeeRepository: jest.Mocked<EmployeeRepository> = {
   findByEmployeeId: jest.fn(),
   findByEmail: jest.fn(),
+  findMappedTeamRolesByEmail: jest.fn(),
   create: jest.fn(),
   softDelete: jest.fn(),
   restore: jest.fn(),
@@ -150,6 +158,103 @@ describe('AuthService', () => {
     it('should return null when no session exists', async () => {
       const session = await authService.getSession()
       expect(session).toBeNull()
+    })
+  })
+
+  describe('loginWithOAuth', () => {
+    it('rejects unmapped non-admin Microsoft account', async () => {
+      const tenantId = 'tenant-001'
+      const email = 'new.user@nxtwave.co.in'
+
+      mockEmployeeRepository.findMappedTeamRolesByEmail.mockResolvedValue([])
+      mockEmployeeRepository.findByEmail.mockResolvedValue(null)
+
+      await expect(
+        authService.loginWithOAuth(
+          {
+            email,
+            name: 'New User',
+          },
+          tenantId
+        )
+      ).rejects.toThrow('Access is not provisioned for this Microsoft account')
+    })
+
+    it('allows existing internal admin without mapping', async () => {
+      const tenantId = 'tenant-001'
+      const email = 'admin@nxtwave.co.in'
+
+      mockEmployeeRepository.findMappedTeamRolesByEmail.mockResolvedValue([])
+      mockEmployeeRepository.findByEmail.mockResolvedValue({
+        id: 'admin-uuid-123',
+        employeeId: 'admin-uuid-123',
+        tenantId,
+        email,
+        fullName: 'Admin User',
+        isActive: true,
+        passwordHash: null,
+        role: 'ADMIN',
+        tokenVersion: 3,
+        createdAt: '2026-02-14T00:00:00Z',
+        updatedAt: '2026-02-14T00:00:00Z',
+        deletedAt: null,
+      })
+
+      const result = await authService.loginWithOAuth(
+        {
+          email,
+          name: 'Admin User',
+        },
+        tenantId
+      )
+
+      expect(result.user.role).toBe('ADMIN')
+      expect(createSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          employeeId: 'admin-uuid-123',
+          role: 'ADMIN',
+          tenantId,
+          tokenVersion: 3,
+        })
+      )
+    })
+
+    it('derives OAuth runtime role from mapping for non-admin user', async () => {
+      const tenantId = 'tenant-001'
+      const email = 'mapped.user@nxtwave.co.in'
+
+      mockEmployeeRepository.findMappedTeamRolesByEmail.mockResolvedValue(['POC', 'HOD'])
+      mockEmployeeRepository.findByEmail.mockResolvedValue({
+        id: 'mapped-uuid-123',
+        employeeId: 'mapped-uuid-123',
+        tenantId,
+        email,
+        fullName: 'Mapped User',
+        isActive: true,
+        passwordHash: null,
+        role: 'USER',
+        tokenVersion: 0,
+        createdAt: '2026-02-14T00:00:00Z',
+        updatedAt: '2026-02-14T00:00:00Z',
+        deletedAt: null,
+      })
+
+      const result = await authService.loginWithOAuth(
+        {
+          email,
+          name: 'Mapped User',
+        },
+        tenantId
+      )
+
+      expect(result.user.role).toBe('HOD')
+      expect(createSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          employeeId: 'mapped-uuid-123',
+          role: 'HOD',
+          tenantId,
+        })
+      )
     })
   })
 })

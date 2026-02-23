@@ -1,7 +1,8 @@
 import { redirect } from 'next/navigation'
 import { appConfig } from '@/core/config/app-config'
-import { getSession } from '@/core/infra/session/jwt-session-store'
+import { deleteSession, getSession } from '@/core/infra/session/jwt-session-store'
 import type { AuthenticatedEmployee } from '@/core/domain/auth/types'
+import { supabaseEmployeeRepository } from '@/core/infra/repositories/supabase-employee-repository'
 
 export const requireAuthenticatedUser = async (): Promise<AuthenticatedEmployee> => {
   const session = await getSession()
@@ -10,11 +11,27 @@ export const requireAuthenticatedUser = async (): Promise<AuthenticatedEmployee>
     redirect(appConfig.routes.public.login)
   }
 
-  return {
-    id: session.employeeId,
+  if (!session.tenantId) {
+    await deleteSession()
+    redirect(appConfig.routes.public.login)
+  }
+
+  const employee = await supabaseEmployeeRepository.findByEmployeeId({
     employeeId: session.employeeId,
-    email: session.email ?? '',
-    fullName: session.fullName,
-    role: session.role,
+    tenantId: session.tenantId,
+  })
+
+  if (!employee || !employee.isActive) {
+    await deleteSession()
+    redirect(appConfig.routes.public.login)
+  }
+
+  return {
+    id: employee.id,
+    employeeId: employee.id,
+    email: employee.email,
+    fullName: employee.fullName ?? undefined,
+    role: employee.role,
+    team: employee.teamName ?? null,
   }
 }

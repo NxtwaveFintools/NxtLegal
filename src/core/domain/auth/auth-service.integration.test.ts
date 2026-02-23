@@ -93,6 +93,26 @@ describe('AuthService Integration Tests', () => {
         }
       },
 
+      findMappedTeamRolesByEmail: async ({ email, tenantId }: { email: string; tenantId: string }) => {
+        const normalizedEmail = email.trim().toLowerCase()
+        const { data } = await supabaseClient
+          .from('team_role_mappings')
+          .select('role_type')
+          .eq('tenant_id', tenantId)
+          .eq('email', normalizedEmail)
+          .eq('active_flag', true)
+          .is('deleted_at', null)
+
+        const roleSet = new Set<'POC' | 'HOD'>()
+        for (const row of (data ?? []) as Array<{ role_type: string }>) {
+          if (row.role_type === 'POC' || row.role_type === 'HOD') {
+            roleSet.add(row.role_type)
+          }
+        }
+
+        return Array.from(roleSet)
+      },
+
       create: async (
         employee: Omit<EmployeeRecord, 'createdAt' | 'updatedAt' | 'deletedAt'>
       ): Promise<EmployeeRecord> => {
@@ -316,7 +336,68 @@ describe('AuthService Integration Tests', () => {
   })
 
   describe('loginWithOAuth', () => {
+    it('should reject unmapped OAuth login for non-admin user', async () => {
+      await supabaseClient.from('users').insert({
+        id: testUserId,
+        email: testEmail,
+        tenant_id: DEFAULT_TENANT_ID,
+        full_name: 'Unmapped OAuth User',
+        is_active: true,
+        role: 'USER',
+        token_version: 0,
+        password_hash: null,
+      })
+
+      await expect(
+        authService.loginWithOAuth(
+          {
+            email: testEmail,
+            name: 'Unmapped OAuth User',
+          },
+          DEFAULT_TENANT_ID
+        )
+      ).rejects.toThrow(AuthorizationError)
+    })
+
+    it('should allow existing admin OAuth login without mapping', async () => {
+      await supabaseClient.from('users').insert({
+        id: testUserId,
+        email: testEmail,
+        tenant_id: DEFAULT_TENANT_ID,
+        full_name: 'Existing Admin OAuth',
+        is_active: true,
+        role: 'ADMIN',
+        token_version: 0,
+        password_hash: null,
+      })
+
+      const result = await authService.loginWithOAuth(
+        {
+          email: testEmail,
+          name: 'Existing Admin OAuth',
+        },
+        DEFAULT_TENANT_ID
+      )
+
+      expect(result.user.role).toBe('ADMIN')
+      expect(result.user.email).toBe(testEmail)
+    })
+
     it('should create new employee on first OAuth login', async () => {
+      const oauthTeamId = crypto.randomUUID()
+      await supabaseClient.from('teams').insert({
+        id: oauthTeamId,
+        tenant_id: DEFAULT_TENANT_ID,
+        name: `OAuth Team ${Date.now()}`,
+      })
+      await supabaseClient.from('team_role_mappings').insert({
+        tenant_id: DEFAULT_TENANT_ID,
+        team_id: oauthTeamId,
+        email: testEmail,
+        role_type: 'POC',
+        active_flag: true,
+      })
+
       // Arrange: OAuth profile for new user
       const oauthProfile = {
         email: testEmail,
@@ -346,6 +427,20 @@ describe('AuthService Integration Tests', () => {
     })
 
     it('should login existing OAuth user', async () => {
+      const oauthTeamId = crypto.randomUUID()
+      await supabaseClient.from('teams').insert({
+        id: oauthTeamId,
+        tenant_id: DEFAULT_TENANT_ID,
+        name: `OAuth Existing Team ${Date.now()}`,
+      })
+      await supabaseClient.from('team_role_mappings').insert({
+        tenant_id: DEFAULT_TENANT_ID,
+        team_id: oauthTeamId,
+        email: testEmail,
+        role_type: 'POC',
+        active_flag: true,
+      })
+
       // Arrange: Create existing OAuth employee
       await supabaseClient.from('users').insert({
         id: testUserId,
@@ -373,6 +468,20 @@ describe('AuthService Integration Tests', () => {
     })
 
     it('should reject OAuth login for inactive account', async () => {
+      const oauthTeamId = crypto.randomUUID()
+      await supabaseClient.from('teams').insert({
+        id: oauthTeamId,
+        tenant_id: DEFAULT_TENANT_ID,
+        name: `OAuth Inactive Team ${Date.now()}`,
+      })
+      await supabaseClient.from('team_role_mappings').insert({
+        tenant_id: DEFAULT_TENANT_ID,
+        team_id: oauthTeamId,
+        email: testEmail,
+        role_type: 'POC',
+        active_flag: true,
+      })
+
       // Arrange: Create inactive OAuth employee
       await supabaseClient.from('users').insert({
         id: crypto.randomUUID(),

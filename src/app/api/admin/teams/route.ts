@@ -42,6 +42,8 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
     const department = await teamGovernanceService.createDepartment({
       session,
       name: payload.name,
+      pocEmail: payload.pocEmail,
+      hodEmail: payload.hodEmail,
       reason: payload.reason,
     })
 

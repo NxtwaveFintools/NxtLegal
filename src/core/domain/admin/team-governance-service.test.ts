@@ -19,7 +19,7 @@ describe('TeamGovernanceService', () => {
     listDepartments: jest.fn<Promise<DepartmentSummary[]>, [string]>(),
     createDepartment: jest.fn<
       Promise<TeamMutationResult>,
-      [{ tenantId: string; adminUserId: string; name: string; reason?: string }]
+      [{ tenantId: string; adminUserId: string; name: string; pocEmail: string; hodEmail: string; reason?: string }]
     >(),
     updateDepartment: jest.fn<
       Promise<TeamMutationResult>,
@@ -41,7 +41,7 @@ describe('TeamGovernanceService', () => {
           tenantId: string
           adminUserId: string
           teamId: string
-          userId: string
+          newEmail: string
           roleType: 'POC' | 'HOD'
           reason?: string
         },
@@ -77,6 +77,8 @@ describe('TeamGovernanceService', () => {
           role: 'POC',
         },
         name: 'Finance',
+        pocEmail: 'finance.poc@nxtwave.co.in',
+        hodEmail: 'finance.hod@nxtwave.co.in',
       })
     ).rejects.toBeInstanceOf(AuthorizationError)
   })
@@ -85,9 +87,8 @@ describe('TeamGovernanceService', () => {
     mockRepository.assignPrimaryRole.mockResolvedValue({
       teamId: '95d8fba8-bf5c-4448-97b4-f6d580a992f2',
       roleType: 'HOD',
-      previousUserId: '8e30fce6-5ce7-4b66-bbe7-c4b09a34817b',
-      nextUserId: 'd91b81e8-8257-4969-968f-c8658d359f75',
-      affectedContracts: 4,
+      previousEmail: 'old.hod@nxtwave.co.in',
+      nextEmail: 'new.hod@nxtwave.co.in',
       beforeStateSnapshot: {},
       afterStateSnapshot: {},
     })
@@ -95,17 +96,17 @@ describe('TeamGovernanceService', () => {
     const result = await service.assignPrimaryRole({
       session: baseSession,
       teamId: '95d8fba8-bf5c-4448-97b4-f6d580a992f2',
-      userId: 'd91b81e8-8257-4969-968f-c8658d359f75',
+      newEmail: 'new.hod@nxtwave.co.in',
       roleType: 'HOD',
       reason: 'HOD reassignment for continuity',
     })
 
-    expect(result.affectedContracts).toBe(4)
+    expect(result.nextEmail).toBe('new.hod@nxtwave.co.in')
     expect(mockRepository.assignPrimaryRole).toHaveBeenCalledWith({
       tenantId: baseSession.tenantId,
       adminUserId: baseSession.employeeId,
       teamId: '95d8fba8-bf5c-4448-97b4-f6d580a992f2',
-      userId: 'd91b81e8-8257-4969-968f-c8658d359f75',
+      newEmail: 'new.hod@nxtwave.co.in',
       roleType: 'HOD',
       reason: 'HOD reassignment for continuity',
     })

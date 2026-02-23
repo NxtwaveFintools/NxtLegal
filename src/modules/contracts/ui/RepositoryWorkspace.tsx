@@ -12,6 +12,8 @@ import styles from './RepositoryWorkspace.module.css'
 type RepositoryWorkspaceProps = {
   session: {
     fullName?: string | null
+    email?: string | null
+    team?: string | null
     role?: string | null
   }
 }
@@ -124,7 +126,10 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
   })
 
   return (
-    <ProtectedAppShell session={{ fullName: session.fullName, role: session.role }} activeNav="repository">
+    <ProtectedAppShell
+      session={{ fullName: session.fullName, email: session.email, team: session.team, role: session.role }}
+      activeNav="repository"
+    >
       <main className={styles.main}>
         <section className={styles.header}>
           <div>

@@ -6,6 +6,7 @@ import { errorResponse } from '@/core/http/response'
 import { authErrorCodes, authErrorMessages } from '@/core/constants/auth-errors'
 import { logger } from '@/core/infra/logging/logger'
 import type { SessionData } from '@/core/infra/session/jwt-session-store'
+import { supabaseEmployeeRepository } from '@/core/infra/repositories/supabase-employee-repository'
 
 type AuthenticatedHandler<T = unknown> = (
   request: NextRequest,
@@ -43,8 +44,47 @@ export function withAuth<T = unknown>(handler: AuthenticatedHandler<T>) {
         )
       }
 
+      const tenantId = session.tenantId
+      if (!tenantId) {
+        logger.warn('Session missing tenant identifier during auth proxy', {
+          path: request.nextUrl.pathname,
+          employeeId: session.employeeId,
+        })
+
+        return NextResponse.json(
+          errorResponse(authErrorCodes.unauthorized, authErrorMessages[authErrorCodes.unauthorized]),
+          { status: 401 }
+        )
+      }
+
+      const employee = await supabaseEmployeeRepository.findByEmployeeId({
+        employeeId: session.employeeId,
+        tenantId,
+      })
+
+      if (!employee || !employee.isActive) {
+        logger.warn('Session principal not found or inactive during auth proxy', {
+          path: request.nextUrl.pathname,
+          employeeId: session.employeeId,
+          tenantId,
+        })
+
+        return NextResponse.json(
+          errorResponse(authErrorCodes.unauthorized, authErrorMessages[authErrorCodes.unauthorized]),
+          { status: 401 }
+        )
+      }
+
+      const hydratedSession: SessionData = {
+        ...session,
+        role: employee.role,
+        email: employee.email,
+        fullName: employee.fullName ?? undefined,
+        tokenVersion: employee.tokenVersion,
+      }
+
       // Pass validated session to handler
-      return await handler(request, { params: resolvedParams, session })
+      return await handler(request, { params: resolvedParams, session: hydratedSession })
     } catch (error) {
       logger.error('Auth proxy error', {
         path: request.nextUrl.pathname,

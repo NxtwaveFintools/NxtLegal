@@ -11,6 +11,8 @@ import styles from './dashboard.module.css'
 type ProtectedAppShellProps = {
   session: {
     fullName?: string | null
+    email?: string | null
+    team?: string | null
     role?: string | null
   }
   activeNav: 'home' | 'repository' | 'admin'
@@ -28,6 +30,14 @@ export default function ProtectedAppShell({ session, activeNav, children }: Prot
 
     return session.fullName.split(' ')[0] || session.fullName
   }, [session.fullName])
+
+  const displayRole = useMemo(() => {
+    if (!session.role) {
+      return 'USER'
+    }
+
+    return session.role.toUpperCase()
+  }, [session.role])
 
   return (
     <div className={styles.page}>
@@ -140,6 +150,13 @@ export default function ProtectedAppShell({ session, activeNav, children }: Prot
           <div className={styles.topbarRight}>
             <ThemeToggle />
             <span className={styles.companyBadge}>NxtWave Disruptive Technologies Private Limited</span>
+            <div className={styles.userIdentity}>
+              <span className={styles.userEmail}>{session.email ?? 'unknown@user'}</span>
+              <span className={styles.userRole}>
+                {displayRole}
+                {session.team ? ` • ${session.team}` : ''}
+              </span>
+            </div>
             <div className={styles.profileBadge}>{displayName.slice(0, 1).toUpperCase()}</div>
             <LogoutButton />
           </div>

@@ -78,19 +78,35 @@ export class AuthService {
   }
 
   async loginWithOAuth(profile: OAuthProfile, tenantId: string): Promise<AuthResult> {
-    if (!profile.email || !isAllowedDomain(profile.email)) {
+    const normalizedEmail = profile.email?.trim().toLowerCase() ?? ''
+    if (!normalizedEmail || !isAllowedDomain(normalizedEmail)) {
       throw new AuthorizationError(authErrorCodes.unauthorized, 'Domain not allowed for this organization')
     }
 
-    let employee = await this.employeeRepository.findByEmail({
-      email: profile.email,
+    const mappedTeamRoles = await this.employeeRepository.findMappedTeamRolesByEmail({
+      email: normalizedEmail,
       tenantId,
     })
+
+    const resolvedMappedRole = mappedTeamRoles.includes('HOD') ? 'HOD' : mappedTeamRoles.includes('POC') ? 'POC' : null
+
+    let employee = await this.employeeRepository.findByEmail({
+      email: normalizedEmail,
+      tenantId,
+    })
+
+    const isExistingAdmin = employee
+      ? ['ADMIN', 'LEGAL_ADMIN', 'SUPER_ADMIN'].includes((employee.role ?? '').toUpperCase())
+      : false
+
+    if (!resolvedMappedRole && !isExistingAdmin) {
+      throw new AuthorizationError(authErrorCodes.unauthorized, 'Access is not provisioned for this Microsoft account')
+    }
 
     // If employee doesn't exist, auto-create on first OAuth login
     if (!employee) {
       // Generate employee ID from email (e.g., user@example.com → USER001)
-      const emailPrefix = profile.email.split('@')[0].toUpperCase()
+      const emailPrefix = normalizedEmail.split('@')[0].toUpperCase()
       const employeeId = `${emailPrefix.substring(0, 4)}${Math.random().toString(36).substring(7).toUpperCase()}`
 
       // Generate a valid UUID for the id field
@@ -99,11 +115,11 @@ export class AuthService {
       employee = await this.employeeRepository.create({
         id: newId,
         employeeId,
-        email: profile.email,
+        email: normalizedEmail,
         tenantId,
         fullName: profile.name || undefined,
         isActive: true,
-        role: 'POC',
+        role: resolvedMappedRole ?? 'USER',
         tokenVersion: 0,
         passwordHash: null, // OAuth users don't need password hash
         teamId: null,
@@ -115,11 +131,13 @@ export class AuthService {
       throw new AuthorizationError(authErrorCodes.accountInactive, 'Account is inactive')
     }
 
+    const sessionRole = isExistingAdmin ? employee.role : (resolvedMappedRole ?? 'USER')
+
     await createSession({
       employeeId: employee.id,
       email: employee.email,
       fullName: employee.fullName ?? undefined,
-      role: employee.role,
+      role: sessionRole,
       tenantId,
       tokenVersion: employee.tokenVersion,
     })
@@ -130,7 +148,7 @@ export class AuthService {
         employeeId: employee.id,
         email: employee.email,
         fullName: employee.fullName ?? undefined,
-        role: employee.role,
+        role: sessionRole,
         team: employee.teamName ?? null,
       },
     }
@@ -141,6 +159,27 @@ export class AuthService {
   }
 
   async getSession() {
-    return getSession()
+    const session = await getSession()
+
+    if (!session?.employeeId || !session.tenantId) {
+      return null
+    }
+
+    const employee = await this.employeeRepository.findByEmployeeId({
+      employeeId: session.employeeId,
+      tenantId: session.tenantId,
+    })
+
+    if (!employee || !employee.isActive) {
+      return null
+    }
+
+    return {
+      ...session,
+      email: employee.email,
+      fullName: employee.fullName ?? undefined,
+      role: employee.role,
+      tokenVersion: employee.tokenVersion,
+    }
   }
 }

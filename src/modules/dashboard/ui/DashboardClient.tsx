@@ -16,6 +16,7 @@ type DashboardClientProps = {
     employeeId: string
     fullName?: string | null
     email?: string | null
+    team?: string | null
     role?: string
   }
 }
@@ -275,7 +276,10 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   )
 
   return (
-    <ProtectedAppShell session={{ fullName: session.fullName, role: session.role }} activeNav="home">
+    <ProtectedAppShell
+      session={{ fullName: session.fullName, email: session.email, team: session.team, role: session.role }}
+      activeNav="home"
+    >
       <main className={styles.main}>
         <section className={styles.greeting}>
           <div>

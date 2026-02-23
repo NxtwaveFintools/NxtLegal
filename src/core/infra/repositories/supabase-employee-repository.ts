@@ -11,6 +11,10 @@ import type {
 } from '@/core/domain/users/employee-repository'
 
 class SupabaseEmployeeRepository implements EmployeeRepository {
+  private readonly adminCompatibilityRoles = new Set(['ADMIN', 'LEGAL_ADMIN', 'SUPER_ADMIN'])
+
+  private readonly passthroughRoles = new Set(['LEGAL_TEAM'])
+
   private readonly selectWithTeamRelation =
     'id, tenant_id, email, full_name, team_id, team_name:teams(name), is_active, password_hash, role, token_version, created_at, updated_at, deleted_at'
 
@@ -100,42 +104,43 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
 
   private async resolveEffectiveRole(params: {
     tenantId: string
-    userId: string
+    userEmail: string
     currentRole: string
     supabase: ReturnType<typeof createServiceSupabase>
   }): Promise<string> {
-    if (params.currentRole !== 'USER') {
-      return params.currentRole
+    const normalizedCurrentRole = params.currentRole.trim().toUpperCase()
+
+    if (this.adminCompatibilityRoles.has(normalizedCurrentRole) || this.passthroughRoles.has(normalizedCurrentRole)) {
+      return normalizedCurrentRole
     }
 
     const { data, error } = await params.supabase
-      .from('team_members')
-      .select('role_type, is_primary, created_at')
+      .from('team_role_mappings')
+      .select('role_type')
       .eq('tenant_id', params.tenantId)
-      .eq('user_id', params.userId)
-      .order('is_primary', { ascending: false })
-      .order('created_at', { ascending: true })
-      .limit(1)
+      .eq('email', params.userEmail.trim().toLowerCase())
+      .eq('active_flag', true)
+      .is('deleted_at', null)
 
     if (error) {
-      logger.warn('Failed to resolve effective role from team_members', {
+      logger.warn('Failed to resolve effective role from team_role_mappings', {
         tenantId: params.tenantId,
-        userId: params.userId,
+        userEmail: params.userEmail,
         error: error.message,
       })
-      return params.currentRole
+      return normalizedCurrentRole === 'HOD' || normalizedCurrentRole === 'POC' ? 'USER' : normalizedCurrentRole
     }
 
-    const roleType = (data ?? [])[0]?.role_type
-    if (roleType === 'HOD') {
+    const roleSet = new Set<string>((data ?? []).map((row) => row.role_type))
+    if (roleSet.has('HOD')) {
       return 'HOD'
     }
 
-    if (roleType === 'POC') {
+    if (roleSet.has('POC')) {
       return 'POC'
     }
 
-    return params.currentRole
+    return normalizedCurrentRole === 'HOD' || normalizedCurrentRole === 'POC' ? 'USER' : normalizedCurrentRole
   }
 
   private resolveTeamName(
@@ -224,7 +229,7 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
 
           const effectiveRole = await this.resolveEffectiveRole({
             tenantId,
-            userId: legacyData.id,
+            userEmail: legacyData.email,
             currentRole: legacyData.role,
             supabase,
           })
@@ -275,7 +280,7 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
 
               const effectiveRole = await this.resolveEffectiveRole({
                 tenantId,
-                userId: legacyData.id,
+                userEmail: legacyData.email,
                 currentRole: legacyData.role,
                 supabase,
               })
@@ -303,7 +308,7 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
 
           const effectiveRole = await this.resolveEffectiveRole({
             tenantId,
-            userId: fallbackData.id,
+            userEmail: fallbackData.email,
             currentRole: fallbackData.role,
             supabase,
           })
@@ -332,7 +337,7 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
 
       const effectiveRole = await this.resolveEffectiveRole({
         tenantId,
-        userId: data.id,
+        userEmail: data.email,
         currentRole: data.role,
         supabase,
       })
@@ -386,7 +391,7 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
 
           const effectiveRole = await this.resolveEffectiveRole({
             tenantId,
-            userId: legacyData.id,
+            userEmail: legacyData.email,
             currentRole: legacyData.role,
             supabase,
           })
@@ -432,7 +437,7 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
 
               const effectiveRole = await this.resolveEffectiveRole({
                 tenantId,
-                userId: legacyData.id,
+                userEmail: legacyData.email,
                 currentRole: legacyData.role,
                 supabase,
               })
@@ -458,7 +463,7 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
 
           const effectiveRole = await this.resolveEffectiveRole({
             tenantId,
-            userId: fallbackData.id,
+            userEmail: fallbackData.email,
             currentRole: fallbackData.role,
             supabase,
           })
@@ -480,7 +485,7 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
 
       const effectiveRole = await this.resolveEffectiveRole({
         tenantId,
-        userId: data.id,
+        userEmail: data.email,
         currentRole: data.role,
         supabase,
       })
@@ -489,6 +494,46 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
     } catch (error) {
       logger.error('Employee lookup by email threw error', { email, tenantId, error: String(error) })
       return null
+    }
+  }
+
+  async findMappedTeamRolesByEmail({ email, tenantId }: EmployeeByEmail): Promise<Array<'POC' | 'HOD'>> {
+    try {
+      const normalizedEmail = email.trim().toLowerCase()
+      if (!normalizedEmail) {
+        return []
+      }
+
+      const supabase = createServiceSupabase()
+      const { data, error } = await supabase
+        .from('team_role_mappings')
+        .select('role_type')
+        .eq('tenant_id', tenantId)
+        .eq('email', normalizedEmail)
+        .eq('active_flag', true)
+        .is('deleted_at', null)
+
+      if (error) {
+        logger.error('Failed to load mapped team roles by email', {
+          email: normalizedEmail,
+          tenantId,
+          error: error.message,
+          errorCode: error.code,
+        })
+        return []
+      }
+
+      const roleSet = new Set<'POC' | 'HOD'>()
+      for (const row of data ?? []) {
+        if (row.role_type === 'POC' || row.role_type === 'HOD') {
+          roleSet.add(row.role_type)
+        }
+      }
+
+      return Array.from(roleSet)
+    } catch (error) {
+      logger.error('Mapped team role lookup by email threw error', { email, tenantId, error: String(error) })
+      return []
     }
   }
 

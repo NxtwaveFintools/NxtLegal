@@ -23,6 +23,8 @@ export type TeamMutationResult = {
   teamId: string
   departmentName: string
   isActive: boolean
+  pocEmail: string | null
+  hodEmail: string | null
   beforeStateSnapshot: Record<string, unknown>
   afterStateSnapshot: Record<string, unknown>
 }
@@ -30,9 +32,8 @@ export type TeamMutationResult = {
 export type PrimaryRoleMutationResult = {
   teamId: string
   roleType: 'POC' | 'HOD'
-  previousUserId: string | null
-  nextUserId: string
-  affectedContracts: number
+  previousEmail: string | null
+  nextEmail: string
   beforeStateSnapshot: Record<string, unknown>
   afterStateSnapshot: Record<string, unknown>
 }
@@ -50,6 +51,8 @@ export interface ITeamGovernanceRepository {
     tenantId: string
     adminUserId: string
     name: string
+    pocEmail: string
+    hodEmail: string
     reason?: string
   }): Promise<TeamMutationResult>
   updateDepartment(params: {
@@ -64,7 +67,7 @@ export interface ITeamGovernanceRepository {
     tenantId: string
     adminUserId: string
     teamId: string
-    userId: string
+    newEmail: string
     roleType: 'POC' | 'HOD'
     reason?: string
   }): Promise<PrimaryRoleMutationResult>
@@ -102,13 +105,21 @@ export class TeamGovernanceService {
     return this.teamGovernanceRepository.listDepartments(session.tenantId as string)
   }
 
-  async createDepartment(params: { session: SessionData; name: string; reason?: string }): Promise<TeamMutationResult> {
+  async createDepartment(params: {
+    session: SessionData
+    name: string
+    pocEmail: string
+    hodEmail: string
+    reason?: string
+  }): Promise<TeamMutationResult> {
     this.assertAdminSession(params.session)
 
     return this.teamGovernanceRepository.createDepartment({
       tenantId: params.session.tenantId as string,
       adminUserId: params.session.employeeId as string,
       name: params.name,
+      pocEmail: params.pocEmail,
+      hodEmail: params.hodEmail,
       reason: params.reason,
     })
   }
@@ -135,7 +146,7 @@ export class TeamGovernanceService {
   async assignPrimaryRole(params: {
     session: SessionData
     teamId: string
-    userId: string
+    newEmail: string
     roleType: 'POC' | 'HOD'
     reason?: string
   }): Promise<PrimaryRoleMutationResult> {
@@ -145,7 +156,7 @@ export class TeamGovernanceService {
       tenantId: params.session.tenantId as string,
       adminUserId: params.session.employeeId as string,
       teamId: params.teamId,
-      userId: params.userId,
+      newEmail: params.newEmail,
       roleType: params.roleType,
       reason: params.reason,
     })

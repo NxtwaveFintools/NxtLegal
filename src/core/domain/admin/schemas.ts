@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { adminGovernance } from '@/core/constants/admin-governance'
+import { isAllowedDomain } from '@/core/domain/auth/policies/domain-policy'
 
 const roleOperationValues = [adminGovernance.operations.grant, adminGovernance.operations.revoke] as const
 
@@ -24,14 +25,37 @@ export const roleManagementPathSchema = z.object({
 const teamOperationValues = ['rename', 'deactivate'] as const
 const teamRoleTypeValues = ['POC', 'HOD'] as const
 
+const corporateEmailSchema = z
+  .string()
+  .trim()
+  .min(3, 'Email is required')
+  .max(320, 'Email is too long')
+  .email('Invalid email format')
+  .transform((value) => value.toLowerCase())
+  .refine((value) => isAllowedDomain(value), {
+    message: 'Only approved Microsoft tenant domain emails are allowed',
+  })
+
 export const teamPathSchema = z.object({
   teamId: z.string().uuid('Invalid team ID'),
 })
 
-export const createDepartmentRequestSchema = z.object({
-  name: z.string().trim().min(2, 'Department name is required').max(120, 'Department name is too long'),
-  reason: z.string().trim().max(500, 'Reason is too long').optional(),
-})
+export const createDepartmentRequestSchema = z
+  .object({
+    name: z.string().trim().min(2, 'Department name is required').max(120, 'Department name is too long'),
+    pocEmail: corporateEmailSchema,
+    hodEmail: corporateEmailSchema,
+    reason: z.string().trim().max(500, 'Reason is too long').optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.pocEmail === value.hodEmail) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'POC and HOD emails must be different',
+        path: ['hodEmail'],
+      })
+    }
+  })
 
 export const updateDepartmentRequestSchema = z
   .object({
@@ -51,7 +75,7 @@ export const updateDepartmentRequestSchema = z
 
 export const assignPrimaryRoleRequestSchema = z.object({
   roleType: z.enum(teamRoleTypeValues),
-  userId: z.string().uuid('Invalid user ID'),
+  newEmail: corporateEmailSchema,
   reason: z.string().trim().max(500, 'Reason is too long').optional(),
 })
 

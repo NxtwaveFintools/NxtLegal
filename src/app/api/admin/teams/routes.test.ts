@@ -49,6 +49,9 @@ jest.mock('@/core/config/app-config', () => ({
     features: {
       enableAdminGovernance: true,
     },
+    auth: {
+      allowedDomains: ['@nxtwave.co.in'],
+    },
   },
 }))
 
@@ -116,13 +119,20 @@ describe('Admin team API routes', () => {
       teamId: '6bc8d6e8-51b5-4a5f-9f57-5168b3729513',
       departmentName: 'Finance',
       isActive: true,
+      pocEmail: 'finance.poc@nxtwave.co.in',
+      hodEmail: 'finance.hod@nxtwave.co.in',
       beforeStateSnapshot: {},
       afterStateSnapshot: {},
     })
 
     const response = await POST(
       {
-        json: async () => ({ name: 'Finance', reason: 'Initial setup' }),
+        json: async () => ({
+          name: 'Finance',
+          pocEmail: 'finance.poc@nxtwave.co.in',
+          hodEmail: 'finance.hod@nxtwave.co.in',
+          reason: 'Initial setup',
+        }),
       } as unknown as PostRequestArg,
       {} as PostContextArg
     )
@@ -133,6 +143,8 @@ describe('Admin team API routes', () => {
     expect(mockTeamGovernanceService.createDepartment).toHaveBeenCalledWith({
       session: mockSession,
       name: 'Finance',
+      pocEmail: 'finance.poc@nxtwave.co.in',
+      hodEmail: 'finance.hod@nxtwave.co.in',
       reason: 'Initial setup',
     })
   })
@@ -159,9 +171,8 @@ describe('Admin team API routes', () => {
     mockTeamGovernanceService.assignPrimaryRole.mockResolvedValueOnce({
       teamId: '6bc8d6e8-51b5-4a5f-9f57-5168b3729513',
       roleType: 'POC',
-      previousUserId: null,
-      nextUserId: '0f4cda17-cf11-43a8-a432-5d354803df7e',
-      affectedContracts: 0,
+      previousEmail: null,
+      nextEmail: 'next.poc@nxtwave.co.in',
       beforeStateSnapshot: {},
       afterStateSnapshot: {},
     })
@@ -170,7 +181,7 @@ describe('Admin team API routes', () => {
       {
         json: async () => ({
           roleType: 'POC',
-          userId: '0f4cda17-cf11-43a8-a432-5d354803df7e',
+          newEmail: 'next.poc@nxtwave.co.in',
           reason: 'Ownership transfer',
         }),
       } as unknown as PutPrimaryRequestArg,
@@ -184,7 +195,7 @@ describe('Admin team API routes', () => {
       session: mockSession,
       teamId: '6bc8d6e8-51b5-4a5f-9f57-5168b3729513',
       roleType: 'POC',
-      userId: '0f4cda17-cf11-43a8-a432-5d354803df7e',
+      newEmail: 'next.poc@nxtwave.co.in',
       reason: 'Ownership transfer',
     })
   })
