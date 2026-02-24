@@ -24,6 +24,8 @@ export const roleManagementPathSchema = z.object({
 
 const teamOperationValues = ['rename', 'deactivate'] as const
 const teamRoleTypeValues = ['POC', 'HOD'] as const
+const departmentRoleTypeValues = adminGovernance.departmentRoleTypes
+const userRoleTypeValues = adminGovernance.userRoleTypes
 
 const corporateEmailSchema = z
   .string()
@@ -84,8 +86,35 @@ export const legalMatrixRequestSchema = z.object({
   reason: z.string().trim().max(500, 'Reason is too long').optional(),
 })
 
+export const usersQuerySchema = z.object({
+  groupBy: z.enum(['department']).optional(),
+})
+
+export const createUserRequestSchema = z.object({
+  email: corporateEmailSchema,
+  fullName: z.string().trim().min(2, 'Full name is required').max(160, 'Full name is too long').optional(),
+  role: z.enum(userRoleTypeValues).default('LEGAL_TEAM'),
+  isActive: z.boolean().optional().default(true),
+})
+
+export const userStatusPathSchema = z.object({
+  userId: z.string().uuid('Invalid user ID'),
+})
+
+export const updateUserStatusRequestSchema = z.object({
+  isActive: z.boolean(),
+})
+
+export const assignUserDepartmentRoleRequestSchema = z.object({
+  departmentId: z.string().uuid('Invalid department ID'),
+  departmentRole: z.enum(departmentRoleTypeValues),
+})
+
 export type RoleManagementRequest = z.infer<typeof roleManagementRequestSchema>
 export type CreateDepartmentRequest = z.infer<typeof createDepartmentRequestSchema>
 export type UpdateDepartmentRequest = z.infer<typeof updateDepartmentRequestSchema>
 export type AssignPrimaryRoleRequest = z.infer<typeof assignPrimaryRoleRequestSchema>
 export type LegalMatrixRequest = z.infer<typeof legalMatrixRequestSchema>
+export type CreateUserRequest = z.infer<typeof createUserRequestSchema>
+export type UpdateUserStatusRequest = z.infer<typeof updateUserStatusRequestSchema>
+export type AssignUserDepartmentRoleRequest = z.infer<typeof assignUserDepartmentRoleRequestSchema>

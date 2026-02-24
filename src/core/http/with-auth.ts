@@ -8,6 +8,14 @@ import { logger } from '@/core/infra/logging/logger'
 import type { SessionData } from '@/core/infra/session/jwt-session-store'
 import { supabaseEmployeeRepository } from '@/core/infra/repositories/supabase-employee-repository'
 
+const normalizeTokenVersion = (tokenVersion: number | undefined): number => {
+  if (typeof tokenVersion !== 'number' || Number.isNaN(tokenVersion) || tokenVersion < 0) {
+    return 0
+  }
+
+  return Math.trunc(tokenVersion)
+}
+
 type AuthenticatedHandler<T = unknown> = (
   request: NextRequest,
   context: { params?: Record<string, string>; session: SessionData }
@@ -67,6 +75,24 @@ export function withAuth<T = unknown>(handler: AuthenticatedHandler<T>) {
           path: request.nextUrl.pathname,
           employeeId: session.employeeId,
           tenantId,
+        })
+
+        return NextResponse.json(
+          errorResponse(authErrorCodes.unauthorized, authErrorMessages[authErrorCodes.unauthorized]),
+          { status: 401 }
+        )
+      }
+
+      const jwtTokenVersion = normalizeTokenVersion(session.tokenVersion)
+      const currentTokenVersion = normalizeTokenVersion(employee.tokenVersion)
+
+      if (jwtTokenVersion !== currentTokenVersion) {
+        logger.warn('Session rejected in auth proxy due to token version mismatch', {
+          path: request.nextUrl.pathname,
+          employeeId: session.employeeId,
+          tenantId,
+          jwtTokenVersion,
+          currentTokenVersion,
         })
 
         return NextResponse.json(

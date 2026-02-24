@@ -13,6 +13,9 @@ describe('supabaseContractQueryRepository action permissions', () => {
 
   it('blocks legal action when actor is not current assignee', async () => {
     const getByIdSpy = jest.spyOn(supabaseContractQueryRepository, 'getById')
+    const collaboratorSpy = jest.spyOn(supabaseContractQueryRepository, 'isLegalCollaborator')
+
+    collaboratorSpy.mockResolvedValue(false)
 
     getByIdSpy.mockResolvedValue({
       id: 'contract-1',

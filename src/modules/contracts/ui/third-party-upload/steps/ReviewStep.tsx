@@ -5,28 +5,29 @@ import styles from '../third-party-upload.module.css'
 type ReviewStepProps = {
   mainFileName: string | null
   contractType: string
-  counterparty: string
+  counterparties: Array<{
+    counterpartyName: string
+    supportingCount: number
+  }>
   departmentName: string
   signatoryName: string
   signatoryDesignation: string
   signatoryEmail: string
   backgroundOfRequest: string
   budgetApproved: boolean
-  supportingCount: number
   organizationEntity: string
 }
 
 export default function ReviewStep({
   mainFileName,
   contractType,
-  counterparty,
+  counterparties,
   departmentName,
   signatoryName,
   signatoryDesignation,
   signatoryEmail,
   backgroundOfRequest,
   budgetApproved,
-  supportingCount,
   organizationEntity,
 }: ReviewStepProps) {
   return (
@@ -42,23 +43,29 @@ export default function ReviewStep({
         <span>{contractType || 'Not set'}</span>
       </div>
       <div className={styles.summaryRow}>
-        <span>Counterparty</span>
-        <span>{counterparty || 'Not set'}</span>
+        <span>Counterparties</span>
+        <span>{counterparties.length || 0}</span>
       </div>
+      {counterparties.map((counterparty, index) => (
+        <div className={styles.summaryRow} key={`${counterparty.counterpartyName}-${index}`}>
+          <span>{`Counterparty ${index + 1}`}</span>
+          <span>{`${counterparty.counterpartyName || 'Not set'} (${counterparty.supportingCount} docs)`}</span>
+        </div>
+      ))}
       <div className={styles.summaryRow}>
         <span>Department</span>
         <span>{departmentName || 'Not set'}</span>
       </div>
       <div className={styles.summaryRow}>
-        <span>Signatory Name</span>
+        <span>Counterparty Signatory Name</span>
         <span>{signatoryName || 'Not set'}</span>
       </div>
       <div className={styles.summaryRow}>
-        <span>Signatory Designation</span>
+        <span>Counterparty Signatory Designation</span>
         <span>{signatoryDesignation || 'Not set'}</span>
       </div>
       <div className={styles.summaryRow}>
-        <span>Signatory Email</span>
+        <span>Counterparty Signatory Email</span>
         <span>{signatoryEmail || 'Not set'}</span>
       </div>
       <div className={styles.summaryRow}>
@@ -68,10 +75,6 @@ export default function ReviewStep({
       <div className={styles.summaryRow}>
         <span>Background</span>
         <span>{backgroundOfRequest || 'Not set'}</span>
-      </div>
-      <div className={styles.summaryRow}>
-        <span>Supporting Documents</span>
-        <span>{supportingCount}</span>
       </div>
       <div className={styles.summaryRow}>
         <span>Organization Entity</span>

@@ -87,9 +87,33 @@ export const contractNoteSchema = z.object({
   noteText: z.string().trim().min(1, 'Note is required').max(2000, 'Note exceeds maximum length'),
 })
 
+export const contractActivityMessageSchema = z.object({
+  messageText: z.string().trim().min(1, 'Message is required').max(2000, 'Message exceeds maximum length'),
+})
+
+export const contractActivityReadStateSchema = z.object({
+  markSeen: z.literal(true).default(true),
+})
+
 export const contractApproverSchema = z.object({
   approverEmail: z.string().trim().toLowerCase().email('Valid approver email is required'),
 })
 
+export const contractLegalAssignmentSchema = z.discriminatedUnion('operation', [
+  z.object({
+    operation: z.literal('set_owner'),
+    ownerEmail: z.string().trim().toLowerCase().email('Valid legal owner email is required'),
+  }),
+  z.object({
+    operation: z.literal('add_collaborator'),
+    collaboratorEmail: z.string().trim().toLowerCase().email('Valid collaborator email is required'),
+  }),
+  z.object({
+    operation: z.literal('remove_collaborator'),
+    collaboratorEmail: z.string().trim().toLowerCase().email('Valid collaborator email is required'),
+  }),
+])
+
 export type ContractActionName = (typeof contractActionNames)[number]
 export type DashboardContractsFilter = (typeof dashboardContractsFilterValues)[number]
+export type ContractLegalAssignmentOperation = z.infer<typeof contractLegalAssignmentSchema>['operation']

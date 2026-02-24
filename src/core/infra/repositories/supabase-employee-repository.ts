@@ -234,7 +234,7 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
             supabase,
           })
 
-          logger.warn('User lookup by ID used legacy token version fallback', {
+          logger.debug('User lookup by ID used legacy token version fallback', {
             employeeId,
             tenantId,
             role: effectiveRole,
@@ -285,7 +285,7 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
                 supabase,
               })
 
-              logger.warn('User lookup by ID used legacy token version fallback after schema drift', {
+              logger.debug('User lookup by ID used legacy token version fallback after schema drift', {
                 employeeId,
                 tenantId,
                 role: effectiveRole,
@@ -313,7 +313,7 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
             supabase,
           })
 
-          logger.warn('User lookup by ID used schema-drift fallback (no team relation)', {
+          logger.debug('User lookup by ID used schema-drift fallback (no team relation)', {
             employeeId,
             tenantId,
             role: effectiveRole,
@@ -396,7 +396,7 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
             supabase,
           })
 
-          logger.warn('Employee lookup by email used legacy token version fallback', {
+          logger.debug('Employee lookup by email used legacy token version fallback', {
             email,
             tenantId,
             role: effectiveRole,
@@ -442,7 +442,7 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
                 supabase,
               })
 
-              logger.warn('Employee lookup by email used legacy token version fallback after schema drift', {
+              logger.debug('Employee lookup by email used legacy token version fallback after schema drift', {
                 email,
                 tenantId,
                 role: effectiveRole,
@@ -468,7 +468,7 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
             supabase,
           })
 
-          logger.warn('Employee lookup by email used schema-drift fallback (no team relation)', {
+          logger.debug('Employee lookup by email used schema-drift fallback (no team relation)', {
             email,
             tenantId,
             role: effectiveRole,
@@ -708,7 +708,7 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
           throw legacyError
         }
 
-        logger.warn('Employee create used legacy token version fallback', {
+        logger.debug('Employee create used legacy token version fallback', {
           employeeId: employee.id,
           tenantId: employee.tenantId,
         })
@@ -737,7 +737,7 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
           throw fallbackError
         }
 
-        logger.warn('Employee create used schema-drift fallback (no team relation)', {
+        logger.debug('Employee create used schema-drift fallback (no team relation)', {
           employeeId: employee.id,
           tenantId: employee.tenantId,
         })
@@ -813,7 +813,7 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
             return []
           }
 
-          logger.warn('Employee list used legacy token version fallback', { tenantId })
+          logger.debug('Employee list used legacy token version fallback', { tenantId })
           return (legacyData || []).map((emp) => this.mapEmployeeWithoutTeamLegacy(emp))
         }
 
@@ -841,7 +841,7 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
             return []
           }
 
-          logger.warn('Employee list used schema-drift fallback (no team relation)', { tenantId })
+          logger.debug('Employee list used schema-drift fallback (no team relation)', { tenantId })
           return (fallbackData || []).map((emp) => this.mapEmployeeWithoutTeam(emp))
         }
 

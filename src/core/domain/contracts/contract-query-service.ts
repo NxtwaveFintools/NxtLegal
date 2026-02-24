@@ -2,6 +2,7 @@ import { AuthorizationError, BusinessRuleError, NotFoundError } from '@/core/htt
 import type { ContractStatus } from '@/core/constants/contracts'
 import type {
   AdditionalApproverDecisionHistoryItem,
+  ContractActivityReadState,
   DashboardContractFilter,
   ContractDetail,
   ContractDetailView,
@@ -11,7 +12,7 @@ import type {
   RepositorySortDirection,
   ContractTimelineEvent,
 } from '@/core/domain/contracts/contract-query-repository'
-import type { ContractActionName } from '@/core/domain/contracts/schemas'
+import type { ContractActionName, ContractLegalAssignmentOperation } from '@/core/domain/contracts/schemas'
 
 export class ContractQueryService {
   constructor(private readonly contractRepository: ContractQueryRepository) {}
@@ -102,7 +103,8 @@ export class ContractQueryService {
       throw new AuthorizationError('CONTRACT_READ_FORBIDDEN', 'You do not have access to this contract')
     }
 
-    const [documents, availableActions, additionalApprovers] = await Promise.all([
+    const [counterparties, documents, availableActions, additionalApprovers, legalCollaborators] = await Promise.all([
+      this.contractRepository.getCounterparties(params.tenantId, params.contractId),
       this.contractRepository.getDocuments(params.tenantId, params.contractId),
       this.contractRepository.getAvailableActions({
         tenantId: params.tenantId,
@@ -111,13 +113,16 @@ export class ContractQueryService {
         actorRole: params.role,
       }),
       this.contractRepository.getAdditionalApprovers(params.tenantId, params.contractId),
+      this.contractRepository.getLegalCollaborators(params.tenantId, params.contractId),
     ])
 
     return {
       contract,
+      counterparties,
       documents,
       availableActions,
       additionalApprovers,
+      legalCollaborators,
     }
   }
 
@@ -237,6 +242,76 @@ export class ContractQueryService {
     })
   }
 
+  async addContractActivityMessage(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    actorRole?: string
+    actorEmail: string
+    messageText: string
+  }): Promise<ContractDetailView> {
+    if (!params.actorRole) {
+      throw new AuthorizationError('CONTRACT_ACTIVITY_FORBIDDEN', 'User role is required for adding activity message')
+    }
+
+    if (!params.actorEmail) {
+      throw new BusinessRuleError('ACTOR_EMAIL_REQUIRED', 'Actor email is required')
+    }
+
+    await this.contractRepository.addContractActivityMessage({
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      actorEmployeeId: params.actorEmployeeId,
+      actorRole: params.actorRole,
+      actorEmail: params.actorEmail,
+      messageText: params.messageText,
+    })
+
+    const contract = await this.contractRepository.getById(params.tenantId, params.contractId)
+
+    if (!contract) {
+      throw new NotFoundError('Contract', params.contractId)
+    }
+
+    return this.getContractDetailAfterMutation({
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      employeeId: params.actorEmployeeId,
+      role: params.actorRole,
+      updatedContract: contract,
+    })
+  }
+
+  async markContractActivitySeen(params: {
+    tenantId: string
+    contractId: string
+    employeeId: string
+    role?: string
+  }): Promise<ContractActivityReadState> {
+    const contract = await this.contractRepository.getById(params.tenantId, params.contractId)
+
+    if (!contract) {
+      throw new NotFoundError('Contract', params.contractId)
+    }
+
+    if (
+      !(await this.contractRepository.canAccessContract({
+        tenantId: params.tenantId,
+        actorEmployeeId: params.employeeId,
+        actorRole: params.role,
+        contract,
+      }))
+    ) {
+      throw new AuthorizationError('CONTRACT_ACTIVITY_FORBIDDEN', 'You do not have access to this contract activity')
+    }
+
+    return this.contractRepository.markContractActivitySeen({
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      employeeId: params.employeeId,
+    })
+  }
+
   async addAdditionalApprover(params: {
     tenantId: string
     contractId: string
@@ -277,6 +352,84 @@ export class ContractQueryService {
     })
   }
 
+  async manageLegalAssignment(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    actorRole?: string
+    actorEmail: string
+    operation: ContractLegalAssignmentOperation
+    ownerEmail?: string
+    collaboratorEmail?: string
+  }): Promise<ContractDetailView> {
+    if (!params.actorRole) {
+      throw new AuthorizationError('CONTRACT_ASSIGNMENT_FORBIDDEN', 'User role is required for legal assignment')
+    }
+
+    if (!params.actorEmail) {
+      throw new BusinessRuleError('ACTOR_EMAIL_REQUIRED', 'Actor email is required')
+    }
+
+    if (params.operation === 'set_owner') {
+      if (!params.ownerEmail) {
+        throw new BusinessRuleError('OWNER_EMAIL_REQUIRED', 'Owner email is required')
+      }
+
+      await this.contractRepository.setLegalOwnerByEmail({
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        actorEmployeeId: params.actorEmployeeId,
+        actorRole: params.actorRole,
+        actorEmail: params.actorEmail,
+        ownerEmail: params.ownerEmail,
+      })
+    }
+
+    if (params.operation === 'add_collaborator') {
+      if (!params.collaboratorEmail) {
+        throw new BusinessRuleError('COLLABORATOR_EMAIL_REQUIRED', 'Collaborator email is required')
+      }
+
+      await this.contractRepository.addLegalCollaboratorByEmail({
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        actorEmployeeId: params.actorEmployeeId,
+        actorRole: params.actorRole,
+        actorEmail: params.actorEmail,
+        collaboratorEmail: params.collaboratorEmail,
+      })
+    }
+
+    if (params.operation === 'remove_collaborator') {
+      if (!params.collaboratorEmail) {
+        throw new BusinessRuleError('COLLABORATOR_EMAIL_REQUIRED', 'Collaborator email is required')
+      }
+
+      await this.contractRepository.removeLegalCollaboratorByEmail({
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        actorEmployeeId: params.actorEmployeeId,
+        actorRole: params.actorRole,
+        actorEmail: params.actorEmail,
+        collaboratorEmail: params.collaboratorEmail,
+      })
+    }
+
+    const contract = await this.contractRepository.getById(params.tenantId, params.contractId)
+
+    if (!contract) {
+      throw new NotFoundError('Contract', params.contractId)
+    }
+
+    return this.getContractDetailAfterMutation({
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      employeeId: params.actorEmployeeId,
+      role: params.actorRole,
+      updatedContract: contract,
+    })
+  }
+
   private async getContractDetailAfterMutation(params: {
     tenantId: string
     contractId: string
@@ -295,9 +448,11 @@ export class ContractQueryService {
       if (error instanceof AuthorizationError && error.code === 'CONTRACT_READ_FORBIDDEN') {
         return {
           contract: params.updatedContract,
+          counterparties: [],
           documents: [],
           availableActions: [],
           additionalApprovers: [],
+          legalCollaborators: [],
         }
       }
 

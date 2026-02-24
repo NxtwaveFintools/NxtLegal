@@ -26,6 +26,15 @@ export type UploadContractInput = {
   departmentId: string
   budgetApproved: boolean
   counterpartyName?: string
+  counterparties?: Array<{
+    counterpartyName: string
+    supportingFiles: Array<{
+      fileName: string
+      fileSizeBytes: number
+      fileMimeType: string
+      fileBytes: Uint8Array
+    }>
+  }>
   fileName: string
   fileSizeBytes: number
   fileMimeType: string
@@ -56,8 +65,8 @@ export class ContractUploadService {
     }
 
     const contractId = randomUUID()
-    const supportingFiles = input.supportingFiles ?? []
-    const trimmedCounterpartyName = input.counterpartyName?.trim() ?? ''
+    const normalizedCounterparties = this.normalizeCounterparties(input)
+    const trimmedCounterpartyName = normalizedCounterparties[0]?.counterpartyName ?? ''
     const safeFileName = this.sanitizeFileName(input.fileName)
     const filePath = `${input.tenantId}/${contractId}/${safeFileName}`
     const uploadedSupportingFiles: Array<{
@@ -65,6 +74,8 @@ export class ContractUploadService {
       fileName: string
       fileSizeBytes: number
       fileMimeType: string
+      counterpartySequenceOrder: number
+      counterpartyName: string
     }> = []
 
     await this.contractStorageRepository.upload({
@@ -73,22 +84,26 @@ export class ContractUploadService {
       contentType: input.fileMimeType,
     })
 
-    for (const [index, supportingFile] of supportingFiles.entries()) {
-      const safeSupportingFileName = this.sanitizeFileName(supportingFile.fileName)
-      const supportingFilePath = `${input.tenantId}/${contractId}/counterparty/${String(index + 1).padStart(3, '0')}-${safeSupportingFileName}`
+    for (const [counterpartyIndex, counterparty] of normalizedCounterparties.entries()) {
+      for (const [supportingIndex, supportingFile] of counterparty.supportingFiles.entries()) {
+        const safeSupportingFileName = this.sanitizeFileName(supportingFile.fileName)
+        const supportingFilePath = `${input.tenantId}/${contractId}/counterparty/${String(counterpartyIndex + 1).padStart(3, '0')}/${String(supportingIndex + 1).padStart(3, '0')}-${safeSupportingFileName}`
 
-      await this.contractStorageRepository.upload({
-        path: supportingFilePath,
-        fileBytes: supportingFile.fileBytes,
-        contentType: supportingFile.fileMimeType,
-      })
+        await this.contractStorageRepository.upload({
+          path: supportingFilePath,
+          fileBytes: supportingFile.fileBytes,
+          contentType: supportingFile.fileMimeType,
+        })
 
-      uploadedSupportingFiles.push({
-        filePath: supportingFilePath,
-        fileName: safeSupportingFileName,
-        fileSizeBytes: supportingFile.fileSizeBytes,
-        fileMimeType: supportingFile.fileMimeType,
-      })
+        uploadedSupportingFiles.push({
+          filePath: supportingFilePath,
+          fileName: safeSupportingFileName,
+          fileSizeBytes: supportingFile.fileSizeBytes,
+          fileMimeType: supportingFile.fileMimeType,
+          counterpartySequenceOrder: counterpartyIndex + 1,
+          counterpartyName: counterparty.counterpartyName,
+        })
+      }
     }
 
     let contract: ContractRecord
@@ -136,6 +151,20 @@ export class ContractUploadService {
     }
 
     try {
+      const createdCounterparties = await this.contractRepository.createCounterparties(
+        normalizedCounterparties.map((counterparty, index) => ({
+          tenantId: input.tenantId,
+          contractId,
+          counterpartyName: counterparty.counterpartyName,
+          sequenceOrder: index + 1,
+        }))
+      )
+
+      const counterpartyIdBySequenceOrder = new Map<number, string>()
+      for (const counterparty of createdCounterparties) {
+        counterpartyIdBySequenceOrder.set(counterparty.sequenceOrder, counterparty.id)
+      }
+
       if (trimmedCounterpartyName) {
         await this.contractRepository.setCounterpartyName({
           tenantId: input.tenantId,
@@ -158,14 +187,15 @@ export class ContractUploadService {
       })
 
       for (const [index, supportingFile] of uploadedSupportingFiles.entries()) {
-        const displayNameBase = trimmedCounterpartyName
-          ? `Counterparty Docs - ${trimmedCounterpartyName}`
+        const displayNameBase = supportingFile.counterpartyName
+          ? `Counterparty Docs - ${supportingFile.counterpartyName}`
           : 'Counterparty Docs'
 
         await this.contractRepository.createDocument({
           tenantId: input.tenantId,
           contractId,
           documentKind: 'COUNTERPARTY_SUPPORTING',
+          counterpartyId: counterpartyIdBySequenceOrder.get(supportingFile.counterpartySequenceOrder),
           displayName: `${displayNameBase} (${index + 1})`,
           fileName: supportingFile.fileName,
           filePath: supportingFile.filePath,
@@ -293,31 +323,76 @@ export class ContractUploadService {
       throw new BusinessRuleError('CONTRACT_TYPE_ID_REQUIRED', 'Contract type is required')
     }
 
-    if (input.counterpartyName && input.counterpartyName.trim().length > 200) {
-      throw new BusinessRuleError('COUNTERPARTY_NAME_TOO_LONG', 'Counterparty name exceeds maximum length')
+    const normalizedCounterparties = this.normalizeCounterparties(input)
+    if (normalizedCounterparties.length === 0) {
+      throw new BusinessRuleError('COUNTERPARTY_REQUIRED', 'At least one counterparty is required')
     }
 
-    const supportingFiles = input.supportingFiles ?? []
-    for (const supportingFile of supportingFiles) {
-      if (!supportingFile.fileName.trim()) {
-        throw new BusinessRuleError('SUPPORTING_FILE_NAME_REQUIRED', 'Supporting document name is required')
+    for (const counterparty of normalizedCounterparties) {
+      if (counterparty.counterpartyName.length > 200) {
+        throw new BusinessRuleError('COUNTERPARTY_NAME_TOO_LONG', 'Counterparty name exceeds maximum length')
       }
 
-      if (supportingFile.fileSizeBytes <= 0) {
-        throw new BusinessRuleError('SUPPORTING_FILE_EMPTY', 'Supporting document cannot be empty')
-      }
-
-      if (supportingFile.fileSizeBytes > maxFileSizeBytes) {
+      const requiresSupportingDocs = counterparty.counterpartyName.toUpperCase() !== 'NA'
+      if (requiresSupportingDocs && counterparty.supportingFiles.length === 0) {
         throw new BusinessRuleError(
-          'SUPPORTING_FILE_TOO_LARGE',
-          `Supporting file exceeds ${limits.maxUploadSizeMb}MB limit`
+          'COUNTERPARTY_SUPPORTING_REQUIRED',
+          `Supporting documents are required for counterparty ${counterparty.counterpartyName}`
         )
       }
 
-      if (!supportingFile.fileMimeType.trim()) {
-        throw new BusinessRuleError('SUPPORTING_FILE_MIME_REQUIRED', 'Supporting document MIME type is required')
+      for (const supportingFile of counterparty.supportingFiles) {
+        if (!supportingFile.fileName.trim()) {
+          throw new BusinessRuleError('SUPPORTING_FILE_NAME_REQUIRED', 'Supporting document name is required')
+        }
+
+        if (supportingFile.fileSizeBytes <= 0) {
+          throw new BusinessRuleError('SUPPORTING_FILE_EMPTY', 'Supporting document cannot be empty')
+        }
+
+        if (supportingFile.fileSizeBytes > maxFileSizeBytes) {
+          throw new BusinessRuleError(
+            'SUPPORTING_FILE_TOO_LARGE',
+            `Supporting file exceeds ${limits.maxUploadSizeMb}MB limit`
+          )
+        }
+
+        if (!supportingFile.fileMimeType.trim()) {
+          throw new BusinessRuleError('SUPPORTING_FILE_MIME_REQUIRED', 'Supporting document MIME type is required')
+        }
       }
     }
+  }
+
+  private normalizeCounterparties(input: UploadContractInput): Array<{
+    counterpartyName: string
+    supportingFiles: Array<{
+      fileName: string
+      fileSizeBytes: number
+      fileMimeType: string
+      fileBytes: Uint8Array
+    }>
+  }> {
+    if (input.counterparties && input.counterparties.length > 0) {
+      return input.counterparties
+        .map((entry) => ({
+          counterpartyName: entry.counterpartyName.trim(),
+          supportingFiles: entry.supportingFiles,
+        }))
+        .filter((entry) => entry.counterpartyName.length > 0)
+    }
+
+    const counterpartyName = input.counterpartyName?.trim() ?? ''
+    if (!counterpartyName) {
+      return []
+    }
+
+    return [
+      {
+        counterpartyName,
+        supportingFiles: input.supportingFiles ?? [],
+      },
+    ]
   }
 
   private sanitizeFileName(fileName: string): string {

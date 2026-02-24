@@ -4,10 +4,16 @@ type CanonicalContractLogEventType =
   | 'CONTRACT_CREATED'
   | 'CONTRACT_UPDATED'
   | 'HOD_APPROVED'
+  | 'HOD_REJECTED'
   | 'LEGAL_APPROVED'
+  | 'LEGAL_REJECTED'
   | 'LEGAL_QUERY_RAISED'
   | 'HOD_BYPASSED'
   | 'CONTRACT_REROUTED_TO_HOD'
+  | 'LEGAL_OWNER_SET'
+  | 'LEGAL_COLLABORATOR_ADDED'
+  | 'LEGAL_COLLABORATOR_REMOVED'
+  | 'ACTIVITY_MESSAGE_ADDED'
   | 'NOTE_ADDED'
   | 'ADDITIONAL_APPROVER_ADDED'
   | 'ADDITIONAL_APPROVED'
@@ -27,10 +33,16 @@ const eventTemplates: Record<CanonicalContractLogEventType, string> = {
   CONTRACT_CREATED: '{actor} created this contract.',
   CONTRACT_UPDATED: '{actor} updated this contract.',
   HOD_APPROVED: '{actor} approved the contract as HOD.',
+  HOD_REJECTED: '{actor} rejected the contract as HOD.',
   LEGAL_APPROVED: '{actor} approved the contract as Legal.',
+  LEGAL_REJECTED: '{actor} rejected the contract as Legal.',
   LEGAL_QUERY_RAISED: '{actor} raised a legal query.',
   HOD_BYPASSED: '{actor} bypassed HOD approval.',
   CONTRACT_REROUTED_TO_HOD: '{actor} rerouted contract to HOD.',
+  LEGAL_OWNER_SET: '{actor} set {target} as legal owner.',
+  LEGAL_COLLABORATOR_ADDED: '{actor} added {target} as legal collaborator.',
+  LEGAL_COLLABORATOR_REMOVED: '{actor} removed {target} from legal collaborators.',
+  ACTIVITY_MESSAGE_ADDED: '{actor} added a discussion message.',
   NOTE_ADDED: '{actor} added a note.',
   ADDITIONAL_APPROVER_ADDED: '{actor} added {target} as an additional approver.',
   ADDITIONAL_APPROVED: '{actor} approved as additional approver.',
@@ -66,6 +78,14 @@ function normalizeEventType(rawType?: string | null): CanonicalContractLogEventT
       return 'ADDITIONAL_REJECTED'
     case 'CONTRACT_BYPASSED':
       return 'HOD_BYPASSED'
+    case 'CONTRACT_ASSIGNEE_SET':
+      return 'LEGAL_OWNER_SET'
+    case 'CONTRACT_COLLABORATOR_ADDED':
+      return 'LEGAL_COLLABORATOR_ADDED'
+    case 'CONTRACT_COLLABORATOR_REMOVED':
+      return 'LEGAL_COLLABORATOR_REMOVED'
+    case 'CONTRACT_ACTIVITY_MESSAGE_ADDED':
+      return 'ACTIVITY_MESSAGE_ADDED'
     default:
       return null
   }
@@ -79,14 +99,26 @@ function normalizeFromAction(rawAction: string): CanonicalContractLogEventType |
       return 'CONTRACT_UPDATED'
     case 'contract.hod.approve':
       return 'HOD_APPROVED'
+    case 'contract.hod.reject':
+      return 'HOD_REJECTED'
     case 'contract.legal.approve':
       return 'LEGAL_APPROVED'
+    case 'contract.legal.reject':
+      return 'LEGAL_REJECTED'
     case 'contract.legal.query':
       return 'LEGAL_QUERY_RAISED'
     case 'contract.hod.bypass':
       return 'HOD_BYPASSED'
     case 'contract.legal.query.reroute':
       return 'CONTRACT_REROUTED_TO_HOD'
+    case 'contract.legal.owner.set':
+      return 'LEGAL_OWNER_SET'
+    case 'contract.legal.collaborator.added':
+      return 'LEGAL_COLLABORATOR_ADDED'
+    case 'contract.legal.collaborator.removed':
+      return 'LEGAL_COLLABORATOR_REMOVED'
+    case 'contract.activity.message.added':
+      return 'ACTIVITY_MESSAGE_ADDED'
     case 'contract.note.added':
       return 'NOTE_ADDED'
     case 'contract.approver.added':
@@ -118,6 +150,16 @@ function resolveCanonicalType(event: ContractTimelineEvent): CanonicalContractLo
 
     if (event.actorRole === 'LEGAL_TEAM') {
       return 'LEGAL_APPROVED'
+    }
+  }
+
+  if (event.eventType === 'CONTRACT_REJECTED') {
+    if (event.actorRole === 'HOD') {
+      return 'HOD_REJECTED'
+    }
+
+    if (event.actorRole === 'LEGAL_TEAM') {
+      return 'LEGAL_REJECTED'
     }
   }
 

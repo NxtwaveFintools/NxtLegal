@@ -6,8 +6,10 @@ import { DatabaseError } from '@/core/http/errors'
 import type { ContractRepository } from '@/core/domain/contracts/contract-repository'
 import type {
   ContractAccessRecord,
+  ContractCounterpartyRecord,
   ContractDocumentAccessRecord,
   ContractRecord,
+  CreateContractCounterpartyInput,
   CreateContractDocumentInput,
   CreateContractUploadInput,
 } from '@/core/domain/contracts/types'
@@ -234,6 +236,80 @@ class SupabaseContractRepository implements ContractRepository {
     }
   }
 
+  async createCounterparties(input: CreateContractCounterpartyInput[]): Promise<ContractCounterpartyRecord[]> {
+    if (input.length === 0) {
+      return []
+    }
+
+    const supabase = createServiceSupabase()
+    const payload = input.map((item) => ({
+      tenant_id: item.tenantId,
+      contract_id: item.contractId,
+      counterparty_name: item.counterpartyName.trim(),
+      sequence_order: item.sequenceOrder,
+    }))
+
+    const { data, error } = await supabase
+      .from('contract_counterparties')
+      .insert(payload)
+      .select('id, tenant_id, contract_id, counterparty_name, sequence_order')
+
+    if (error) {
+      throw new DatabaseError('Failed to persist contract counterparties', new Error(error.message), {
+        code: error.code,
+      })
+    }
+
+    return (
+      (data ?? []) as Array<{
+        id: string
+        tenant_id: string
+        contract_id: string
+        counterparty_name: string
+        sequence_order: number
+      }>
+    ).map((row) => ({
+      id: row.id,
+      tenantId: row.tenant_id,
+      contractId: row.contract_id,
+      counterpartyName: row.counterparty_name,
+      sequenceOrder: row.sequence_order,
+    }))
+  }
+
+  async listCounterparties(params: { tenantId: string; contractId: string }): Promise<ContractCounterpartyRecord[]> {
+    const supabase = createServiceSupabase()
+    const { data, error } = await supabase
+      .from('contract_counterparties')
+      .select('id, tenant_id, contract_id, counterparty_name, sequence_order')
+      .eq('tenant_id', params.tenantId)
+      .eq('contract_id', params.contractId)
+      .is('deleted_at', null)
+      .order('sequence_order', { ascending: true })
+
+    if (error) {
+      throw new DatabaseError('Failed to load contract counterparties', new Error(error.message), {
+        code: error.code,
+      })
+    }
+
+    return (
+      (data ?? []) as Array<{
+        id: string
+        tenant_id: string
+        contract_id: string
+        counterparty_name: string
+        sequence_order: number
+      }>
+    ).map((row) => ({
+      id: row.id,
+      tenantId: row.tenant_id,
+      contractId: row.contract_id,
+      counterpartyName: row.counterparty_name,
+      sequenceOrder: row.sequence_order,
+    }))
+  }
+
   async setCounterpartyName(params: { tenantId: string; contractId: string; counterpartyName: string }): Promise<void> {
     const supabase = createServiceSupabase()
 
@@ -258,6 +334,7 @@ class SupabaseContractRepository implements ContractRepository {
       tenant_id: input.tenantId,
       contract_id: input.contractId,
       document_kind: input.documentKind,
+      counterparty_id: input.counterpartyId,
       display_name: input.displayName,
       file_name: input.fileName,
       file_path: input.filePath,

@@ -10,7 +10,27 @@ export type AdminUserOption = {
   id: string
   email: string
   fullName: string | null
+  isActive: boolean
   roles: string[]
+  departmentAssignments: Array<{
+    departmentId: string
+    departmentName: string
+    departmentRole: 'POC' | 'HOD'
+  }>
+}
+
+export type AdminDepartmentUserGroup = {
+  departmentId: string
+  departmentName: string
+  isDepartmentActive: boolean
+  users: Array<{
+    id: string
+    email: string
+    fullName: string | null
+    isActive: boolean
+    roles: string[]
+    departmentRole: 'POC' | 'HOD'
+  }>
 }
 
 export type AdminDepartmentOption = {
@@ -106,6 +126,14 @@ function resolveUserRolePath(userId: string): string {
   return routeRegistry.api.admin.userRoles.replace(':userId', userId)
 }
 
+function resolveUserStatusPath(userId: string): string {
+  return routeRegistry.api.admin.userStatus.replace(':userId', userId)
+}
+
+function resolveUserDepartmentPath(userId: string): string {
+  return routeRegistry.api.admin.userDepartment.replace(':userId', userId)
+}
+
 function resolveTeamDetailPath(teamId: string): string {
   return routeRegistry.api.admin.teamDetail.replace(':teamId', teamId)
 }
@@ -137,6 +165,63 @@ export const adminClient = {
     })
 
     return parseApiResponse<{ users: AdminUserOption[] }>(response)
+  },
+
+  async usersByDepartment(): Promise<ApiResponse<{ departments: AdminDepartmentUserGroup[] }>> {
+    const response = await fetch(`${routeRegistry.api.admin.users}?groupBy=department`, {
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store',
+    })
+
+    return parseApiResponse<{ departments: AdminDepartmentUserGroup[] }>(response)
+  },
+
+  async createUser(payload: {
+    email: string
+    fullName?: string
+    role: 'USER' | 'LEGAL_TEAM'
+    isActive?: boolean
+  }): Promise<ApiResponse<{ user: AdminUserOption }>> {
+    const response = await fetch(routeRegistry.api.admin.users, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    })
+
+    return parseApiResponse<{ user: AdminUserOption }>(response)
+  },
+
+  async setUserStatus(userId: string, payload: { isActive: boolean }): Promise<ApiResponse<{ user: AdminUserOption }>> {
+    const response = await fetch(resolveUserStatusPath(userId), {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    })
+
+    return parseApiResponse<{ user: AdminUserOption }>(response)
+  },
+
+  async assignUserDepartmentRole(
+    userId: string,
+    payload: { departmentId: string; departmentRole: 'POC' | 'HOD' }
+  ): Promise<ApiResponse<{ success: boolean }>> {
+    const response = await fetch(resolveUserDepartmentPath(userId), {
+      method: 'PUT',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    })
+
+    return parseApiResponse<{ success: boolean }>(response)
   },
 
   async departments(): Promise<ApiResponse<{ departments: AdminDepartmentOption[] }>> {

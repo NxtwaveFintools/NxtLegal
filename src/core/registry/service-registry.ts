@@ -20,7 +20,7 @@ import { supabaseContractRepository } from '@/core/infra/repositories/supabase-c
 import { supabaseContractStorageRepository } from '@/core/infra/repositories/supabase-contract-storage-repository'
 import { supabaseContractQueryRepository } from '@/core/infra/repositories/supabase-contract-query-repository'
 import { supabaseRoleGovernanceRepository } from '@/core/infra/repositories/supabase-role-governance-repository'
-import { supabaseAdminQueryRepository } from '@/core/infra/repositories/supabase-admin-query-repository'
+import { supabaseAdminQueryRepository } from '../infra/repositories/supabase-admin-query-repository'
 import { supabaseTeamGovernanceRepository } from '@/core/infra/repositories/supabase-team-governance-repository'
 import { logger } from '@/core/infra/logging/logger'
 import type { EmployeeRepository } from '@/core/domain/users/employee-repository'

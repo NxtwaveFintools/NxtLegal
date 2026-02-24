@@ -36,6 +36,16 @@ export const contractWorkflowRoles = {
 
 export type ContractWorkflowRole = (typeof contractWorkflowRoles)[keyof typeof contractWorkflowRoles]
 
+export const contractLegalAssignmentAllowedRoles = [
+  contractWorkflowRoles.legalTeam,
+  contractWorkflowRoles.admin,
+] as const
+
+export const contractLegalAssignmentEditableStatuses: ContractStatus[] = [
+  contractStatuses.legalPending,
+  contractStatuses.legalQuery,
+]
+
 export const requiredTransitionKeys = [
   `${contractStatuses.draft}:${contractStatuses.hodPending}:${contractTransitionActions.routeToHod}`,
   `${contractStatuses.uploaded}:${contractStatuses.hodPending}:${contractTransitionActions.routeToHod}`,

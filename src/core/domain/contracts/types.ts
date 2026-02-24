@@ -70,6 +70,14 @@ export type ContractDocumentRecord = {
   createdAt: string
 }
 
+export type ContractCounterpartyRecord = {
+  id: string
+  tenantId: string
+  contractId: string
+  counterpartyName: string
+  sequenceOrder: number
+}
+
 export type ContractDocumentAccessRecord = {
   id: string
   tenantId: string
@@ -82,6 +90,7 @@ export type CreateContractDocumentInput = {
   tenantId: string
   contractId: string
   documentKind: ContractDocumentKind
+  counterpartyId?: string
   displayName: string
   fileName: string
   filePath: string
@@ -89,4 +98,11 @@ export type CreateContractDocumentInput = {
   fileMimeType: string
   uploadedByEmployeeId: string
   uploadedByEmail: string
+}
+
+export type CreateContractCounterpartyInput = {
+  tenantId: string
+  contractId: string
+  counterpartyName: string
+  sequenceOrder: number
 }

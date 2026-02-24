@@ -1,15 +1,24 @@
 import 'server-only'
 
-import { contractStatuses, resolveContractStatusDisplayLabel, type ContractStatus } from '@/core/constants/contracts'
+import {
+  contractLegalAssignmentAllowedRoles,
+  contractLegalAssignmentEditableStatuses,
+  contractStatuses,
+  resolveContractStatusDisplayLabel,
+  type ContractStatus,
+} from '@/core/constants/contracts'
 import { AuthorizationError, BusinessRuleError, ConflictError, DatabaseError } from '@/core/http/errors'
 import { createServiceSupabase } from '@/lib/supabase/service'
 import type {
   AdditionalApproverDecisionHistoryItem,
+  ContractActivityReadState,
+  ContractCounterparty,
   ContractDocument,
   DashboardContractFilter,
   ContractAdditionalApprover,
   ContractAllowedAction,
   ContractDetail,
+  ContractLegalCollaborator,
   ContractListItem,
   ContractQueryRepository,
   RepositorySortBy,
@@ -40,6 +49,13 @@ const remarkRequiredActions = new Set<ContractActionName>([
   'approver.reject',
 ])
 const bypassAllowedRoles = new Set(['LEGAL_TEAM', 'ADMIN'])
+const legalActionNames = new Set<ContractActionName>([
+  'legal.approve',
+  'legal.reject',
+  'legal.query',
+  'legal.query.reroute',
+])
+const activityMessageAllowedRoles = new Set(['LEGAL_TEAM', 'ADMIN', 'HOD'])
 
 type ContractEntity = {
   id: string
@@ -74,11 +90,18 @@ type ContractEntity = {
 type ContractDocumentEntity = {
   id: string
   document_kind: 'PRIMARY' | 'COUNTERPARTY_SUPPORTING'
+  counterparty_id: string | null
   display_name: string
   file_name: string
   file_size_bytes: number
   file_mime_type: string
   created_at: string
+}
+
+type ContractCounterpartyEntity = {
+  id: string
+  counterparty_name: string
+  sequence_order: number
 }
 
 type TransitionGraphEntity = {
@@ -94,6 +117,13 @@ type AdditionalApproverEntity = {
   sequence_order: number
   status: 'PENDING' | 'APPROVED' | 'REJECTED'
   approved_at: string | null
+}
+
+type LegalCollaboratorEntity = {
+  id: string
+  collaborator_employee_id: string
+  collaborator_email: string
+  created_at: string
 }
 
 type AdditionalApproverContractContext = {
@@ -201,7 +231,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     )
 
     const hasNext = rows.length > params.limit
-    const items = rows.slice(0, params.limit).map((row) => this.mapListItem(row, additionalApproverContext.get(row.id)))
+    const mappedItems = rows
+      .slice(0, params.limit)
+      .map((row) => this.mapListItem(row, additionalApproverContext.get(row.id)))
+    const items = await this.attachActorContractSignals(params.tenantId, params.employeeId, mappedItems, params.role)
 
     const nextCursor = hasNext ? this.encodeCursor(items[items.length - 1]?.createdAt ?? '') : undefined
 
@@ -276,7 +309,8 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       params.employeeId
     )
 
-    return rows.map((row) => this.mapListItem(row, additionalApproverContext.get(row.id)))
+    const items = rows.map((row) => this.mapListItem(row, additionalApproverContext.get(row.id)))
+    return this.attachActorContractSignals(params.tenantId, params.employeeId, items, params.role)
   }
 
   async getDashboardContracts(params: {
@@ -370,7 +404,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     )
 
     const hasNext = rows.length > params.limit
-    const items = rows.slice(0, params.limit).map((row) => this.mapListItem(row, additionalApproverContext.get(row.id)))
+    const mappedItems = rows
+      .slice(0, params.limit)
+      .map((row) => this.mapListItem(row, additionalApproverContext.get(row.id)))
+    const items = await this.attachActorContractSignals(params.tenantId, params.employeeId, mappedItems, params.role)
     const nextCursor = hasNext ? this.encodeCursor(items[items.length - 1]?.createdAt ?? '') : undefined
 
     return { items, nextCursor, total: totalCount ?? 0 }
@@ -489,7 +526,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     )
 
     const hasNext = rows.length > params.limit
-    const items = rows.slice(0, params.limit).map((row) => this.mapListItem(row, additionalApproverContext.get(row.id)))
+    const mappedItems = rows
+      .slice(0, params.limit)
+      .map((row) => this.mapListItem(row, additionalApproverContext.get(row.id)))
+    const items = await this.attachActorContractSignals(params.tenantId, params.employeeId, mappedItems)
     const nextCursor =
       sortBy === 'created_at' && sortDirection === 'desc' && hasNext
         ? this.encodeCursor(items[items.length - 1]?.createdAt ?? '')
@@ -581,7 +621,8 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       params.employeeId
     )
 
-    return rows.map((row) => this.mapListItem(row, additionalApproverContext.get(row.id)))
+    const items = rows.map((row) => this.mapListItem(row, additionalApproverContext.get(row.id)))
+    return this.attachActorContractSignals(params.tenantId, params.employeeId, items)
   }
 
   async getAdditionalApproverDecisionHistory(params: {
@@ -798,7 +839,9 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
     const { data, error } = await supabase
       .from('contract_documents')
-      .select('id, document_kind, display_name, file_name, file_size_bytes, file_mime_type, created_at')
+      .select(
+        'id, document_kind, counterparty_id, display_name, file_name, file_size_bytes, file_mime_type, created_at'
+      )
       .eq('tenant_id', tenantId)
       .eq('contract_id', contractId)
       .is('deleted_at', null)
@@ -812,14 +855,71 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
     const rows = (data ?? []) as ContractDocumentEntity[]
 
+    const counterpartyIds = rows.map((row) => row.counterparty_id).filter((value): value is string => Boolean(value))
+
+    const counterpartyNameById = new Map<string, string>()
+    if (counterpartyIds.length > 0) {
+      const { data: counterparties, error: counterpartiesError } = await supabase
+        .from('contract_counterparties')
+        .select('id, counterparty_name')
+        .eq('tenant_id', tenantId)
+        .eq('contract_id', contractId)
+        .in('id', counterpartyIds)
+        .is('deleted_at', null)
+
+      if (counterpartiesError) {
+        throw new DatabaseError(
+          'Failed to fetch contract counterparties for documents',
+          new Error(counterpartiesError.message),
+          {
+            code: counterpartiesError.code,
+          }
+        )
+      }
+
+      for (const row of (counterparties ?? []) as Array<{ id: string; counterparty_name: string }>) {
+        counterpartyNameById.set(row.id, row.counterparty_name)
+      }
+    }
+
     return rows.map((row) => ({
       id: row.id,
       documentKind: row.document_kind,
+      counterpartyId: row.counterparty_id,
+      counterpartyName: row.counterparty_id ? (counterpartyNameById.get(row.counterparty_id) ?? null) : null,
       displayName: row.display_name,
       fileName: row.file_name,
       fileSizeBytes: row.file_size_bytes,
       fileMimeType: row.file_mime_type,
       createdAt: row.created_at,
+    }))
+  }
+
+  async getCounterparties(tenantId: string, contractId: string): Promise<ContractCounterparty[]> {
+    const supabase = createServiceSupabase()
+    const { data, error } = await supabase
+      .from('contract_counterparties')
+      .select('id, counterparty_name, sequence_order')
+      .eq('tenant_id', tenantId)
+      .eq('contract_id', contractId)
+      .is('deleted_at', null)
+      .order('sequence_order', { ascending: true })
+      .order('created_at', { ascending: true })
+
+    if (error) {
+      if (this.isMissingRelationError(error, 'contract_counterparties')) {
+        return []
+      }
+
+      throw new DatabaseError('Failed to fetch contract counterparties', new Error(error.message), {
+        code: error.code,
+      })
+    }
+
+    return ((data ?? []) as ContractCounterpartyEntity[]).map((row) => ({
+      id: row.id,
+      counterpartyName: row.counterparty_name,
+      sequenceOrder: row.sequence_order,
     }))
   }
 
@@ -892,7 +992,9 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
     const { data, error } = await supabase
       .from('audit_logs')
-      .select('id, event_type, action, user_id, actor_email, actor_role, target_email, note_text, metadata, created_at')
+      .select(
+        'id, event_type, action, user_id, actor_email, actor_role, target_email, note_text, metadata, event_sequence, created_at'
+      )
       .eq('tenant_id', tenantId)
       .eq('resource_type', 'contract')
       .eq('resource_id', contractId)
@@ -915,6 +1017,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       targetEmail: event.target_email,
       noteText: event.note_text,
       metadata: (event.metadata ?? null) as Record<string, unknown> | null,
+      eventSequence: event.event_sequence,
       createdAt: event.created_at,
     }))
   }
@@ -943,6 +1046,59 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       status: row.status,
       approvedAt: row.approved_at,
     }))
+  }
+
+  async getLegalCollaborators(tenantId: string, contractId: string): Promise<ContractLegalCollaborator[]> {
+    const supabase = createServiceSupabase()
+    const { data, error } = await supabase
+      .from('contract_legal_collaborators')
+      .select('id, collaborator_employee_id, collaborator_email, created_at')
+      .eq('tenant_id', tenantId)
+      .eq('contract_id', contractId)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: true })
+
+    if (error) {
+      if (this.isMissingRelationError(error, 'contract_legal_collaborators')) {
+        return []
+      }
+
+      throw new DatabaseError('Failed to fetch legal collaborators', new Error(error.message), {
+        code: error.code,
+      })
+    }
+
+    return ((data ?? []) as LegalCollaboratorEntity[]).map((row) => ({
+      id: row.id,
+      collaboratorEmployeeId: row.collaborator_employee_id,
+      collaboratorEmail: row.collaborator_email,
+      createdAt: row.created_at,
+    }))
+  }
+
+  async isLegalCollaborator(tenantId: string, contractId: string, employeeId: string): Promise<boolean> {
+    const supabase = createServiceSupabase()
+    const { data, error } = await supabase
+      .from('contract_legal_collaborators')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('contract_id', contractId)
+      .eq('collaborator_employee_id', employeeId)
+      .is('deleted_at', null)
+      .limit(1)
+      .maybeSingle<{ id: string }>()
+
+    if (error) {
+      if (this.isMissingRelationError(error, 'contract_legal_collaborators')) {
+        return false
+      }
+
+      throw new DatabaseError('Failed to verify legal collaborator assignment', new Error(error.message), {
+        code: error.code,
+      })
+    }
+
+    return Boolean(data?.id)
   }
 
   async canAccessContract(params: {
@@ -986,11 +1142,17 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     const pendingApproverCount = await this.getPendingApproverCount(params.tenantId, params.contract.id)
     const firstPendingApprover = await this.getFirstPendingApprover(params.tenantId, params.contract.id)
     const isAssignee = params.contract.currentAssigneeEmployeeId === params.actorEmployeeId
+    const isCollaborator =
+      params.actorRole === 'LEGAL_TEAM'
+        ? await this.isLegalCollaborator(params.tenantId, params.contract.id, params.actorEmployeeId)
+        : false
 
     const actions = actionsFromGraph.filter((item) => {
       const isAdditionalApproverAction = item.action === 'approver.approve' || item.action === 'approver.reject'
+      const canActAsLegalCollaborator =
+        params.actorRole === 'LEGAL_TEAM' && isCollaborator && legalActionNames.has(item.action)
 
-      if (params.actorRole !== 'ADMIN' && !isAdditionalApproverAction && !isAssignee) {
+      if (params.actorRole !== 'ADMIN' && !isAdditionalApproverAction && !isAssignee && !canActAsLegalCollaborator) {
         const isHodAction =
           item.action === 'hod.approve' || item.action === 'hod.reject' || item.action === 'hod.bypass'
         if (!(params.actorRole === 'HOD' && isHodAction && params.contract.status === contractStatuses.hodPending)) {
@@ -1057,10 +1219,20 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       params.action === 'hod.approve' || params.action === 'hod.reject' || params.action === 'hod.bypass'
     const allowMappedHodAction =
       params.actorRole === 'HOD' && isHodAction && contract.status === contractStatuses.hodPending
+    const allowLegalCollaboratorAction =
+      params.actorRole === 'LEGAL_TEAM' &&
+      legalActionNames.has(params.action) &&
+      (await this.isLegalCollaborator(params.tenantId, contract.id, params.actorEmployeeId))
 
     const isAdditionalApproverAction = params.action === 'approver.approve' || params.action === 'approver.reject'
 
-    if (!isAdditionalApproverAction && params.actorRole !== 'ADMIN' && !isAssignee && !allowMappedHodAction) {
+    if (
+      !isAdditionalApproverAction &&
+      params.actorRole !== 'ADMIN' &&
+      !isAssignee &&
+      !allowMappedHodAction &&
+      !allowLegalCollaboratorAction
+    ) {
       throw new AuthorizationError('CONTRACT_ACTION_FORBIDDEN', 'Only the current assignee can perform this action')
     }
 
@@ -1333,6 +1505,264 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     }
   }
 
+  async setLegalOwnerByEmail(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    actorRole: string
+    actorEmail: string
+    ownerEmail: string
+  }): Promise<void> {
+    this.assertActorMetadata({
+      actorEmployeeId: params.actorEmployeeId,
+      actorEmail: params.actorEmail,
+      actorRole: params.actorRole,
+    })
+
+    const contract = await this.getById(params.tenantId, params.contractId)
+    if (!contract) {
+      throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found')
+    }
+
+    this.assertLegalAssignmentEditable(contract.status)
+    this.assertLegalAssignmentActorRole(params.actorRole)
+
+    const ownerUser = await this.resolveActiveTenantLegalUserByEmail(params.tenantId, params.ownerEmail)
+    const supabase = createServiceSupabase()
+
+    const { error: updateError } = await supabase
+      .from('contracts')
+      .update({
+        current_assignee_employee_id: ownerUser.id,
+        current_assignee_email: ownerUser.email,
+        row_version: contract.rowVersion + 1,
+      })
+      .eq('id', contract.id)
+      .eq('tenant_id', params.tenantId)
+      .eq('row_version', contract.rowVersion)
+
+    if (updateError) {
+      throw new DatabaseError('Failed to update legal owner', new Error(updateError.message), {
+        code: updateError.code,
+      })
+    }
+
+    const { error: auditError } = await supabase.from('audit_logs').insert([
+      {
+        tenant_id: params.tenantId,
+        user_id: params.actorEmployeeId,
+        event_type: 'CONTRACT_ASSIGNEE_SET',
+        action: 'contract.legal.owner.set',
+        actor_email: params.actorEmail,
+        actor_role: params.actorRole,
+        resource_type: 'contract',
+        resource_id: params.contractId,
+        target_email: ownerUser.email,
+        metadata: {
+          previous_owner_email: contract.currentAssigneeEmail,
+          next_owner_email: ownerUser.email,
+        },
+      },
+    ])
+
+    if (auditError) {
+      throw new DatabaseError('Failed to write legal owner audit event', new Error(auditError.message), {
+        code: auditError.code,
+      })
+    }
+  }
+
+  async addLegalCollaboratorByEmail(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    actorRole: string
+    actorEmail: string
+    collaboratorEmail: string
+  }): Promise<void> {
+    this.assertActorMetadata({
+      actorEmployeeId: params.actorEmployeeId,
+      actorEmail: params.actorEmail,
+      actorRole: params.actorRole,
+    })
+
+    const contract = await this.getById(params.tenantId, params.contractId)
+    if (!contract) {
+      throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found')
+    }
+
+    this.assertLegalAssignmentEditable(contract.status)
+    this.assertLegalAssignmentActorRole(params.actorRole)
+
+    const collaboratorUser = await this.resolveActiveTenantLegalUserByEmail(params.tenantId, params.collaboratorEmail)
+    const supabase = createServiceSupabase()
+
+    const { data: existing, error: existingError } = await supabase
+      .from('contract_legal_collaborators')
+      .select('id, deleted_at')
+      .eq('tenant_id', params.tenantId)
+      .eq('contract_id', params.contractId)
+      .eq('collaborator_employee_id', collaboratorUser.id)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle<{ id: string; deleted_at: string | null }>()
+
+    if (existingError) {
+      if (this.isMissingRelationError(existingError, 'contract_legal_collaborators')) {
+        throw new BusinessRuleError(
+          'LEGAL_ASSIGNMENT_UNAVAILABLE',
+          'Legal collaborator assignment is unavailable until database migration is applied'
+        )
+      }
+
+      throw new DatabaseError('Failed to verify legal collaborator assignment', new Error(existingError.message), {
+        code: existingError.code,
+      })
+    }
+
+    if (existing?.id && !existing.deleted_at) {
+      throw new BusinessRuleError('LEGAL_COLLABORATOR_ALREADY_ASSIGNED', 'Collaborator is already assigned')
+    }
+
+    if (existing?.id && existing.deleted_at) {
+      const { error: restoreError } = await supabase
+        .from('contract_legal_collaborators')
+        .update({
+          collaborator_email: collaboratorUser.email,
+          created_by_employee_id: params.actorEmployeeId,
+          deleted_at: null,
+        })
+        .eq('id', existing.id)
+        .eq('tenant_id', params.tenantId)
+
+      if (restoreError) {
+        throw new DatabaseError('Failed to restore legal collaborator assignment', new Error(restoreError.message), {
+          code: restoreError.code,
+        })
+      }
+    } else {
+      const { error: insertError } = await supabase.from('contract_legal_collaborators').insert([
+        {
+          tenant_id: params.tenantId,
+          contract_id: params.contractId,
+          collaborator_employee_id: collaboratorUser.id,
+          collaborator_email: collaboratorUser.email,
+          created_by_employee_id: params.actorEmployeeId,
+        },
+      ])
+
+      if (insertError) {
+        throw new DatabaseError('Failed to add legal collaborator', new Error(insertError.message), {
+          code: insertError.code,
+        })
+      }
+    }
+
+    const { error: auditError } = await supabase.from('audit_logs').insert([
+      {
+        tenant_id: params.tenantId,
+        user_id: params.actorEmployeeId,
+        event_type: 'CONTRACT_COLLABORATOR_ADDED',
+        action: 'contract.legal.collaborator.added',
+        actor_email: params.actorEmail,
+        actor_role: params.actorRole,
+        resource_type: 'contract',
+        resource_id: params.contractId,
+        target_email: collaboratorUser.email,
+      },
+    ])
+
+    if (auditError) {
+      throw new DatabaseError('Failed to write collaborator audit event', new Error(auditError.message), {
+        code: auditError.code,
+      })
+    }
+  }
+
+  async removeLegalCollaboratorByEmail(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    actorRole: string
+    actorEmail: string
+    collaboratorEmail: string
+  }): Promise<void> {
+    this.assertActorMetadata({
+      actorEmployeeId: params.actorEmployeeId,
+      actorEmail: params.actorEmail,
+      actorRole: params.actorRole,
+    })
+
+    const contract = await this.getById(params.tenantId, params.contractId)
+    if (!contract) {
+      throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found')
+    }
+
+    this.assertLegalAssignmentEditable(contract.status)
+    this.assertLegalAssignmentActorRole(params.actorRole)
+
+    const collaboratorUser = await this.resolveActiveTenantLegalUserByEmail(params.tenantId, params.collaboratorEmail)
+    const supabase = createServiceSupabase()
+    const { data: activeAssignment, error: assignmentError } = await supabase
+      .from('contract_legal_collaborators')
+      .select('id')
+      .eq('tenant_id', params.tenantId)
+      .eq('contract_id', params.contractId)
+      .eq('collaborator_employee_id', collaboratorUser.id)
+      .is('deleted_at', null)
+      .limit(1)
+      .maybeSingle<{ id: string }>()
+
+    if (assignmentError) {
+      if (this.isMissingRelationError(assignmentError, 'contract_legal_collaborators')) {
+        throw new BusinessRuleError(
+          'LEGAL_ASSIGNMENT_UNAVAILABLE',
+          'Legal collaborator assignment is unavailable until database migration is applied'
+        )
+      }
+
+      throw new DatabaseError('Failed to load legal collaborator assignment', new Error(assignmentError.message), {
+        code: assignmentError.code,
+      })
+    }
+
+    if (!activeAssignment?.id) {
+      throw new BusinessRuleError('LEGAL_COLLABORATOR_NOT_FOUND', 'Collaborator is not assigned to this contract')
+    }
+
+    const { error: deleteError } = await supabase
+      .from('contract_legal_collaborators')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('id', activeAssignment.id)
+      .eq('tenant_id', params.tenantId)
+
+    if (deleteError) {
+      throw new DatabaseError('Failed to remove legal collaborator', new Error(deleteError.message), {
+        code: deleteError.code,
+      })
+    }
+
+    const { error: auditError } = await supabase.from('audit_logs').insert([
+      {
+        tenant_id: params.tenantId,
+        user_id: params.actorEmployeeId,
+        event_type: 'CONTRACT_COLLABORATOR_REMOVED',
+        action: 'contract.legal.collaborator.removed',
+        actor_email: params.actorEmail,
+        actor_role: params.actorRole,
+        resource_type: 'contract',
+        resource_id: params.contractId,
+        target_email: collaboratorUser.email,
+      },
+    ])
+
+    if (auditError) {
+      throw new DatabaseError('Failed to write collaborator removal audit event', new Error(auditError.message), {
+        code: auditError.code,
+      })
+    }
+  }
+
   async addContractNote(params: {
     tenantId: string
     contractId: string
@@ -1382,6 +1812,144 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       throw new DatabaseError('Failed to add contract note', new Error(error.message), {
         code: error.code,
       })
+    }
+  }
+
+  async addContractActivityMessage(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    actorRole: string
+    actorEmail: string
+    messageText: string
+  }): Promise<void> {
+    this.assertActorMetadata({
+      actorEmployeeId: params.actorEmployeeId,
+      actorEmail: params.actorEmail,
+      actorRole: params.actorRole,
+    })
+
+    if (!activityMessageAllowedRoles.has(params.actorRole)) {
+      throw new AuthorizationError(
+        'CONTRACT_ACTIVITY_FORBIDDEN',
+        'Only legal team, admin, and HOD can post activity messages'
+      )
+    }
+
+    const contract = await this.getById(params.tenantId, params.contractId)
+    if (!contract) {
+      throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found')
+    }
+
+    const canAccess = await this.canActorAccessContract({
+      tenantId: params.tenantId,
+      actorEmployeeId: params.actorEmployeeId,
+      actorRole: params.actorRole,
+      contract,
+    })
+
+    if (!canAccess) {
+      throw new AuthorizationError('CONTRACT_ACTIVITY_FORBIDDEN', 'You do not have access to this contract activity')
+    }
+
+    const normalizedMessage = params.messageText.trim()
+    if (!normalizedMessage) {
+      throw new BusinessRuleError('ACTIVITY_MESSAGE_REQUIRED', 'Activity message is required')
+    }
+
+    const mentionedEmails = this.extractMentionEmails(normalizedMessage)
+    if (mentionedEmails.length > 0) {
+      await this.assertMentionUsersExist(params.tenantId, mentionedEmails)
+    }
+
+    const supabase = createServiceSupabase()
+    const { error } = await supabase.from('audit_logs').insert([
+      {
+        tenant_id: params.tenantId,
+        user_id: params.actorEmployeeId,
+        event_type: 'CONTRACT_ACTIVITY_MESSAGE_ADDED',
+        action: 'contract.activity.message.added',
+        actor_email: params.actorEmail,
+        actor_role: params.actorRole,
+        resource_type: 'contract',
+        resource_id: params.contractId,
+        note_text: normalizedMessage,
+        metadata: {
+          mentions: mentionedEmails,
+        },
+      },
+    ])
+
+    if (error) {
+      throw new DatabaseError('Failed to add contract activity message', new Error(error.message), {
+        code: error.code,
+      })
+    }
+  }
+
+  async markContractActivitySeen(params: {
+    tenantId: string
+    contractId: string
+    employeeId: string
+  }): Promise<ContractActivityReadState> {
+    const supabase = createServiceSupabase()
+
+    const { data: latestEvent, error: latestError } = await supabase
+      .from('audit_logs')
+      .select('event_sequence')
+      .eq('tenant_id', params.tenantId)
+      .eq('resource_type', 'contract')
+      .eq('resource_id', params.contractId)
+      .eq('event_type', 'CONTRACT_ACTIVITY_MESSAGE_ADDED')
+      .order('event_sequence', { ascending: false })
+      .limit(1)
+      .maybeSingle<{ event_sequence: number | null }>()
+
+    if (latestError) {
+      throw new DatabaseError('Failed to resolve latest contract activity sequence', new Error(latestError.message), {
+        code: latestError.code,
+      })
+    }
+
+    const latestSequence = latestEvent?.event_sequence ?? null
+    const now = new Date().toISOString()
+
+    const { error: upsertError } = await supabase.from('contract_activity_read_state').upsert(
+      {
+        tenant_id: params.tenantId,
+        contract_id: params.contractId,
+        employee_id: params.employeeId,
+        last_seen_event_sequence: latestSequence,
+        last_seen_at: now,
+        updated_at: now,
+      },
+      {
+        onConflict: 'tenant_id,contract_id,employee_id',
+      }
+    )
+
+    if (upsertError) {
+      if (this.isMissingRelationError(upsertError, 'contract_activity_read_state')) {
+        return {
+          contractId: params.contractId,
+          employeeId: params.employeeId,
+          lastSeenEventSequence: latestSequence,
+          lastSeenAt: now,
+          hasUnread: false,
+        }
+      }
+
+      throw new DatabaseError('Failed to update contract activity read state', new Error(upsertError.message), {
+        code: upsertError.code,
+      })
+    }
+
+    return {
+      contractId: params.contractId,
+      employeeId: params.employeeId,
+      lastSeenEventSequence: latestSequence,
+      lastSeenAt: now,
+      hasUnread: false,
     }
   }
 
@@ -2177,6 +2745,47 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     return data
   }
 
+  private async resolveActiveTenantLegalUserByEmail(
+    tenantId: string,
+    email: string
+  ): Promise<{ id: string; email: string }> {
+    const normalizedEmail = email.trim().toLowerCase()
+    const supabase = createServiceSupabase()
+
+    const { data, error } = await supabase
+      .from('users')
+      .select('id, email')
+      .eq('tenant_id', tenantId)
+      .eq('email', normalizedEmail)
+      .eq('role', 'LEGAL_TEAM')
+      .eq('is_active', true)
+      .is('deleted_at', null)
+      .single<{ id: string; email: string }>()
+
+    if (error || !data) {
+      throw new BusinessRuleError('LEGAL_USER_NOT_FOUND', 'Email must belong to an active legal user in this tenant')
+    }
+
+    return data
+  }
+
+  private assertLegalAssignmentActorRole(actorRole: string): void {
+    if (
+      !contractLegalAssignmentAllowedRoles.includes(actorRole as (typeof contractLegalAssignmentAllowedRoles)[number])
+    ) {
+      throw new AuthorizationError('CONTRACT_ASSIGNMENT_FORBIDDEN', 'Only legal team can manage legal assignments')
+    }
+  }
+
+  private assertLegalAssignmentEditable(status: ContractStatus): void {
+    if (!contractLegalAssignmentEditableStatuses.includes(status)) {
+      throw new BusinessRuleError(
+        'LEGAL_ASSIGNMENT_INVALID_STATUS',
+        'Legal assignment can only be updated for LEGAL_PENDING and LEGAL_QUERY contracts'
+      )
+    }
+  }
+
   private async getTeamHodAssignee(tenantId: string, departmentId: string): Promise<{ id: string; email: string }> {
     const supabase = createServiceSupabase()
 
@@ -2211,6 +2820,22 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     return hod
   }
 
+  private isMissingRelationError(
+    error: { code?: string; message?: string; details?: string; hint?: string },
+    relation: string
+  ): boolean {
+    if (error.code === '42P01' || error.code === 'PGRST205') {
+      return true
+    }
+
+    const combined = [error.message, error.details, error.hint].filter(Boolean).join(' ').toLowerCase()
+    if (!combined) {
+      return false
+    }
+
+    return combined.includes('does not exist') && combined.includes(relation.toLowerCase())
+  }
+
   private toAllowedAction(action: ContractActionName): ContractAllowedAction | null {
     if (!(action in actionLabelMap)) {
       return null
@@ -2237,6 +2862,186 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     }
 
     return 'CONTRACT_APPROVED'
+  }
+
+  private async attachActorContractSignals(
+    tenantId: string,
+    employeeId: string,
+    items: ContractListItem[],
+    role?: string
+  ): Promise<ContractListItem[]> {
+    if (items.length === 0) {
+      return items
+    }
+
+    const contractIds = items.map((item) => item.id)
+    const [assignedContractIds, unreadContractIds] = await Promise.all([
+      this.getAssignedContractIdSet(tenantId, employeeId, contractIds),
+      this.getUnreadActivityContractIdSet(tenantId, employeeId, contractIds),
+    ])
+
+    return items.map((item) => ({
+      ...item,
+      isAssignedToMe: assignedContractIds.has(item.id),
+      hasUnreadActivity: unreadContractIds.has(item.id),
+      canHodApprove: role === 'HOD' && item.status === contractStatuses.hodPending,
+      canHodReject: role === 'HOD' && item.status === contractStatuses.hodPending,
+    }))
+  }
+
+  private async getAssignedContractIdSet(
+    tenantId: string,
+    employeeId: string,
+    contractIds: string[]
+  ): Promise<Set<string>> {
+    if (contractIds.length === 0) {
+      return new Set<string>()
+    }
+
+    const supabase = createServiceSupabase()
+    const assignedIds = new Set<string>()
+
+    const { data: assigneeRows, error: assigneeError } = await supabase
+      .from('contracts')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .in('id', contractIds)
+      .eq('current_assignee_employee_id', employeeId)
+      .is('deleted_at', null)
+
+    if (assigneeError) {
+      throw new DatabaseError('Failed to resolve assignee contract set', new Error(assigneeError.message), {
+        code: assigneeError.code,
+      })
+    }
+
+    for (const row of (assigneeRows ?? []) as Array<{ id: string }>) {
+      assignedIds.add(row.id)
+    }
+
+    const { data: collaboratorRows, error: collaboratorError } = await supabase
+      .from('contract_legal_collaborators')
+      .select('contract_id')
+      .eq('tenant_id', tenantId)
+      .eq('collaborator_employee_id', employeeId)
+      .in('contract_id', contractIds)
+      .is('deleted_at', null)
+
+    if (collaboratorError) {
+      if (this.isMissingRelationError(collaboratorError, 'contract_legal_collaborators')) {
+        return assignedIds
+      }
+
+      throw new DatabaseError('Failed to resolve collaborator contract set', new Error(collaboratorError.message), {
+        code: collaboratorError.code,
+      })
+    }
+
+    for (const row of (collaboratorRows ?? []) as Array<{ contract_id: string }>) {
+      assignedIds.add(row.contract_id)
+    }
+
+    return assignedIds
+  }
+
+  private async getUnreadActivityContractIdSet(
+    tenantId: string,
+    employeeId: string,
+    contractIds: string[]
+  ): Promise<Set<string>> {
+    if (contractIds.length === 0) {
+      return new Set<string>()
+    }
+
+    const supabase = createServiceSupabase()
+    const unreadIds = new Set<string>()
+
+    const { data: latestRows, error: latestError } = await supabase
+      .from('audit_logs')
+      .select('resource_id, event_sequence')
+      .eq('tenant_id', tenantId)
+      .eq('resource_type', 'contract')
+      .eq('event_type', 'CONTRACT_ACTIVITY_MESSAGE_ADDED')
+      .in('resource_id', contractIds)
+      .order('event_sequence', { ascending: false })
+
+    if (latestError) {
+      throw new DatabaseError('Failed to resolve latest activity state', new Error(latestError.message), {
+        code: latestError.code,
+      })
+    }
+
+    const latestByContract = new Map<string, number>()
+    for (const row of (latestRows ?? []) as Array<{ resource_id: string; event_sequence: number }>) {
+      if (!latestByContract.has(row.resource_id)) {
+        latestByContract.set(row.resource_id, row.event_sequence)
+      }
+    }
+
+    const { data: readRows, error: readError } = await supabase
+      .from('contract_activity_read_state')
+      .select('contract_id, last_seen_event_sequence')
+      .eq('tenant_id', tenantId)
+      .eq('employee_id', employeeId)
+      .in('contract_id', contractIds)
+
+    if (readError) {
+      if (this.isMissingRelationError(readError, 'contract_activity_read_state')) {
+        return unreadIds
+      }
+
+      throw new DatabaseError('Failed to resolve activity read state', new Error(readError.message), {
+        code: readError.code,
+      })
+    }
+
+    const seenByContract = new Map<string, number>()
+    for (const row of (readRows ?? []) as Array<{ contract_id: string; last_seen_event_sequence: number | null }>) {
+      if (typeof row.last_seen_event_sequence === 'number') {
+        seenByContract.set(row.contract_id, row.last_seen_event_sequence)
+      }
+    }
+
+    for (const [contractId, latestSequence] of latestByContract.entries()) {
+      const seenSequence = seenByContract.get(contractId)
+      if (typeof seenSequence !== 'number' || latestSequence > seenSequence) {
+        unreadIds.add(contractId)
+      }
+    }
+
+    return unreadIds
+  }
+
+  private extractMentionEmails(messageText: string): string[] {
+    const matches = messageText.match(/@([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})/gi) ?? []
+    return [...new Set(matches.map((token) => token.slice(1).toLowerCase()))]
+  }
+
+  private async assertMentionUsersExist(tenantId: string, emails: string[]): Promise<void> {
+    const supabase = createServiceSupabase()
+    const { data, error } = await supabase
+      .from('users')
+      .select('email')
+      .eq('tenant_id', tenantId)
+      .in('email', emails)
+      .eq('is_active', true)
+      .is('deleted_at', null)
+
+    if (error) {
+      throw new DatabaseError('Failed to validate tagged users', new Error(error.message), {
+        code: error.code,
+      })
+    }
+
+    const foundEmails = new Set((data ?? []).map((row) => row.email.toLowerCase()))
+    const missingEmails = emails.filter((email) => !foundEmails.has(email))
+
+    if (missingEmails.length > 0) {
+      throw new BusinessRuleError(
+        'ACTIVITY_MENTION_USER_NOT_FOUND',
+        `Tagged users not found or inactive: ${missingEmails.join(', ')}`
+      )
+    }
   }
 
   private mapListItem(

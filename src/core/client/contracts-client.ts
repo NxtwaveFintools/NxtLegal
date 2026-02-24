@@ -18,6 +18,11 @@ type ContractRecord = {
   contractTypeId?: string
   contractTypeName?: string
   counterpartyName?: string | null
+  counterparties?: Array<{
+    id: string
+    counterpartyName: string
+    sequenceOrder: number
+  }>
   status: string
   displayStatusLabel?: string
   uploadedByEmployeeId: string
@@ -43,6 +48,10 @@ type ContractRecord = {
   agingBusinessDays?: number | null
   nearBreach?: boolean
   isTatBreached?: boolean
+  isAssignedToMe?: boolean
+  hasUnreadActivity?: boolean
+  canHodApprove?: boolean
+  canHodReject?: boolean
   fileName?: string
   fileSizeBytes?: number
   fileMimeType?: string
@@ -53,6 +62,8 @@ type ContractRecord = {
 type ContractDocument = {
   id: string
   documentKind: 'PRIMARY' | 'COUNTERPARTY_SUPPORTING'
+  counterpartyId?: string | null
+  counterpartyName?: string | null
   displayName: string
   fileName: string
   fileSizeBytes: number
@@ -75,7 +86,16 @@ type ContractTimelineEvent = {
   targetEmail?: string | null
   noteText?: string | null
   metadata?: Record<string, unknown> | null
+  eventSequence?: number | null
   createdAt: string
+}
+
+type ContractActivityReadState = {
+  contractId: string
+  employeeId: string
+  lastSeenEventSequence: number | null
+  lastSeenAt: string | null
+  hasUnread: boolean
 }
 
 type ContractAllowedAction = {
@@ -93,12 +113,30 @@ type ContractAdditionalApprover = {
   approvedAt: string | null
 }
 
+type ContractLegalCollaborator = {
+  id: string
+  collaboratorEmployeeId: string
+  collaboratorEmail: string
+  createdAt: string
+}
+
 type ContractDetailResponse = {
   contract: ContractRecord
+  counterparties: Array<{
+    id: string
+    counterpartyName: string
+    sequenceOrder: number
+  }>
   documents: ContractDocument[]
   availableActions: ContractAllowedAction[]
   additionalApprovers: ContractAdditionalApprover[]
+  legalCollaborators: ContractLegalCollaborator[]
 }
+
+type LegalAssignmentPayload =
+  | { operation: 'set_owner'; ownerEmail: string }
+  | { operation: 'add_collaborator'; collaboratorEmail: string }
+  | { operation: 'remove_collaborator'; collaboratorEmail: string }
 
 type ContractListResponse = {
   contracts: ContractRecord[]
@@ -388,10 +426,40 @@ export const contractsClient = {
     return parseApiResponse<{ events: ContractTimelineEvent[] }>(response)
   },
 
+  async addActivityMessage(contractId: string, payload: { messageText: string }) {
+    const response = await fetch(resolveContractPath(routeRegistry.api.contracts.activity, contractId), {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    })
+
+    return parseApiResponse<ContractDetailResponse>(response)
+  },
+
+  async markActivitySeen(contractId: string) {
+    const response = await fetch(resolveContractPath(routeRegistry.api.contracts.activityReadState, contractId), {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ markSeen: true }),
+    })
+
+    return parseApiResponse<ContractActivityReadState>(response)
+  },
+
   async upload(params: {
     title: string
     contractTypeId: string
     counterpartyName?: string
+    counterparties?: Array<{
+      counterpartyName: string
+      supportingFiles: File[]
+    }>
     signatoryName?: string
     signatoryDesignation?: string
     signatoryEmail?: string
@@ -427,8 +495,30 @@ export const contractsClient = {
       formData.set('counterpartyName', params.counterpartyName.trim())
     }
     formData.set('file', params.file)
-    for (const supportingFile of params.supportingFiles ?? []) {
-      formData.append('supportingFiles', supportingFile)
+
+    if (params.counterparties && params.counterparties.length > 0) {
+      const flattenedSupportingFiles: File[] = []
+      const counterpartiesPayload = params.counterparties.map((counterparty) => {
+        const supportingFileIndices: number[] = []
+        for (const file of counterparty.supportingFiles) {
+          supportingFileIndices.push(flattenedSupportingFiles.length)
+          flattenedSupportingFiles.push(file)
+        }
+
+        return {
+          counterpartyName: counterparty.counterpartyName,
+          supportingFileIndices,
+        }
+      })
+
+      formData.set('counterparties', JSON.stringify(counterpartiesPayload))
+      for (const supportingFile of flattenedSupportingFiles) {
+        formData.append('supportingFiles', supportingFile)
+      }
+    } else {
+      for (const supportingFile of params.supportingFiles ?? []) {
+        formData.append('supportingFiles', supportingFile)
+      }
     }
 
     const response = await fetch(routeRegistry.api.contracts.upload, {
@@ -482,6 +572,19 @@ export const contractsClient = {
     return parseApiResponse<ContractDetailResponse>(response)
   },
 
+  async manageAssignment(contractId: string, payload: LegalAssignmentPayload) {
+    const response = await fetch(resolveContractPath(routeRegistry.api.contracts.assignments, contractId), {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    })
+
+    return parseApiResponse<ContractDetailResponse>(response)
+  },
+
   async download(
     contractId: string,
     options?: { documentId?: string }
@@ -524,9 +627,11 @@ export type {
   DepartmentOption,
   ContractTypeOption,
   ContractTimelineEvent,
+  ContractActivityReadState,
   ContractActionName,
   ContractAllowedAction,
   ContractAdditionalApprover,
+  ContractLegalCollaborator,
   AdditionalApproverDecisionHistoryRecord,
   AdditionalApproverHistoryResponse,
   ContractDetailResponse,

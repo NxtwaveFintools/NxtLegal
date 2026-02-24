@@ -27,6 +27,35 @@ const uploadContractFormSchema = z.object({
     .optional()
     .transform((value) => value === 'true'),
   counterpartyName: z.string().trim().max(200, 'Counterparty name is too long').optional(),
+  counterparties: z
+    .string()
+    .optional()
+    .transform((value) => {
+      if (!value) {
+        return undefined
+      }
+
+      let parsedValue: unknown
+      try {
+        parsedValue = JSON.parse(value) as unknown
+      } catch {
+        return z.NEVER
+      }
+
+      const counterpartiesSchema = z.array(
+        z.object({
+          counterpartyName: z.string().trim().min(1).max(200),
+          supportingFileIndices: z.array(z.number().int().nonnegative()).default([]),
+        })
+      )
+
+      const parsedCounterparties = counterpartiesSchema.safeParse(parsedValue)
+      if (!parsedCounterparties.success) {
+        return z.NEVER
+      }
+
+      return parsedCounterparties.data
+    }),
 })
 
 const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
@@ -61,6 +90,7 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
       departmentId: String(formData.get('departmentId') ?? ''),
       budgetApproved: formData.get('budgetApproved') ? String(formData.get('budgetApproved')) : undefined,
       counterpartyName: formData.get('counterpartyName') ? String(formData.get('counterpartyName')) : undefined,
+      counterparties: formData.get('counterparties') ? String(formData.get('counterparties')) : undefined,
     })
 
     if (!parsedForm.success) {
@@ -113,6 +143,17 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
       })
     )
 
+    const counterparties = parsedForm.data.counterparties?.map((counterparty) => ({
+      counterpartyName: counterparty.counterpartyName,
+      supportingFiles: counterparty.supportingFileIndices.reduce<typeof supportingFiles>((accumulator, index) => {
+        const supportingFile = supportingFiles[index]
+        if (supportingFile) {
+          accumulator.push(supportingFile)
+        }
+        return accumulator
+      }, []),
+    }))
+
     const contractUploadService = getContractUploadService()
     const contract = await contractUploadService.uploadContract({
       tenantId: session.tenantId,
@@ -128,6 +169,7 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
       departmentId: parsedForm.data.departmentId,
       budgetApproved: parsedForm.data.budgetApproved,
       counterpartyName: parsedForm.data.counterpartyName,
+      counterparties,
       fileName: uploadedFile.name,
       fileSizeBytes: uploadedFile.size,
       fileMimeType: uploadedFile.type || 'application/octet-stream',

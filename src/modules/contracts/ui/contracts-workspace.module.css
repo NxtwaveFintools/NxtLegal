@@ -99,6 +99,14 @@
   gap: 6px;
 }
 
+.unreadDot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-danger);
+  flex-shrink: 0;
+}
+
 .loadMoreButton {
   border: none;
   background: transparent;
@@ -297,6 +305,12 @@
   margin-bottom: -1px;
 }
 
+.tabLabelWithDot {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .tabButton:hover {
   color: var(--color-text);
 }
@@ -347,6 +361,14 @@
   letter-spacing: 0.06em;
   color: var(--color-text-muted);
   margin-bottom: 12px;
+}
+
+.sectionHeaderRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
 }
 
 /* ── Actions & Buttons ── */
@@ -473,6 +495,40 @@
   transition:
     border-color 0.15s ease,
     box-shadow 0.15s ease;
+}
+
+.textarea {
+  border-radius: var(--radius-md);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 12px;
+  padding: 10px 12px;
+  width: 100%;
+  resize: vertical;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.textarea:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px rgba(47, 109, 246, 0.08);
+  outline: none;
+}
+
+.activityComposer {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-muted);
+  padding: 10px;
+  margin-bottom: 10px;
+}
+
+.activityComposerActions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
 }
 
 .input:focus {
@@ -721,6 +777,35 @@
   gap: 10px;
   padding: 12px 18px;
   border-top: 1px solid var(--color-border);
+}
+
+.actionRemarkOverlay {
+  position: fixed;
+  inset: 0;
+  background: var(--color-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 80;
+  padding: 16px;
+}
+
+.actionRemarkModal {
+  width: min(520px, 100%);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface);
+  box-shadow: var(--color-shadow-lg);
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.actionRemarkActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 /* ── Shimmer Skeletons ── */

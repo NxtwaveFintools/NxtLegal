@@ -19,6 +19,10 @@ export type ContractListItem = {
   agingBusinessDays?: number | null
   nearBreach?: boolean
   isTatBreached?: boolean
+  isAssignedToMe?: boolean
+  hasUnreadActivity?: boolean
+  canHodApprove?: boolean
+  canHodReject?: boolean
   createdAt: string
   updatedAt: string
 }
@@ -49,9 +53,17 @@ export type ContractDetail = ContractListItem & {
   rowVersion: number
 }
 
+export type ContractCounterparty = {
+  id: string
+  counterpartyName: string
+  sequenceOrder: number
+}
+
 export type ContractDocument = {
   id: string
   documentKind: 'PRIMARY' | 'COUNTERPARTY_SUPPORTING'
+  counterpartyId?: string | null
+  counterpartyName?: string | null
   displayName: string
   fileName: string
   fileSizeBytes: number
@@ -69,7 +81,16 @@ export type ContractTimelineEvent = {
   targetEmail?: string | null
   noteText?: string | null
   metadata?: Record<string, unknown> | null
+  eventSequence?: number | null
   createdAt: string
+}
+
+export type ContractActivityReadState = {
+  contractId: string
+  employeeId: string
+  lastSeenEventSequence: number | null
+  lastSeenAt: string | null
+  hasUnread: boolean
 }
 
 export type ContractAllowedAction = {
@@ -87,11 +108,20 @@ export type ContractAdditionalApprover = {
   approvedAt: string | null
 }
 
+export type ContractLegalCollaborator = {
+  id: string
+  collaboratorEmployeeId: string
+  collaboratorEmail: string
+  createdAt: string
+}
+
 export type ContractDetailView = {
   contract: ContractDetail
+  counterparties: ContractCounterparty[]
   documents: ContractDocument[]
   availableActions: ContractAllowedAction[]
   additionalApprovers: ContractAdditionalApprover[]
+  legalCollaborators: ContractLegalCollaborator[]
 }
 
 export type AdditionalApproverDecisionHistoryItem = {
@@ -154,9 +184,12 @@ export interface ContractQueryRepository {
     sortDirection?: RepositorySortDirection
   }): Promise<{ items: ContractListItem[]; nextCursor?: string; total: number }>
   getById(tenantId: string, contractId: string): Promise<ContractDetail | null>
+  getCounterparties(tenantId: string, contractId: string): Promise<ContractCounterparty[]>
   getDocuments(tenantId: string, contractId: string): Promise<ContractDocument[]>
   getTimeline(tenantId: string, contractId: string, limit: number): Promise<ContractTimelineEvent[]>
   getAdditionalApprovers(tenantId: string, contractId: string): Promise<ContractAdditionalApprover[]>
+  getLegalCollaborators(tenantId: string, contractId: string): Promise<ContractLegalCollaborator[]>
+  isLegalCollaborator(tenantId: string, contractId: string, employeeId: string): Promise<boolean>
   canAccessContract(params: {
     tenantId: string
     actorEmployeeId: string
@@ -186,6 +219,30 @@ export interface ContractQueryRepository {
     actorEmail: string
     approverEmail: string
   }): Promise<void>
+  setLegalOwnerByEmail(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    actorRole: string
+    actorEmail: string
+    ownerEmail: string
+  }): Promise<void>
+  addLegalCollaboratorByEmail(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    actorRole: string
+    actorEmail: string
+    collaboratorEmail: string
+  }): Promise<void>
+  removeLegalCollaboratorByEmail(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    actorRole: string
+    actorEmail: string
+    collaboratorEmail: string
+  }): Promise<void>
   addContractNote(params: {
     tenantId: string
     contractId: string
@@ -194,4 +251,17 @@ export interface ContractQueryRepository {
     actorEmail: string
     noteText: string
   }): Promise<void>
+  addContractActivityMessage(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    actorRole: string
+    actorEmail: string
+    messageText: string
+  }): Promise<void>
+  markContractActivitySeen(params: {
+    tenantId: string
+    contractId: string
+    employeeId: string
+  }): Promise<ContractActivityReadState>
 }
