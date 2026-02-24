@@ -1,6 +1,7 @@
 export type AuthenticatedEmployee = {
   id: string
   employeeId: string
+  tenantId: string
   email: string
   fullName?: string
   role?: string

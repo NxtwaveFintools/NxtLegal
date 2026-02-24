@@ -11,6 +11,7 @@ type CanonicalContractLogEventType =
   | 'NOTE_ADDED'
   | 'ADDITIONAL_APPROVER_ADDED'
   | 'ADDITIONAL_APPROVED'
+  | 'ADDITIONAL_REJECTED'
 
 type FormattedContractLogEvent = {
   id: string
@@ -33,6 +34,7 @@ const eventTemplates: Record<CanonicalContractLogEventType, string> = {
   NOTE_ADDED: '{actor} added a note.',
   ADDITIONAL_APPROVER_ADDED: '{actor} added {target} as an additional approver.',
   ADDITIONAL_APPROVED: '{actor} approved as additional approver.',
+  ADDITIONAL_REJECTED: '{actor} rejected as additional approver.',
 }
 
 const absoluteTimestampFormatter = new Intl.DateTimeFormat('en-GB', {
@@ -60,6 +62,8 @@ function normalizeEventType(rawType?: string | null): CanonicalContractLogEventT
       return 'ADDITIONAL_APPROVER_ADDED'
     case 'CONTRACT_APPROVER_APPROVED':
       return 'ADDITIONAL_APPROVED'
+    case 'CONTRACT_APPROVER_REJECTED':
+      return 'ADDITIONAL_REJECTED'
     case 'CONTRACT_BYPASSED':
       return 'HOD_BYPASSED'
     default:
@@ -89,6 +93,8 @@ function normalizeFromAction(rawAction: string): CanonicalContractLogEventType |
       return 'ADDITIONAL_APPROVER_ADDED'
     case 'contract.approver.approved':
       return 'ADDITIONAL_APPROVED'
+    case 'contract.approver.rejected':
+      return 'ADDITIONAL_REJECTED'
     default:
       return null
   }

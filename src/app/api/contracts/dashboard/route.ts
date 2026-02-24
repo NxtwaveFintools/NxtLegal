@@ -5,6 +5,7 @@ import { errorResponse, okResponse } from '@/core/http/response'
 import { isAppError } from '@/core/http/errors'
 import { getContractQueryService } from '@/core/registry/service-registry'
 import { dashboardContractsQuerySchema } from '@/core/domain/contracts/schemas'
+import { limits } from '@/core/constants/limits'
 
 const GETHandler = withAuth(async (request: NextRequest, { session }) => {
   try {
@@ -13,7 +14,7 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
     }
 
     const queryParams = Object.fromEntries(request.nextUrl.searchParams.entries())
-    const { filter, cursor, limit } = dashboardContractsQuerySchema.parse(queryParams)
+    const { filter, cursor, limit, includeExtras } = dashboardContractsQuerySchema.parse(queryParams)
 
     const contractQueryService = getContractQueryService()
     const result = await contractQueryService.getDashboardContracts({
@@ -25,10 +26,27 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
       limit,
     })
 
+    let additionalApproverSections: {
+      actionableContracts: Awaited<ReturnType<typeof contractQueryService.getActionableAdditionalApprovals>>
+    } | null = null
+
+    if (includeExtras) {
+      const actionableContracts = await contractQueryService.getActionableAdditionalApprovals({
+        tenantId: session.tenantId,
+        employeeId: session.employeeId,
+        limit: limits.dashboardContractsPageSize,
+      })
+
+      additionalApproverSections = {
+        actionableContracts,
+      }
+    }
+
     return NextResponse.json(
       okResponse({
         filter,
         contracts: result.items,
+        ...(additionalApproverSections && { additionalApproverSections }),
         pagination: {
           cursor: result.nextCursor ?? null,
           limit,

@@ -29,6 +29,7 @@ export const requireAuthenticatedUser = async (): Promise<AuthenticatedEmployee>
   return {
     id: employee.id,
     employeeId: employee.id,
+    tenantId: session.tenantId,
     email: employee.email,
     fullName: employee.fullName ?? undefined,
     role: employee.role,

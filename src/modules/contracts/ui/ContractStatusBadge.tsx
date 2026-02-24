@@ -3,6 +3,7 @@ import styles from './ContractStatusBadge.module.css'
 
 type ContractStatusBadgeProps = {
   status: ContractStatus | string
+  displayLabel?: string
 }
 
 const statusClassName: Record<ContractStatus, string> = {
@@ -16,9 +17,9 @@ const statusClassName: Record<ContractStatus, string> = {
   REJECTED: styles.legalQuery,
 }
 
-export default function ContractStatusBadge({ status }: ContractStatusBadgeProps) {
+export default function ContractStatusBadge({ status, displayLabel }: ContractStatusBadgeProps) {
   const normalized = status as ContractStatus
-  const label = contractStatusLabels[normalized] ?? status
+  const label = displayLabel ?? contractStatusLabels[normalized] ?? status
   const className = statusClassName[normalized] ?? styles.uploaded
 
   return <span className={`${styles.badge} ${className}`}>{label}</span>

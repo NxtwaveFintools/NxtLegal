@@ -769,6 +769,123 @@
   gap: 6px;
 }
 
+.approverInsightSection {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.approverInsightCard {
+  border-radius: var(--radius-xl);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  box-shadow: var(--shadow-card);
+}
+
+.approverInsightHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.approverInsightTitle {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.approverInsightCount {
+  font-size: 12px;
+  color: var(--color-text-muted);
+  font-weight: 600;
+}
+
+.approverHistoryHint {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.approverInsightList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.approverInsightItem {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-muted);
+  padding: 12px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.approverInsightContent {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.approverInsightItemTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.approverInsightItemMeta {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.approverInsightReason {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.approverInsightActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.approverNeededTag {
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-accent);
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+}
+
+.approverDecisionApproved {
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-success);
+  background: rgba(24, 158, 118, 0.08);
+  color: var(--color-success);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+}
+
+.approverDecisionRejected {
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-danger);
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+}
+
 @media (max-width: 1024px) {
   .page {
     grid-template-columns: 64px 1fr;

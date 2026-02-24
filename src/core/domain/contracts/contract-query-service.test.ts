@@ -1,6 +1,6 @@
 import { ContractQueryService } from '@/core/domain/contracts/contract-query-service'
 import type { ContractDetail, ContractQueryRepository } from '@/core/domain/contracts/contract-query-repository'
-import { AuthorizationError } from '@/core/http/errors'
+import { AuthorizationError, BusinessRuleError } from '@/core/http/errors'
 
 const baseContract: ContractDetail = {
   id: 'contract-1',
@@ -35,6 +35,8 @@ const createRepositoryMock = (): jest.Mocked<ContractQueryRepository> => ({
   listByTenant: jest.fn(),
   getPendingApprovalsForRole: jest.fn(),
   getDashboardContracts: jest.fn(),
+  getActionableAdditionalApprovals: jest.fn(),
+  getAdditionalApproverDecisionHistory: jest.fn(),
   listRepositoryContracts: jest.fn(),
   getById: jest.fn(),
   getDocuments: jest.fn(),
@@ -228,6 +230,65 @@ describe('ContractQueryService', () => {
     expect(result.total).toBe(11)
   })
 
+  it('delegates actionable additional approvals to repository', async () => {
+    const repository = createRepositoryMock()
+    const service = new ContractQueryService(repository)
+
+    repository.getActionableAdditionalApprovals.mockResolvedValue([baseContract])
+
+    const result = await service.getActionableAdditionalApprovals({
+      tenantId: 'tenant-1',
+      employeeId: 'approver-1',
+      limit: 10,
+    })
+
+    expect(result).toHaveLength(1)
+    expect(repository.getActionableAdditionalApprovals).toHaveBeenCalledWith({
+      tenantId: 'tenant-1',
+      employeeId: 'approver-1',
+      limit: 10,
+    })
+  })
+
+  it('delegates additional approver decision history to repository', async () => {
+    const repository = createRepositoryMock()
+    const service = new ContractQueryService(repository)
+
+    repository.getAdditionalApproverDecisionHistory.mockResolvedValue({
+      items: [
+        {
+          contractId: baseContract.id,
+          contractTitle: baseContract.title,
+          contractStatus: baseContract.status,
+          contractDisplayStatusLabel: 'HOD Pending',
+          departmentId: 'department-1',
+          departmentName: 'Facilities',
+          actorEmail: 'approver@nxtwave.co.in',
+          decision: 'APPROVED',
+          decidedAt: new Date().toISOString(),
+          reason: null,
+        },
+      ],
+      nextCursor: undefined,
+      total: 1,
+    })
+
+    const result = await service.getAdditionalApproverDecisionHistory({
+      tenantId: 'tenant-1',
+      employeeId: 'approver-1',
+      role: 'USER',
+      limit: 10,
+    })
+
+    expect(result.items).toHaveLength(1)
+    expect(repository.getAdditionalApproverDecisionHistory).toHaveBeenCalledWith({
+      tenantId: 'tenant-1',
+      employeeId: 'approver-1',
+      role: 'USER',
+      limit: 10,
+    })
+  })
+
   it('preserves repository total count for repository listing', async () => {
     const repository = createRepositoryMock()
     const service = new ContractQueryService(repository)
@@ -248,5 +309,25 @@ describe('ContractQueryService', () => {
     })
 
     expect(result.total).toBe(24)
+  })
+
+  it('requires remark for additional approver rejection action', async () => {
+    const repository = createRepositoryMock()
+    const service = new ContractQueryService(repository)
+
+    await expect(
+      service.applyContractAction({
+        tenantId: 'tenant-1',
+        contractId: baseContract.id,
+        action: 'approver.reject',
+        actorEmployeeId: 'approver-1',
+        actorRole: 'USER',
+        actorEmail: 'approver@nxtwave.co.in',
+      })
+    ).rejects.toMatchObject<Partial<BusinessRuleError>>({
+      code: 'REMARK_REQUIRED',
+    })
+
+    expect(repository.applyAction).not.toHaveBeenCalled()
   })
 })

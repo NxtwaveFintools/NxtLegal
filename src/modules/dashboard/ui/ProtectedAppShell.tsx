@@ -15,11 +15,17 @@ type ProtectedAppShellProps = {
     team?: string | null
     role?: string | null
   }
-  activeNav: 'home' | 'repository' | 'admin'
+  activeNav: 'home' | 'repository' | 'admin' | 'approver-history'
+  canAccessApproverHistory?: boolean
   children: ReactNode
 }
 
-export default function ProtectedAppShell({ session, activeNav, children }: ProtectedAppShellProps) {
+export default function ProtectedAppShell({
+  session,
+  activeNav,
+  canAccessApproverHistory = false,
+  children,
+}: ProtectedAppShellProps) {
   const router = useRouter()
   const canAccessAdminConsole = ['ADMIN', 'LEGAL_ADMIN', 'SUPER_ADMIN'].includes((session.role ?? '').toUpperCase())
 
@@ -80,6 +86,34 @@ export default function ProtectedAppShell({ session, activeNav, children }: Prot
               </svg>
             </span>
           </button>
+          {canAccessApproverHistory ? (
+            <button
+              type="button"
+              className={`${styles.navItem} ${activeNav === 'approver-history' ? styles.navItemActive : ''}`}
+              aria-label="Additional Approver History"
+              onClick={() => router.push(routeRegistry.protected.additionalApproverHistory)}
+            >
+              <span className={styles.navIcon}>
+                <svg viewBox="0 0 20 20" className={styles.navIconSvg} aria-hidden="true" focusable="false">
+                  <path
+                    d="M10 3.8a6.2 6.2 0 1 0 6.2 6.2"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                  />
+                  <path
+                    d="M10 6.2v4l2.8 1.8"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </span>
+            </button>
+          ) : null}
           {canAccessAdminConsole ? (
             <button
               type="button"

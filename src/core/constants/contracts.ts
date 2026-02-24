@@ -82,3 +82,18 @@ export const contractStatusLabels: Record<ContractStatus, string> = {
   FINAL_APPROVED: 'Final Approved',
   REJECTED: 'Rejected',
 }
+
+export const contractStatusDisplayLabels = {
+  legalWaitingForAdditionalApprovers: 'Legal Waiting for Additional Approvers',
+} as const
+
+export const resolveContractStatusDisplayLabel = (params: {
+  status: ContractStatus
+  hasPendingAdditionalApprovers?: boolean
+}): string => {
+  if (params.status === contractStatuses.legalPending && params.hasPendingAdditionalApprovers) {
+    return contractStatusDisplayLabels.legalWaitingForAdditionalApprovers
+  }
+
+  return contractStatusLabels[params.status]
+}

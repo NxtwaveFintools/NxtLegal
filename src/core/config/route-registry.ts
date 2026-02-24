@@ -7,6 +7,7 @@ export const routeRegistry = {
     dashboard: '/dashboard',
     repository: '/repository',
     adminConsole: '/admin',
+    additionalApproverHistory: '/approver-history',
     contractDetail: '/contracts/:contractId',
   },
   api: {
@@ -22,6 +23,7 @@ export const routeRegistry = {
       departments: '/api/contracts/departments',
       pendingApprovals: '/api/contracts/pending-approvals',
       dashboard: '/api/contracts/dashboard',
+      additionalApproverHistory: '/api/contracts/additional-approver-history',
       repository: '/api/contracts/repository',
       upload: '/api/contracts/upload',
       detail: '/api/contracts/:contractId',

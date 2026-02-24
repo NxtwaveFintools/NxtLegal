@@ -513,7 +513,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
               >
                 <div className={styles.itemTitle}>{contract.title}</div>
                 <div className={styles.itemMeta}>
-                  <ContractStatusBadge status={contract.status} />
+                  <ContractStatusBadge status={contract.status} displayLabel={contract.displayStatusLabel} />
                 </div>
               </button>
             ))}
@@ -539,7 +539,12 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
           </button>
           <div className={styles.title}>{selectedContract?.title ?? 'Contract Details'}</div>
           <div className={styles.headerActions}>
-            {selectedContract ? <ContractStatusBadge status={selectedContract.status} /> : null}
+            {selectedContract ? (
+              <ContractStatusBadge
+                status={selectedContract.status}
+                displayLabel={selectedContract.displayStatusLabel}
+              />
+            ) : null}
             {availableActions.map((item) => (
               <button
                 key={item.action}
@@ -553,6 +558,12 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
             ))}
           </div>
         </div>
+
+        {selectedContract?.latestAdditionalApproverRejectionReason ? (
+          <div className={styles.rejectionContextBanner}>
+            Additional approver rejection reason: {selectedContract.latestAdditionalApproverRejectionReason}
+          </div>
+        ) : null}
 
         {!selectedContract ? (
           <div className={styles.emptyState}>

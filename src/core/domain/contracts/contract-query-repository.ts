@@ -5,10 +5,14 @@ export type ContractListItem = {
   id: string
   title: string
   status: ContractStatus
+  displayStatusLabel?: string
   uploadedByEmployeeId: string
   uploadedByEmail: string
   currentAssigneeEmployeeId: string
   currentAssigneeEmail: string
+  latestAdditionalApproverRejectionReason?: string | null
+  latestAdditionalApproverRejectionAt?: string | null
+  isAdditionalApproverActionable?: boolean
   hodApprovedAt?: string | null
   tatDeadlineAt?: string | null
   tatBreachedAt?: string | null
@@ -79,7 +83,7 @@ export type ContractAdditionalApprover = {
   approverEmployeeId: string
   approverEmail: string
   sequenceOrder: number
-  status: 'PENDING' | 'APPROVED'
+  status: 'PENDING' | 'APPROVED' | 'REJECTED'
   approvedAt: string | null
 }
 
@@ -99,6 +103,19 @@ export type ContractDetailView = {
   availableActions: ContractAllowedAction[]
   additionalApprovers: ContractAdditionalApprover[]
   signatories: ContractSignatory[]
+}
+
+export type AdditionalApproverDecisionHistoryItem = {
+  contractId: string
+  contractTitle: string
+  contractStatus: ContractStatus
+  contractDisplayStatusLabel: string
+  departmentId: string | null
+  departmentName: string | null
+  actorEmail: string | null
+  decision: 'APPROVED' | 'REJECTED'
+  decidedAt: string
+  reason: string | null
 }
 
 export interface ContractQueryRepository {
@@ -123,6 +140,19 @@ export interface ContractQueryRepository {
     cursor?: string
     limit: number
   }): Promise<{ items: ContractListItem[]; nextCursor?: string; total: number }>
+  getActionableAdditionalApprovals(params: {
+    tenantId: string
+    employeeId: string
+    limit: number
+  }): Promise<ContractListItem[]>
+  getAdditionalApproverDecisionHistory(params: {
+    tenantId: string
+    employeeId: string
+    role?: string
+    cursor?: string
+    limit: number
+    departmentId?: string
+  }): Promise<{ items: AdditionalApproverDecisionHistoryItem[]; nextCursor?: string; total: number }>
   listRepositoryContracts(params: {
     tenantId: string
     employeeId: string

@@ -1,19 +1,17 @@
 import { redirect } from 'next/navigation'
-import AdminConsoleClient from '@/modules/admin/ui/AdminConsoleClient'
 import { getAuthenticatedEmployeeViewWithApproverHistoryAccess } from '@/core/presenters/auth-presenter'
 import { routeRegistry } from '@/core/config/route-registry'
+import AdditionalApproverHistoryWorkspace from '@/modules/contracts/ui/AdditionalApproverHistoryWorkspace'
 
-const adminAllowedRoles = new Set(['ADMIN', 'LEGAL_ADMIN', 'SUPER_ADMIN'])
-
-export default async function AdminConsolePage() {
+export default async function AdditionalApproverHistoryPage() {
   const session = await getAuthenticatedEmployeeViewWithApproverHistoryAccess()
 
-  if (!adminAllowedRoles.has((session.role ?? '').toUpperCase())) {
+  if (!session.canAccessApproverHistory) {
     redirect(routeRegistry.protected.dashboard)
   }
 
   return (
-    <AdminConsoleClient
+    <AdditionalApproverHistoryWorkspace
       session={{
         employeeId: session.employeeId,
         fullName: session.fullName,

@@ -88,6 +88,17 @@ export class AuthService {
       tenantId,
     })
 
+    const hasAdditionalApproverParticipation = await this.employeeRepository.hasAdditionalApproverParticipation({
+      email: normalizedEmail,
+      tenantId,
+    })
+
+    const hasActionableAdditionalApproverAssignments =
+      await this.employeeRepository.hasActionableAdditionalApproverAssignments({
+        email: normalizedEmail,
+        tenantId,
+      })
+
     const resolvedMappedRole = mappedTeamRoles.includes('HOD') ? 'HOD' : mappedTeamRoles.includes('POC') ? 'POC' : null
 
     let employee = await this.employeeRepository.findByEmail({
@@ -99,7 +110,12 @@ export class AuthService {
       ? ['ADMIN', 'LEGAL_ADMIN', 'SUPER_ADMIN'].includes((employee.role ?? '').toUpperCase())
       : false
 
-    if (!resolvedMappedRole && !isExistingAdmin) {
+    if (
+      !resolvedMappedRole &&
+      !isExistingAdmin &&
+      !hasActionableAdditionalApproverAssignments &&
+      !hasAdditionalApproverParticipation
+    ) {
       throw new AuthorizationError(authErrorCodes.unauthorized, 'Access is not provisioned for this Microsoft account')
     }
 
