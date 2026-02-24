@@ -10,6 +10,7 @@ import { AuditLogger } from '@/core/domain/audit/audit-logger'
 import { IdempotencyService } from '@/core/domain/idempotency/idempotency-service'
 import { ContractUploadService } from '@/core/domain/contracts/contract-upload-service'
 import { ContractQueryService } from '@/core/domain/contracts/contract-query-service'
+import { ContractSignatoryService } from '@/core/domain/contracts/contract-signatory-service'
 import { RoleGovernanceService } from '@/core/domain/admin/role-governance-service'
 import { AdminQueryService } from '@/core/domain/admin/admin-query-service'
 import { TeamGovernanceService } from '@/core/domain/admin/team-governance-service'
@@ -23,6 +24,9 @@ import { supabaseRoleGovernanceRepository } from '@/core/infra/repositories/supa
 import { supabaseAdminQueryRepository } from '@/core/infra/repositories/supabase-admin-query-repository'
 import { supabaseTeamGovernanceRepository } from '@/core/infra/repositories/supabase-team-governance-repository'
 import { logger } from '@/core/infra/logging/logger'
+import { DocusignClient } from '@/core/infra/integrations/docusign/docusign-client'
+import { BrevoSmtpSender } from '@/core/infra/integrations/email/brevo-smtp-sender'
+import { appConfig } from '@/core/config/app-config'
 import type { EmployeeRepository } from '@/core/domain/users/employee-repository'
 
 // Private instances - don't export directly
@@ -31,6 +35,7 @@ let auditLogger: AuditLogger | null = null
 let idempotencyService: IdempotencyService | null = null
 let contractUploadService: ContractUploadService | null = null
 let contractQueryService: ContractQueryService | null = null
+let contractSignatoryService: ContractSignatoryService | null = null
 let roleGovernanceService: RoleGovernanceService | null = null
 let adminQueryService: AdminQueryService | null = null
 let teamGovernanceService: TeamGovernanceService | null = null
@@ -90,6 +95,65 @@ export function getContractQueryService(): ContractQueryService {
   return contractQueryService
 }
 
+export function getContractSignatoryService(): ContractSignatoryService {
+  if (!contractSignatoryService) {
+    const docusignConfig = appConfig.docusign
+    const mailConfig = appConfig.mail
+
+    if (
+      !docusignConfig.authBaseUrl ||
+      !docusignConfig.apiBaseUrl ||
+      !docusignConfig.accountId ||
+      !docusignConfig.userId ||
+      !docusignConfig.integrationKey ||
+      !docusignConfig.rsaPrivateKey
+    ) {
+      throw new Error('DocuSign config is incomplete. Please set required DOCUSIGN_* environment variables.')
+    }
+
+    if (
+      !mailConfig.brevoSmtpHost ||
+      !mailConfig.brevoSmtpPort ||
+      !mailConfig.brevoSmtpUser ||
+      !mailConfig.brevoSmtpPass ||
+      !mailConfig.fromName ||
+      !mailConfig.fromEmail
+    ) {
+      throw new Error('Brevo SMTP config is incomplete. Please set required BREVO_* and MAIL_FROM_* variables.')
+    }
+
+    const docusignClient = new DocusignClient({
+      authBaseUrl: docusignConfig.authBaseUrl,
+      apiBaseUrl: docusignConfig.apiBaseUrl,
+      accountId: docusignConfig.accountId,
+      userId: docusignConfig.userId,
+      integrationKey: docusignConfig.integrationKey,
+      rsaPrivateKey: docusignConfig.rsaPrivateKey,
+    })
+
+    const brevoSmtpSender = new BrevoSmtpSender({
+      host: mailConfig.brevoSmtpHost,
+      port: Number(mailConfig.brevoSmtpPort),
+      user: mailConfig.brevoSmtpUser,
+      pass: mailConfig.brevoSmtpPass,
+      allowSelfSigned: mailConfig.brevoSmtpAllowSelfSigned,
+      fromName: mailConfig.fromName,
+      fromEmail: mailConfig.fromEmail,
+    })
+
+    contractSignatoryService = new ContractSignatoryService(
+      getContractQueryService(),
+      getContractUploadService(),
+      docusignClient,
+      brevoSmtpSender,
+      appConfig.auth.siteUrl,
+      logger
+    )
+  }
+
+  return contractSignatoryService
+}
+
 export function getRoleGovernanceService(): RoleGovernanceService {
   if (!roleGovernanceService) {
     roleGovernanceService = new RoleGovernanceService(supabaseRoleGovernanceRepository)
@@ -123,6 +187,7 @@ export function resetServices(): void {
   idempotencyService = null
   contractUploadService = null
   contractQueryService = null
+  contractSignatoryService = null
   roleGovernanceService = null
   adminQueryService = null
   teamGovernanceService = null

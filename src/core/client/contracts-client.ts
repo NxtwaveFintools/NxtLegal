@@ -88,11 +88,22 @@ type ContractAdditionalApprover = {
   approvedAt: string | null
 }
 
+type ContractSignatory = {
+  id: string
+  signatoryEmail: string
+  status: 'PENDING' | 'SIGNED'
+  signedAt: string | null
+  docusignEnvelopeId: string
+  docusignRecipientId: string
+  createdAt: string
+}
+
 type ContractDetailResponse = {
   contract: ContractRecord
   documents: ContractDocument[]
   availableActions: ContractAllowedAction[]
   additionalApprovers: ContractAdditionalApprover[]
+  signatories: ContractSignatory[]
 }
 
 type ContractListResponse = {
@@ -414,6 +425,19 @@ export const contractsClient = {
     return parseApiResponse<ContractDetailResponse>(response)
   },
 
+  async addSignatory(contractId: string, payload: { signatoryEmail: string }) {
+    const response = await fetch(resolveContractPath(routeRegistry.api.contracts.signatories, contractId), {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    })
+
+    return parseApiResponse<ContractDetailResponse>(response)
+  },
+
   async download(
     contractId: string,
     options?: { documentId?: string }
@@ -459,6 +483,7 @@ export type {
   ContractActionName,
   ContractAllowedAction,
   ContractAdditionalApprover,
+  ContractSignatory,
   ContractDetailResponse,
   DashboardContractsFilter,
   RepositorySortBy,

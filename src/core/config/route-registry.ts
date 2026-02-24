@@ -31,6 +31,8 @@ export const routeRegistry = {
       action: '/api/contracts/:contractId/action',
       note: '/api/contracts/:contractId/note',
       approvers: '/api/contracts/:contractId/approvers',
+      signatories: '/api/contracts/:contractId/signatories',
+      signatoryWebhook: '/api/contracts/signatories/docusign/webhook',
     },
     admin: {
       users: '/api/admin/users',

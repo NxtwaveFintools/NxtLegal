@@ -1,4 +1,4 @@
-import type { ContractStatus } from '@/core/constants/contracts'
+import type { ContractSignatoryStatus, ContractStatus } from '@/core/constants/contracts'
 import type { ContractActionName } from '@/core/domain/contracts/schemas'
 
 export type ContractListItem = {
@@ -83,11 +83,22 @@ export type ContractAdditionalApprover = {
   approvedAt: string | null
 }
 
+export type ContractSignatory = {
+  id: string
+  signatoryEmail: string
+  status: ContractSignatoryStatus
+  signedAt: string | null
+  docusignEnvelopeId: string
+  docusignRecipientId: string
+  createdAt: string
+}
+
 export type ContractDetailView = {
   contract: ContractDetail
   documents: ContractDocument[]
   availableActions: ContractAllowedAction[]
   additionalApprovers: ContractAdditionalApprover[]
+  signatories: ContractSignatory[]
 }
 
 export interface ContractQueryRepository {
@@ -127,6 +138,7 @@ export interface ContractQueryRepository {
   getDocuments(tenantId: string, contractId: string): Promise<ContractDocument[]>
   getTimeline(tenantId: string, contractId: string, limit: number): Promise<ContractTimelineEvent[]>
   getAdditionalApprovers(tenantId: string, contractId: string): Promise<ContractAdditionalApprover[]>
+  getSignatories(tenantId: string, contractId: string): Promise<ContractSignatory[]>
   canAccessContract(params: {
     tenantId: string
     actorEmployeeId: string
@@ -155,6 +167,22 @@ export interface ContractQueryRepository {
     actorRole: string
     actorEmail: string
     approverEmail: string
+  }): Promise<void>
+  addSignatory(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    actorRole: string
+    actorEmail: string
+    signatoryEmail: string
+    docusignEnvelopeId: string
+    docusignRecipientId: string
+  }): Promise<void>
+  markSignatoryAsSigned(params: {
+    tenantId: string
+    envelopeId: string
+    recipientEmail?: string
+    signedAt?: string
   }): Promise<void>
   addContractNote(params: {
     tenantId: string

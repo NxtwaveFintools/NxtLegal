@@ -44,9 +44,11 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const [timeline, setTimeline] = useState<ContractTimelineEvent[]>([])
   const [availableActions, setAvailableActions] = useState<ContractAllowedAction[]>([])
   const [approvers, setApprovers] = useState<ContractDetailResponse['additionalApprovers']>([])
+  const [signatories, setSignatories] = useState<ContractDetailResponse['signatories']>([])
   const [documents, setDocuments] = useState<ContractDocument[]>([])
   const [noteText, setNoteText] = useState('')
   const [approverEmail, setApproverEmail] = useState('')
+  const [signatoryEmail, setSignatoryEmail] = useState('')
   const [activeTab, setActiveTab] = useState<TabId>('overview')
   const [isIntakeOpen, setIsIntakeOpen] = useState(false)
   const [expandedLogIds, setExpandedLogIds] = useState<Set<string>>(new Set())
@@ -104,6 +106,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     setDocuments(contractView.documents ?? [])
     setAvailableActions(contractView.availableActions)
     setApprovers(contractView.additionalApprovers)
+    setSignatories(contractView.signatories ?? [])
   }
 
   const loadContractContext = useCallback(async (contractId: string) => {
@@ -119,6 +122,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       setDocuments([])
       setAvailableActions([])
       setApprovers([])
+      setSignatories([])
       return
     }
 
@@ -165,6 +169,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
         setDocuments([])
         setAvailableActions([])
         setApprovers([])
+        setSignatories([])
         return
       }
 
@@ -353,6 +358,26 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     }
 
     setApproverEmail('')
+    applyContractView(response.data)
+  }
+
+  const handleAddSignatory = async () => {
+    if (!selectedContractId || !signatoryEmail.trim()) {
+      return
+    }
+
+    setIsMutating(true)
+    const response = await contractsClient.addSignatory(selectedContractId, {
+      signatoryEmail: signatoryEmail.trim().toLowerCase(),
+    })
+    setIsMutating(false)
+
+    if (!response.ok || !response.data) {
+      setError(response.error?.message ?? 'Failed to add signatory')
+      return
+    }
+
+    setSignatoryEmail('')
     applyContractView(response.data)
   }
 
@@ -692,36 +717,67 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                     </div>
 
                     {(session.role === 'LEGAL_TEAM' || session.role === 'ADMIN') && (
-                      <div className={styles.card}>
-                        <div className={styles.sectionTitle}>Additional Approvers</div>
-                        <div className={styles.inlineForm}>
-                          <input
-                            type="email"
-                            className={styles.input}
-                            placeholder="approver@nxtwave.co.in"
-                            value={approverEmail}
-                            onChange={(event) => setApproverEmail(event.target.value)}
-                          />
-                          <button
-                            type="button"
-                            className={styles.button}
-                            disabled={isMutating}
-                            onClick={() => void handleAddApprover()}
-                          >
-                            Add Approver
-                          </button>
-                        </div>
-                        <div className={styles.timeline}>
-                          {approvers.map((approver) => (
-                            <div key={approver.id} className={styles.event}>
-                              <div>
-                                #{approver.sequenceOrder} {approver.approverEmail}
+                      <>
+                        <div className={styles.card}>
+                          <div className={styles.sectionTitle}>Additional Approvers</div>
+                          <div className={styles.inlineForm}>
+                            <input
+                              type="email"
+                              className={styles.input}
+                              placeholder="approver@nxtwave.co.in"
+                              value={approverEmail}
+                              onChange={(event) => setApproverEmail(event.target.value)}
+                            />
+                            <button
+                              type="button"
+                              className={styles.button}
+                              disabled={isMutating}
+                              onClick={() => void handleAddApprover()}
+                            >
+                              Add Approver
+                            </button>
+                          </div>
+                          <div className={styles.timeline}>
+                            {approvers.map((approver) => (
+                              <div key={approver.id} className={styles.event}>
+                                <div>
+                                  #{approver.sequenceOrder} {approver.approverEmail}
+                                </div>
+                                <div className={styles.eventMeta}>{approver.status}</div>
                               </div>
-                              <div className={styles.eventMeta}>{approver.status}</div>
-                            </div>
-                          ))}
+                            ))}
+                          </div>
                         </div>
-                      </div>
+
+                        <div className={styles.card}>
+                          <div className={styles.sectionTitle}>Signatories</div>
+                          <div className={styles.inlineForm}>
+                            <input
+                              type="email"
+                              className={styles.input}
+                              placeholder="signatory@nxtwave.co.in"
+                              value={signatoryEmail}
+                              onChange={(event) => setSignatoryEmail(event.target.value)}
+                            />
+                            <button
+                              type="button"
+                              className={styles.button}
+                              disabled={isMutating}
+                              onClick={() => void handleAddSignatory()}
+                            >
+                              Add Signatory
+                            </button>
+                          </div>
+                          <div className={styles.timeline}>
+                            {signatories.map((signatory) => (
+                              <div key={signatory.id} className={styles.event}>
+                                <div>{signatory.signatoryEmail}</div>
+                                <div className={styles.eventMeta}>{signatory.status}</div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </>
                     )}
                   </div>
                 )}

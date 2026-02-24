@@ -82,7 +82,7 @@ export class ContractQueryService {
       throw new AuthorizationError('CONTRACT_READ_FORBIDDEN', 'You do not have access to this contract')
     }
 
-    const [documents, availableActions, additionalApprovers] = await Promise.all([
+    const [documents, availableActions, additionalApprovers, signatories] = await Promise.all([
       this.contractRepository.getDocuments(params.tenantId, params.contractId),
       this.contractRepository.getAvailableActions({
         tenantId: params.tenantId,
@@ -91,6 +91,7 @@ export class ContractQueryService {
         actorRole: params.role,
       }),
       this.contractRepository.getAdditionalApprovers(params.tenantId, params.contractId),
+      this.contractRepository.getSignatories(params.tenantId, params.contractId),
     ])
 
     return {
@@ -98,6 +99,7 @@ export class ContractQueryService {
       documents,
       availableActions,
       additionalApprovers,
+      signatories,
     }
   }
 
@@ -250,6 +252,64 @@ export class ContractQueryService {
     })
   }
 
+  async addSignatory(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    actorRole?: string
+    actorEmail: string
+    signatoryEmail: string
+    docusignEnvelopeId: string
+    docusignRecipientId: string
+  }): Promise<ContractDetailView> {
+    if (!params.actorRole) {
+      throw new AuthorizationError('CONTRACT_SIGNATORY_FORBIDDEN', 'User role is required for adding signatory')
+    }
+
+    if (!params.actorEmail) {
+      throw new BusinessRuleError('ACTOR_EMAIL_REQUIRED', 'Actor email is required')
+    }
+
+    await this.contractRepository.addSignatory({
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      actorEmployeeId: params.actorEmployeeId,
+      actorRole: params.actorRole,
+      actorEmail: params.actorEmail,
+      signatoryEmail: params.signatoryEmail,
+      docusignEnvelopeId: params.docusignEnvelopeId,
+      docusignRecipientId: params.docusignRecipientId,
+    })
+
+    const contract = await this.contractRepository.getById(params.tenantId, params.contractId)
+
+    if (!contract) {
+      throw new NotFoundError('Contract', params.contractId)
+    }
+
+    return this.getContractDetailAfterMutation({
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      employeeId: params.actorEmployeeId,
+      role: params.actorRole,
+      updatedContract: contract,
+    })
+  }
+
+  async markSignatoryAsSigned(params: {
+    tenantId: string
+    envelopeId: string
+    recipientEmail?: string
+    signedAt?: string
+  }): Promise<void> {
+    await this.contractRepository.markSignatoryAsSigned({
+      tenantId: params.tenantId,
+      envelopeId: params.envelopeId,
+      recipientEmail: params.recipientEmail,
+      signedAt: params.signedAt,
+    })
+  }
+
   private async getContractDetailAfterMutation(params: {
     tenantId: string
     contractId: string
@@ -271,6 +331,7 @@ export class ContractQueryService {
           documents: [],
           availableActions: [],
           additionalApprovers: [],
+          signatories: [],
         }
       }
 

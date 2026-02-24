@@ -1,12 +1,19 @@
 import 'server-only'
 
-import { contractStatuses, type ContractStatus } from '@/core/constants/contracts'
+import {
+  contractAuditActions,
+  contractAuditEvents,
+  contractSignatoryStatuses,
+  contractStatuses,
+  type ContractStatus,
+} from '@/core/constants/contracts'
 import { AuthorizationError, BusinessRuleError, ConflictError, DatabaseError } from '@/core/http/errors'
 import { createServiceSupabase } from '@/lib/supabase/service'
 import type {
   ContractDocument,
   DashboardContractFilter,
   ContractAdditionalApprover,
+  ContractSignatory,
   ContractAllowedAction,
   ContractDetail,
   ContractListItem,
@@ -86,6 +93,16 @@ type AdditionalApproverEntity = {
   sequence_order: number
   status: 'PENDING' | 'APPROVED'
   approved_at: string | null
+}
+
+type SignatoryEntity = {
+  id: string
+  signatory_email: string
+  status: 'PENDING' | 'SIGNED'
+  signed_at: string | null
+  docusign_envelope_id: string
+  docusign_recipient_id: string
+  created_at: string
 }
 
 class SupabaseContractQueryRepository implements ContractQueryRepository {
@@ -638,6 +655,37 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     }))
   }
 
+  async getSignatories(tenantId: string, contractId: string): Promise<ContractSignatory[]> {
+    const supabase = createServiceSupabase()
+    const { data, error } = await supabase
+      .from('contract_signatories')
+      .select('id, signatory_email, status, signed_at, docusign_envelope_id, docusign_recipient_id, created_at')
+      .eq('tenant_id', tenantId)
+      .eq('contract_id', contractId)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: true })
+
+    if (error) {
+      if (error.code === '42P01') {
+        return []
+      }
+
+      throw new DatabaseError('Failed to fetch signatories', new Error(error.message), {
+        code: error.code,
+      })
+    }
+
+    return ((data ?? []) as SignatoryEntity[]).map((row) => ({
+      id: row.id,
+      signatoryEmail: row.signatory_email,
+      status: row.status,
+      signedAt: row.signed_at,
+      docusignEnvelopeId: row.docusign_envelope_id,
+      docusignRecipientId: row.docusign_recipient_id,
+      createdAt: row.created_at,
+    }))
+  }
+
   async canAccessContract(params: {
     tenantId: string
     actorEmployeeId: string
@@ -995,6 +1043,153 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
     if (auditError) {
       throw new DatabaseError('Failed to write approver audit event', new Error(auditError.message), {
+        code: auditError.code,
+      })
+    }
+  }
+
+  async addSignatory(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    actorRole: string
+    actorEmail: string
+    signatoryEmail: string
+    docusignEnvelopeId: string
+    docusignRecipientId: string
+  }): Promise<void> {
+    this.assertActorMetadata({
+      actorEmployeeId: params.actorEmployeeId,
+      actorEmail: params.actorEmail,
+      actorRole: params.actorRole,
+    })
+
+    if (params.actorRole !== 'LEGAL_TEAM' && params.actorRole !== 'ADMIN') {
+      throw new AuthorizationError('CONTRACT_SIGNATORY_FORBIDDEN', 'Only legal team can assign signatories')
+    }
+
+    const contract = await this.getById(params.tenantId, params.contractId)
+    if (!contract) {
+      throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found')
+    }
+
+    if (contract.status !== contractStatuses.legalPending) {
+      throw new BusinessRuleError(
+        'SIGNATORY_ASSIGN_INVALID_STATUS',
+        'Signatories can only be assigned in LEGAL_PENDING'
+      )
+    }
+
+    const existingSignatories = await this.getSignatories(params.tenantId, params.contractId)
+    if (
+      existingSignatories.some(
+        (item) => item.signatoryEmail === params.signatoryEmail && item.status === contractSignatoryStatuses.pending
+      )
+    ) {
+      throw new BusinessRuleError('SIGNATORY_ALREADY_ASSIGNED', 'Signatory is already pending on this contract')
+    }
+
+    const supabase = createServiceSupabase()
+    const { error: insertError } = await supabase.from('contract_signatories').insert([
+      {
+        tenant_id: params.tenantId,
+        contract_id: params.contractId,
+        signatory_email: params.signatoryEmail,
+        status: contractSignatoryStatuses.pending,
+        docusign_envelope_id: params.docusignEnvelopeId,
+        docusign_recipient_id: params.docusignRecipientId,
+        created_by_employee_id: params.actorEmployeeId,
+      },
+    ])
+
+    if (insertError) {
+      throw new DatabaseError('Failed to add signatory', new Error(insertError.message), {
+        code: insertError.code,
+      })
+    }
+
+    const { error: auditError } = await supabase.from('audit_logs').insert([
+      {
+        tenant_id: params.tenantId,
+        user_id: params.actorEmployeeId,
+        event_type: contractAuditEvents.signatoryAdded,
+        action: contractAuditActions.signatoryAdded,
+        actor_email: params.actorEmail,
+        actor_role: params.actorRole,
+        resource_type: 'contract',
+        resource_id: params.contractId,
+        target_email: params.signatoryEmail,
+        metadata: {
+          docusign_envelope_id: params.docusignEnvelopeId,
+          docusign_recipient_id: params.docusignRecipientId,
+        },
+      },
+    ])
+
+    if (auditError) {
+      throw new DatabaseError('Failed to write signatory audit event', new Error(auditError.message), {
+        code: auditError.code,
+      })
+    }
+  }
+
+  async markSignatoryAsSigned(params: {
+    tenantId: string
+    envelopeId: string
+    recipientEmail?: string
+    signedAt?: string
+  }): Promise<void> {
+    const supabase = createServiceSupabase()
+    let updateQuery = supabase
+      .from('contract_signatories')
+      .update({
+        status: contractSignatoryStatuses.signed,
+        signed_at: params.signedAt ?? new Date().toISOString(),
+      })
+      .eq('tenant_id', params.tenantId)
+      .eq('docusign_envelope_id', params.envelopeId)
+      .eq('status', contractSignatoryStatuses.pending)
+      .is('deleted_at', null)
+
+    if (params.recipientEmail) {
+      updateQuery = updateQuery.eq('signatory_email', params.recipientEmail)
+    }
+
+    const { data: updatedSignatories, error: updateError } = await updateQuery
+      .select('id, contract_id, signatory_email')
+      .limit(1)
+
+    if (updateError) {
+      throw new DatabaseError('Failed to mark signatory as signed', new Error(updateError.message), {
+        code: updateError.code,
+      })
+    }
+
+    const updated = (updatedSignatories ?? [])[0]
+    if (!updated) {
+      return
+    }
+
+    const { error: auditError } = await supabase.from('audit_logs').insert([
+      {
+        tenant_id: params.tenantId,
+        user_id: 'SYSTEM',
+        event_type: contractAuditEvents.signatorySigned,
+        action: contractAuditActions.signatorySigned,
+        actor_email: null,
+        actor_role: 'SYSTEM',
+        resource_type: 'contract',
+        resource_id: updated.contract_id,
+        target_email: updated.signatory_email,
+        metadata: {
+          signatory_id: updated.id,
+          docusign_envelope_id: params.envelopeId,
+        },
+      },
+    ])
+
+    if (auditError) {
+      throw new DatabaseError('Failed to write signatory signed audit event', new Error(auditError.message), {
         code: auditError.code,
       })
     }
