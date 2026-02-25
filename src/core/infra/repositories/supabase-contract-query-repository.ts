@@ -968,6 +968,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       )
       .eq('tenant_id', tenantId)
       .eq('contract_id', contractId)
+      .in('document_kind', ['PRIMARY', 'COUNTERPARTY_SUPPORTING', 'EXECUTED_CONTRACT', 'AUDIT_CERTIFICATE'])
       .is('deleted_at', null)
       .order('created_at', { ascending: true })
 
