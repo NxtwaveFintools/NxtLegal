@@ -1,4 +1,4 @@
-import type { ContractStatus } from '@/core/constants/contracts'
+import type { ContractSignatoryStatus, ContractStatus } from '@/core/constants/contracts'
 import type { ContractActionName } from '@/core/domain/contracts/schemas'
 
 export type ContractListItem = {
@@ -115,6 +115,16 @@ export type ContractLegalCollaborator = {
   createdAt: string
 }
 
+export type ContractSignatory = {
+  id: string
+  signatoryEmail: string
+  status: ContractSignatoryStatus
+  signedAt: string | null
+  docusignEnvelopeId: string
+  docusignRecipientId: string
+  createdAt: string
+}
+
 export type ContractDetailView = {
   contract: ContractDetail
   counterparties: ContractCounterparty[]
@@ -122,6 +132,7 @@ export type ContractDetailView = {
   availableActions: ContractAllowedAction[]
   additionalApprovers: ContractAdditionalApprover[]
   legalCollaborators: ContractLegalCollaborator[]
+  signatories: ContractSignatory[]
 }
 
 export type AdditionalApproverDecisionHistoryItem = {
@@ -190,6 +201,7 @@ export interface ContractQueryRepository {
   getAdditionalApprovers(tenantId: string, contractId: string): Promise<ContractAdditionalApprover[]>
   getLegalCollaborators(tenantId: string, contractId: string): Promise<ContractLegalCollaborator[]>
   isLegalCollaborator(tenantId: string, contractId: string, employeeId: string): Promise<boolean>
+  getSignatories(tenantId: string, contractId: string): Promise<ContractSignatory[]>
   canAccessContract(params: {
     tenantId: string
     actorEmployeeId: string
@@ -242,6 +254,22 @@ export interface ContractQueryRepository {
     actorRole: string
     actorEmail: string
     collaboratorEmail: string
+  }): Promise<void>
+  addSignatory(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    actorRole: string
+    actorEmail: string
+    signatoryEmail: string
+    docusignEnvelopeId: string
+    docusignRecipientId: string
+  }): Promise<void>
+  markSignatoryAsSigned(params: {
+    tenantId: string
+    envelopeId: string
+    recipientEmail?: string
+    signedAt?: string
   }): Promise<void>
   addContractNote(params: {
     tenantId: string

@@ -4,6 +4,7 @@ jest.mock('@/lib/supabase/service', () => ({
   createServiceSupabase: jest.fn(),
 }))
 
+import { createServiceSupabase } from '@/lib/supabase/service'
 import { supabaseContractQueryRepository } from '@/core/infra/repositories/supabase-contract-query-repository'
 
 describe('supabaseContractQueryRepository action permissions', () => {
@@ -54,5 +55,75 @@ describe('supabaseContractQueryRepository action permissions', () => {
     ).rejects.toMatchObject<Partial<AuthorizationError>>({
       code: 'CONTRACT_ACTION_FORBIDDEN',
     })
+  })
+
+  it('blocks signatory assignment for non-legal roles', async () => {
+    await expect(
+      supabaseContractQueryRepository.addSignatory({
+        tenantId: 'tenant-1',
+        contractId: 'contract-1',
+        actorEmployeeId: 'poc-1',
+        actorRole: 'POC',
+        actorEmail: 'poc@nxtwave.co.in',
+        signatoryEmail: 'signer@nxtwave.co.in',
+        docusignEnvelopeId: 'env-1',
+        docusignRecipientId: '1',
+      })
+    ).rejects.toMatchObject<Partial<AuthorizationError>>({
+      code: 'CONTRACT_SIGNATORY_FORBIDDEN',
+    })
+  })
+
+  it('enforces tenant filter when marking signatory as signed', async () => {
+    const eq = jest.fn().mockReturnThis()
+    const is = jest.fn().mockReturnThis()
+    const select = jest.fn().mockReturnThis()
+    const limit = jest.fn().mockResolvedValue({ data: [], error: null })
+    const update = jest.fn().mockReturnValue({
+      eq,
+      is,
+      select,
+      limit,
+    })
+    const from = jest.fn().mockReturnValue({ update })
+
+    ;(createServiceSupabase as jest.Mock).mockReturnValue({ from })
+
+    await supabaseContractQueryRepository.markSignatoryAsSigned({
+      tenantId: 'tenant-1',
+      envelopeId: 'env-1',
+      recipientEmail: 'signer@nxtwave.co.in',
+    })
+
+    expect(from).toHaveBeenCalledWith('contract_signatories')
+    expect(eq).toHaveBeenCalledWith('tenant_id', 'tenant-1')
+    expect(eq).toHaveBeenCalledWith('docusign_envelope_id', 'env-1')
+    expect(eq).toHaveBeenCalledWith('status', 'PENDING')
+    expect(eq).toHaveBeenCalledWith('signatory_email', 'signer@nxtwave.co.in')
+    expect(is).toHaveBeenCalledWith('deleted_at', null)
+  })
+
+  it('returns empty signatories when signatory table is not migrated yet', async () => {
+    const order = jest.fn().mockResolvedValue({
+      data: null,
+      error: {
+        code: '42P01',
+        message: 'relation "contract_signatories" does not exist',
+      },
+    })
+    const is = jest.fn().mockReturnValue({ order })
+    const eqContract = jest.fn().mockReturnValue({ is })
+    const eqTenant = jest.fn().mockReturnValue({ eq: eqContract })
+    const select = jest.fn().mockReturnValue({ eq: eqTenant })
+    const from = jest.fn().mockReturnValue({ select })
+
+    ;(createServiceSupabase as jest.Mock).mockReturnValue({ from })
+
+    const result = await supabaseContractQueryRepository.getSignatories('tenant-1', 'contract-1')
+
+    expect(result).toEqual([])
+    expect(from).toHaveBeenCalledWith('contract_signatories')
+    expect(eqTenant).toHaveBeenCalledWith('tenant_id', 'tenant-1')
+    expect(eqContract).toHaveBeenCalledWith('contract_id', 'contract-1')
   })
 })

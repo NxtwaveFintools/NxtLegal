@@ -49,6 +49,8 @@ export const routeRegistry = {
       note: '/api/contracts/:contractId/note',
       approvers: '/api/contracts/:contractId/approvers',
       assignments: '/api/contracts/:contractId/assignments',
+      signatories: '/api/contracts/:contractId/signatories',
+      signatoryWebhook: '/api/contracts/signatories/docusign/webhook',
     },
     admin: {
       users: '/api/admin/users',

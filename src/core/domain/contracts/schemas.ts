@@ -114,6 +114,18 @@ export const contractLegalAssignmentSchema = z.discriminatedUnion('operation', [
   }),
 ])
 
+export const contractSignatorySchema = z.object({
+  signatoryEmail: z.string().trim().toLowerCase().email('Valid signatory email is required'),
+})
+
+export const docusignWebhookSchema = z.object({
+  tenantId: z.string().uuid('Valid tenant ID is required'),
+  envelopeId: z.string().trim().min(1, 'Envelope ID is required'),
+  recipientEmail: z.string().trim().toLowerCase().email('Valid recipient email is required').optional(),
+  status: z.string().trim().min(1, 'Status is required'),
+  signedAt: z.string().datetime().optional(),
+})
+
 export type ContractActionName = (typeof contractActionNames)[number]
 export type DashboardContractsFilter = (typeof dashboardContractsFilterValues)[number]
 export type ContractLegalAssignmentOperation = z.infer<typeof contractLegalAssignmentSchema>['operation']

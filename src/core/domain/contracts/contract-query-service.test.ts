@@ -45,6 +45,7 @@ const createRepositoryMock = (): jest.Mocked<ContractQueryRepository> => ({
   getAdditionalApprovers: jest.fn(),
   getLegalCollaborators: jest.fn(),
   isLegalCollaborator: jest.fn(),
+  getSignatories: jest.fn(),
   canAccessContract: jest.fn(),
   getAvailableActions: jest.fn(),
   applyAction: jest.fn(),
@@ -52,6 +53,8 @@ const createRepositoryMock = (): jest.Mocked<ContractQueryRepository> => ({
   setLegalOwnerByEmail: jest.fn(),
   addLegalCollaboratorByEmail: jest.fn(),
   removeLegalCollaboratorByEmail: jest.fn(),
+  addSignatory: jest.fn(),
+  markSignatoryAsSigned: jest.fn(),
   addContractNote: jest.fn(),
   addContractActivityMessage: jest.fn(),
   markContractActivitySeen: jest.fn(),
@@ -94,6 +97,9 @@ describe('ContractQueryService', () => {
       availableActions: [],
       additionalApprovers: [],
       legalCollaborators: [],
+      signatories: [],
+      legalCollaborators: [],
+      signatories: [],
     })
   })
 
@@ -107,6 +113,10 @@ describe('ContractQueryService', () => {
     repository.getAvailableActions.mockResolvedValue([])
     repository.getAdditionalApprovers.mockResolvedValue([])
     repository.getLegalCollaborators.mockResolvedValue([])
+    repository.getSignatories.mockResolvedValue([])
+    repository.getCounterparties.mockResolvedValue([])
+    repository.getLegalCollaborators.mockResolvedValue([])
+    repository.getSignatories.mockResolvedValue([])
 
     await service.getContractDetail({
       tenantId: 'tenant-1',

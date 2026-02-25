@@ -65,6 +65,23 @@ export const contractStorage = {
   signedUrlExpirySeconds: 60 * 10,
 } as const
 
+export const contractSignatoryStatuses = {
+  pending: 'PENDING',
+  signed: 'SIGNED',
+} as const
+
+export type ContractSignatoryStatus = (typeof contractSignatoryStatuses)[keyof typeof contractSignatoryStatuses]
+
+export const contractAuditEvents = {
+  signatoryAdded: 'CONTRACT_SIGNATORY_ADDED',
+  signatorySigned: 'CONTRACT_SIGNATORY_SIGNED',
+} as const
+
+export const contractAuditActions = {
+  signatoryAdded: 'contract.signatory.added',
+  signatorySigned: 'contract.signatory.signed',
+} as const
+
 export const contractStatusLabels: Record<ContractStatus, string> = {
   DRAFT: 'Draft',
   UPLOADED: 'Uploaded',
