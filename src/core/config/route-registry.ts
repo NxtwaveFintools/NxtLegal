@@ -40,6 +40,7 @@ export const routeRegistry = {
       repository: '/api/contracts/repository',
       upload: '/api/contracts/upload',
       detail: '/api/contracts/:contractId',
+      replaceMainDocument: '/api/contracts/:contractId/replace-main-document',
       download: '/api/contracts/:contractId/download',
       preview: '/api/contracts/:contractId/preview',
       timeline: '/api/contracts/:contractId/timeline',
@@ -50,7 +51,10 @@ export const routeRegistry = {
       approvers: '/api/contracts/:contractId/approvers',
       assignments: '/api/contracts/:contractId/assignments',
       signatories: '/api/contracts/:contractId/signatories',
+      signingPreparationDraft: '/api/contracts/:contractId/signing-preparation-draft',
+      signingPreparationSend: '/api/contracts/:contractId/signing-prep/send',
       signatoryWebhook: '/api/contracts/signatories/docusign/webhook',
+      notificationFailures: '/api/contracts/notifications/failed',
     },
     admin: {
       users: '/api/admin/users',

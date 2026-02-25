@@ -1,4 +1,12 @@
-import type { ContractSignatoryStatus, ContractStatus } from '@/core/constants/contracts'
+import type {
+  ContractNotificationChannel,
+  ContractNotificationStatus,
+  ContractNotificationType,
+  ContractSignatoryFieldType,
+  ContractSignatoryRecipientType,
+  ContractSignatoryStatus,
+  ContractStatus,
+} from '@/core/constants/contracts'
 import type { ContractActionName } from '@/core/domain/contracts/schemas'
 
 export type ContractListItem = {
@@ -46,6 +54,7 @@ export type ContractDetail = ContractListItem & {
   backgroundOfRequest: string
   budgetApproved: boolean
   requestCreatedAt: string
+  currentDocumentId?: string | null
   fileName: string
   fileSizeBytes: number
   fileMimeType: string
@@ -61,7 +70,8 @@ export type ContractCounterparty = {
 
 export type ContractDocument = {
   id: string
-  documentKind: 'PRIMARY' | 'COUNTERPARTY_SUPPORTING'
+  documentKind: 'PRIMARY' | 'COUNTERPARTY_SUPPORTING' | 'EXECUTED_CONTRACT' | 'AUDIT_CERTIFICATE'
+  versionNumber?: number
   counterpartyId?: string | null
   counterpartyName?: string | null
   displayName: string
@@ -118,11 +128,49 @@ export type ContractLegalCollaborator = {
 export type ContractSignatory = {
   id: string
   signatoryEmail: string
+  recipientType: ContractSignatoryRecipientType
+  routingOrder: number
+  fieldConfig: ContractSignatoryField[]
   status: ContractSignatoryStatus
   signedAt: string | null
   docusignEnvelopeId: string
   docusignRecipientId: string
   createdAt: string
+}
+
+export type ContractSignatoryField = {
+  fieldType: ContractSignatoryFieldType
+  pageNumber: number | null
+  xPosition: number | null
+  yPosition: number | null
+  anchorString: string | null
+  assignedSignerEmail: string
+}
+
+export type ContractSigningPreparationDraftRecipient = {
+  name: string
+  email: string
+  recipientType: ContractSignatoryRecipientType
+  routingOrder: number
+}
+
+export type ContractSigningPreparationDraftField = {
+  fieldType: ContractSignatoryFieldType
+  pageNumber: number | null
+  xPosition: number | null
+  yPosition: number | null
+  anchorString: string | null
+  assignedSignerEmail: string
+}
+
+export type ContractSigningPreparationDraft = {
+  contractId: string
+  recipients: ContractSigningPreparationDraftRecipient[]
+  fields: ContractSigningPreparationDraftField[]
+  createdByEmployeeId: string
+  updatedByEmployeeId: string
+  createdAt: string
+  updatedAt: string
 }
 
 export type ContractDetailView = {
@@ -133,6 +181,23 @@ export type ContractDetailView = {
   additionalApprovers: ContractAdditionalApprover[]
   legalCollaborators: ContractLegalCollaborator[]
   signatories: ContractSignatory[]
+}
+
+export type ContractNotificationFailure = {
+  id: string
+  contractId: string
+  envelopeId: string | null
+  recipientEmail: string
+  notificationType: ContractNotificationType
+  templateId: number
+  providerName: string
+  providerMessageId: string | null
+  retryCount: number
+  maxRetries: number
+  nextRetryAt: string | null
+  lastError: string | null
+  createdAt: string
+  updatedAt: string
 }
 
 export type AdditionalApproverDecisionHistoryItem = {
@@ -262,14 +327,91 @@ export interface ContractQueryRepository {
     actorRole: string
     actorEmail: string
     signatoryEmail: string
+    recipientType: ContractSignatoryRecipientType
+    routingOrder: number
+    fieldConfig: ContractSignatoryField[]
     docusignEnvelopeId: string
     docusignRecipientId: string
+    envelopeSourceDocumentId: string
+  }): Promise<void>
+  saveSigningPreparationDraft(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    recipients: ContractSigningPreparationDraftRecipient[]
+    fields: ContractSigningPreparationDraftField[]
+  }): Promise<ContractSigningPreparationDraft>
+  getSigningPreparationDraft(params: {
+    tenantId: string
+    contractId: string
+  }): Promise<ContractSigningPreparationDraft | null>
+  countPendingSignatoriesByContract(params: { tenantId: string; contractId: string }): Promise<number>
+  moveContractToInSignature(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    actorRole: string
+    actorEmail: string
+    envelopeId: string
+  }): Promise<void>
+  deleteSigningPreparationDraft(params: { tenantId: string; contractId: string }): Promise<void>
+  resolveEnvelopeContext(params: { envelopeId: string; recipientEmail?: string }): Promise<{
+    tenantId: string
+    contractId: string
+    signatoryEmail: string
+    recipientType: ContractSignatoryRecipientType
+    routingOrder: number
+  } | null>
+  recordDocusignWebhookEvent(params: {
+    tenantId: string
+    contractId: string
+    envelopeId: string
+    recipientEmail?: string
+    eventType: string
+    eventKey: string
+    payload: Record<string, unknown>
+    signerIp?: string
+  }): Promise<{ inserted: boolean }>
+  addSignatoryWebhookAuditEvent(params: {
+    tenantId: string
+    contractId: string
+    eventType: string
+    action: string
+    recipientEmail?: string
+    metadata?: Record<string, unknown>
   }): Promise<void>
   markSignatoryAsSigned(params: {
     tenantId: string
     envelopeId: string
     recipientEmail?: string
     signedAt?: string
+  }): Promise<void>
+  listFailedNotificationDeliveries(params: {
+    tenantId: string
+    cursor?: string
+    limit: number
+    contractId?: string
+  }): Promise<{ items: ContractNotificationFailure[]; nextCursor?: string; total: number }>
+  getEnvelopeNotificationProfile(params: { tenantId: string; contractId: string; envelopeId: string }): Promise<{
+    contractTitle: string
+    recipientEmails: string[]
+  } | null>
+  recordContractNotificationDelivery(params: {
+    tenantId: string
+    contractId: string
+    envelopeId?: string
+    recipientEmail: string
+    channel: ContractNotificationChannel
+    notificationType: ContractNotificationType
+    templateId: number
+    providerName: string
+    providerMessageId?: string
+    status: ContractNotificationStatus
+    retryCount: number
+    maxRetries: number
+    nextRetryAt?: string
+    lastError?: string
+    metadata?: Record<string, unknown>
   }): Promise<void>
   addContractNote(params: {
     tenantId: string

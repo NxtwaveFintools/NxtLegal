@@ -1,6 +1,9 @@
 import 'server-only'
 
 import {
+  contractNotificationChannels,
+  contractNotificationStatuses,
+  contractNotificationTypes,
   contractAuditActions,
   contractAuditEvents,
   contractLegalAssignmentAllowedRoles,
@@ -11,12 +14,14 @@ import {
   type ContractStatus,
 } from '@/core/constants/contracts'
 import { AuthorizationError, BusinessRuleError, ConflictError, DatabaseError } from '@/core/http/errors'
+import { logger } from '@/core/infra/logging/logger'
 import { createServiceSupabase } from '@/lib/supabase/service'
 import type {
   AdditionalApproverDecisionHistoryItem,
   ContractActivityReadState,
   ContractCounterparty,
   ContractDocument,
+  ContractNotificationFailure,
   DashboardContractFilter,
   ContractAdditionalApprover,
   ContractSignatory,
@@ -88,6 +93,7 @@ type ContractEntity = {
   department_id: string
   budget_approved: boolean
   request_created_at: string
+  current_document_id: string | null
   hod_approved_at: string | null
   tat_deadline_at: string | null
   tat_breached_at: string | null
@@ -102,8 +108,9 @@ type ContractEntity = {
 
 type ContractDocumentEntity = {
   id: string
-  document_kind: 'PRIMARY' | 'COUNTERPARTY_SUPPORTING'
+  document_kind: 'PRIMARY' | 'COUNTERPARTY_SUPPORTING' | 'EXECUTED_CONTRACT' | 'AUDIT_CERTIFICATE'
   counterparty_id: string | null
+  version_number: number | null
   display_name: string
   file_name: string
   file_size_bytes: number
@@ -141,12 +148,46 @@ type LegalCollaboratorEntity = {
 
 type SignatoryEntity = {
   id: string
+  contract_id?: string
+  tenant_id?: string
   signatory_email: string
+  recipient_type: 'INTERNAL' | 'EXTERNAL'
+  routing_order: number
+  field_config: Array<{
+    fieldType: 'SIGNATURE' | 'INITIAL' | 'STAMP' | 'NAME' | 'DATE' | 'TIME' | 'TEXT'
+    pageNumber: number | null
+    xPosition: number | null
+    yPosition: number | null
+    anchorString: string | null
+    assignedSignerEmail: string
+  }> | null
   status: 'PENDING' | 'SIGNED'
   signed_at: string | null
   docusign_envelope_id: string
   docusign_recipient_id: string
   created_at: string
+}
+
+type SigningPreparationDraftEntity = {
+  contract_id: string
+  recipients: Array<{
+    name: string
+    email: string
+    recipientType: 'INTERNAL' | 'EXTERNAL'
+    routingOrder: number
+  }>
+  fields: Array<{
+    fieldType: 'SIGNATURE' | 'INITIAL' | 'STAMP' | 'NAME' | 'DATE' | 'TIME' | 'TEXT'
+    pageNumber: number | null
+    xPosition: number | null
+    yPosition: number | null
+    anchorString: string | null
+    assignedSignerEmail: string
+  }>
+  created_by_employee_id: string
+  updated_by_employee_id: string
+  created_at: string
+  updated_at: string
 }
 
 type AdditionalApproverContractContext = {
@@ -627,7 +668,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     const { data, error } = await supabase
       .from('contracts')
       .select(
-        'id, tenant_id, title, contract_type_id, counterparty_name, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, signatory_name, signatory_designation, signatory_email, background_of_request, department_id, budget_approved, request_created_at, hod_approved_at, tat_deadline_at, tat_breached_at, file_name, file_size_bytes, file_mime_type, file_path, created_at, updated_at, row_version'
+        'id, tenant_id, title, contract_type_id, counterparty_name, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, signatory_name, signatory_designation, signatory_email, background_of_request, department_id, budget_approved, request_created_at, current_document_id, hod_approved_at, tat_deadline_at, tat_breached_at, file_name, file_size_bytes, file_mime_type, file_path, created_at, updated_at, row_version'
       )
       .eq('tenant_id', tenantId)
       .eq('id', contractId)
@@ -923,7 +964,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     const { data, error } = await supabase
       .from('contract_documents')
       .select(
-        'id, document_kind, counterparty_id, display_name, file_name, file_size_bytes, file_mime_type, created_at'
+        'id, document_kind, counterparty_id, version_number, display_name, file_name, file_size_bytes, file_mime_type, created_at'
       )
       .eq('tenant_id', tenantId)
       .eq('contract_id', contractId)
@@ -970,6 +1011,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       documentKind: row.document_kind,
       counterpartyId: row.counterparty_id,
       counterpartyName: row.counterparty_id ? (counterpartyNameById.get(row.counterparty_id) ?? null) : null,
+      versionNumber: row.version_number ?? undefined,
       displayName: row.display_name,
       fileName: row.file_name,
       fileSizeBytes: row.file_size_bytes,
@@ -1163,7 +1205,9 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     const supabase = createServiceSupabase()
     const { data, error } = await supabase
       .from('contract_signatories')
-      .select('id, signatory_email, status, signed_at, docusign_envelope_id, docusign_recipient_id, created_at')
+      .select(
+        'id, signatory_email, recipient_type, routing_order, field_config, status, signed_at, docusign_envelope_id, docusign_recipient_id, created_at'
+      )
       .eq('tenant_id', tenantId)
       .eq('contract_id', contractId)
       .is('deleted_at', null)
@@ -1174,6 +1218,35 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         return []
       }
 
+      if (error.code === '42703') {
+        const { data: legacyData, error: legacyError } = await supabase
+          .from('contract_signatories')
+          .select('id, signatory_email, status, signed_at, docusign_envelope_id, docusign_recipient_id, created_at')
+          .eq('tenant_id', tenantId)
+          .eq('contract_id', contractId)
+          .is('deleted_at', null)
+          .order('created_at', { ascending: true })
+
+        if (legacyError) {
+          throw new DatabaseError('Failed to fetch signatories', new Error(legacyError.message), {
+            code: legacyError.code,
+          })
+        }
+
+        return ((legacyData ?? []) as SignatoryEntity[]).map((row) => ({
+          id: row.id,
+          signatoryEmail: row.signatory_email,
+          recipientType: 'EXTERNAL',
+          routingOrder: 1,
+          fieldConfig: [],
+          status: row.status,
+          signedAt: row.signed_at,
+          docusignEnvelopeId: row.docusign_envelope_id,
+          docusignRecipientId: row.docusign_recipient_id,
+          createdAt: row.created_at,
+        }))
+      }
+
       throw new DatabaseError('Failed to fetch signatories', new Error(error.message), {
         code: error.code,
       })
@@ -1182,6 +1255,9 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     return ((data ?? []) as SignatoryEntity[]).map((row) => ({
       id: row.id,
       signatoryEmail: row.signatory_email,
+      recipientType: row.recipient_type,
+      routingOrder: row.routing_order,
+      fieldConfig: row.field_config ?? [],
       status: row.status,
       signedAt: row.signed_at,
       docusignEnvelopeId: row.docusign_envelope_id,
@@ -1213,6 +1289,281 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     }
 
     return Boolean(data?.id)
+  }
+
+  async saveSigningPreparationDraft(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    recipients: Array<{
+      name: string
+      email: string
+      recipientType: 'INTERNAL' | 'EXTERNAL'
+      routingOrder: number
+    }>
+    fields: Array<{
+      fieldType: 'SIGNATURE' | 'INITIAL' | 'STAMP' | 'NAME' | 'DATE' | 'TIME' | 'TEXT'
+      pageNumber: number | null
+      xPosition: number | null
+      yPosition: number | null
+      anchorString: string | null
+      assignedSignerEmail: string
+    }>
+  }): Promise<{
+    contractId: string
+    recipients: Array<{
+      name: string
+      email: string
+      recipientType: 'INTERNAL' | 'EXTERNAL'
+      routingOrder: number
+    }>
+    fields: Array<{
+      fieldType: 'SIGNATURE' | 'INITIAL' | 'STAMP' | 'NAME' | 'DATE' | 'TIME' | 'TEXT'
+      pageNumber: number | null
+      xPosition: number | null
+      yPosition: number | null
+      anchorString: string | null
+      assignedSignerEmail: string
+    }>
+    createdByEmployeeId: string
+    updatedByEmployeeId: string
+    createdAt: string
+    updatedAt: string
+  }> {
+    const contract = await this.getById(params.tenantId, params.contractId)
+    if (!contract) {
+      throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found')
+    }
+
+    if (contract.status !== contractStatuses.finalApproved) {
+      throw new BusinessRuleError(
+        'SIGNING_PREPARATION_INVALID_STATUS',
+        'Signing preparation drafts can only be saved in FINAL_APPROVED'
+      )
+    }
+
+    const supabase = createServiceSupabase()
+    const { data, error } = await supabase
+      .from('contract_signing_preparation_drafts')
+      .upsert(
+        {
+          tenant_id: params.tenantId,
+          contract_id: params.contractId,
+          recipients: params.recipients,
+          fields: params.fields,
+          created_by_employee_id: params.actorEmployeeId,
+          updated_by_employee_id: params.actorEmployeeId,
+        },
+        { onConflict: 'tenant_id,contract_id' }
+      )
+      .select('contract_id, recipients, fields, created_by_employee_id, updated_by_employee_id, created_at, updated_at')
+      .single<SigningPreparationDraftEntity>()
+
+    if (error) {
+      throw new DatabaseError('Failed to save signing preparation draft', new Error(error.message), {
+        code: error.code,
+      })
+    }
+
+    return {
+      contractId: data.contract_id,
+      recipients: data.recipients ?? [],
+      fields: data.fields ?? [],
+      createdByEmployeeId: data.created_by_employee_id,
+      updatedByEmployeeId: data.updated_by_employee_id,
+      createdAt: data.created_at,
+      updatedAt: data.updated_at,
+    }
+  }
+
+  async getSigningPreparationDraft(params: { tenantId: string; contractId: string }): Promise<{
+    contractId: string
+    recipients: Array<{
+      name: string
+      email: string
+      recipientType: 'INTERNAL' | 'EXTERNAL'
+      routingOrder: number
+    }>
+    fields: Array<{
+      fieldType: 'SIGNATURE' | 'INITIAL' | 'STAMP' | 'NAME' | 'DATE' | 'TIME' | 'TEXT'
+      pageNumber: number | null
+      xPosition: number | null
+      yPosition: number | null
+      anchorString: string | null
+      assignedSignerEmail: string
+    }>
+    createdByEmployeeId: string
+    updatedByEmployeeId: string
+    createdAt: string
+    updatedAt: string
+  } | null> {
+    const supabase = createServiceSupabase()
+    const { data, error } = await supabase
+      .from('contract_signing_preparation_drafts')
+      .select('contract_id, recipients, fields, created_by_employee_id, updated_by_employee_id, created_at, updated_at')
+      .eq('tenant_id', params.tenantId)
+      .eq('contract_id', params.contractId)
+      .maybeSingle<SigningPreparationDraftEntity>()
+
+    if (error) {
+      if (error.code === 'PGRST116') {
+        return null
+      }
+
+      if (this.isMissingRelationError(error)) {
+        return null
+      }
+
+      throw new DatabaseError('Failed to fetch signing preparation draft', new Error(error.message), {
+        code: error.code,
+      })
+    }
+
+    if (!data) {
+      return null
+    }
+
+    return {
+      contractId: data.contract_id,
+      recipients: data.recipients ?? [],
+      fields: data.fields ?? [],
+      createdByEmployeeId: data.created_by_employee_id,
+      updatedByEmployeeId: data.updated_by_employee_id,
+      createdAt: data.created_at,
+      updatedAt: data.updated_at,
+    }
+  }
+
+  async countPendingSignatoriesByContract(params: { tenantId: string; contractId: string }): Promise<number> {
+    const supabase = createServiceSupabase()
+    const { count, error } = await supabase
+      .from('contract_signatories')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', params.tenantId)
+      .eq('contract_id', params.contractId)
+      .eq('status', contractSignatoryStatuses.pending)
+      .is('deleted_at', null)
+
+    if (error) {
+      if (this.isMissingRelationError(error)) {
+        return 0
+      }
+
+      throw new DatabaseError('Failed to count pending signatories', new Error(error.message), {
+        code: error.code,
+      })
+    }
+
+    return count ?? 0
+  }
+
+  async moveContractToInSignature(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    actorRole: string
+    actorEmail: string
+    envelopeId: string
+  }): Promise<void> {
+    this.assertActorMetadata({
+      actorEmployeeId: params.actorEmployeeId,
+      actorEmail: params.actorEmail,
+      actorRole: params.actorRole,
+    })
+
+    if (params.actorRole !== 'LEGAL_TEAM' && params.actorRole !== 'ADMIN') {
+      throw new AuthorizationError('CONTRACT_SIGNATORY_FORBIDDEN', 'Only legal team can send for signing')
+    }
+
+    const supabase = createServiceSupabase()
+    const { data: currentContract, error: currentContractError } = await supabase
+      .from('contracts')
+      .select('id, tenant_id, status')
+      .eq('id', params.contractId)
+      .is('deleted_at', null)
+      .maybeSingle<{ id: string; tenant_id: string; status: string }>()
+
+    logger.warn('TEMP_DIAG moveContractToInSignature current contract snapshot', {
+      contractId: params.contractId,
+      requestedTenantId: params.tenantId,
+      currentContractStatus: currentContract?.status ?? null,
+      currentContractTenantId: currentContract?.tenant_id ?? null,
+      currentContractLookupErrorCode: currentContractError?.code ?? null,
+      currentContractLookupErrorMessage: currentContractError?.message ?? null,
+    })
+
+    const { data: contractUpdate, error: contractUpdateError } = await supabase
+      .from('contracts')
+      .update({
+        status: contractStatuses.inSignature,
+      })
+      .eq('tenant_id', params.tenantId)
+      .eq('id', params.contractId)
+      .eq('status', contractStatuses.finalApproved)
+      .is('deleted_at', null)
+      .select('id')
+      .maybeSingle<{ id: string }>()
+
+    const rowsAffected = contractUpdate?.id ? 1 : 0
+    logger.warn('TEMP_DIAG moveContractToInSignature update result', {
+      contractId: params.contractId,
+      requestedTenantId: params.tenantId,
+      requiredFromStatus: contractStatuses.finalApproved,
+      targetStatus: contractStatuses.inSignature,
+      rowsAffected,
+      contractUpdateErrorCode: contractUpdateError?.code ?? null,
+      contractUpdateErrorMessage: contractUpdateError?.message ?? null,
+    })
+
+    if (contractUpdateError) {
+      throw new DatabaseError('Failed to move contract to in-signature', new Error(contractUpdateError.message), {
+        code: contractUpdateError.code,
+      })
+    }
+
+    if (!contractUpdate?.id) {
+      throw new BusinessRuleError(
+        'SIGNING_PREPARATION_INVALID_STATUS',
+        'Signing preparation send is only allowed in FINAL_APPROVED'
+      )
+    }
+
+    const { error: auditError } = await supabase.from('audit_logs').insert([
+      {
+        tenant_id: params.tenantId,
+        user_id: params.actorEmployeeId,
+        event_type: contractAuditEvents.signatorySent,
+        action: contractAuditActions.signatorySent,
+        actor_email: params.actorEmail,
+        actor_role: params.actorRole,
+        resource_type: 'contract',
+        resource_id: params.contractId,
+        metadata: {
+          docusign_envelope_id: params.envelopeId,
+        },
+      },
+    ])
+
+    if (auditError) {
+      throw new DatabaseError('Failed to write in-signature audit event', new Error(auditError.message), {
+        code: auditError.code,
+      })
+    }
+  }
+
+  async deleteSigningPreparationDraft(params: { tenantId: string; contractId: string }): Promise<void> {
+    const supabase = createServiceSupabase()
+    const { error } = await supabase
+      .from('contract_signing_preparation_drafts')
+      .delete()
+      .eq('tenant_id', params.tenantId)
+      .eq('contract_id', params.contractId)
+
+    if (error && !this.isMissingRelationError(error)) {
+      throw new DatabaseError('Failed to delete signing preparation draft', new Error(error.message), {
+        code: error.code,
+      })
+    }
   }
 
   async canAccessContract(params: {
@@ -1884,8 +2235,19 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     actorRole: string
     actorEmail: string
     signatoryEmail: string
+    recipientType: 'INTERNAL' | 'EXTERNAL'
+    routingOrder: number
+    fieldConfig: Array<{
+      fieldType: 'SIGNATURE' | 'INITIAL' | 'STAMP' | 'NAME' | 'DATE' | 'TIME' | 'TEXT'
+      pageNumber: number | null
+      xPosition: number | null
+      yPosition: number | null
+      anchorString: string | null
+      assignedSignerEmail: string
+    }>
     docusignEnvelopeId: string
     docusignRecipientId: string
+    envelopeSourceDocumentId: string
   }): Promise<void> {
     this.assertActorMetadata({
       actorEmployeeId: params.actorEmployeeId,
@@ -1902,10 +2264,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found')
     }
 
-    if (contract.status !== contractStatuses.legalPending) {
+    if (contract.status !== contractStatuses.finalApproved) {
       throw new BusinessRuleError(
         'SIGNATORY_ASSIGN_INVALID_STATUS',
-        'Signatories can only be assigned in LEGAL_PENDING'
+        'Signatories can only be assigned in FINAL_APPROVED'
       )
     }
 
@@ -1924,9 +2286,13 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         tenant_id: params.tenantId,
         contract_id: params.contractId,
         signatory_email: params.signatoryEmail,
+        recipient_type: params.recipientType,
+        routing_order: params.routingOrder,
+        field_config: params.fieldConfig,
         status: contractSignatoryStatuses.pending,
         docusign_envelope_id: params.docusignEnvelopeId,
         docusign_recipient_id: params.docusignRecipientId,
+        envelope_source_document_id: params.envelopeSourceDocumentId,
         created_by_employee_id: params.actorEmployeeId,
       },
     ])
@@ -1951,6 +2317,9 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         metadata: {
           docusign_envelope_id: params.docusignEnvelopeId,
           docusign_recipient_id: params.docusignRecipientId,
+          envelope_source_document_id: params.envelopeSourceDocumentId,
+          recipient_type: params.recipientType,
+          routing_order: params.routingOrder,
         },
       },
     ])
@@ -1958,6 +2327,122 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     if (auditError) {
       throw new DatabaseError('Failed to write signatory audit event', new Error(auditError.message), {
         code: auditError.code,
+      })
+    }
+  }
+
+  async resolveEnvelopeContext(params: { envelopeId: string; recipientEmail?: string }): Promise<{
+    tenantId: string
+    contractId: string
+    signatoryEmail: string
+    recipientType: 'INTERNAL' | 'EXTERNAL'
+    routingOrder: number
+  } | null> {
+    const supabase = createServiceSupabase()
+    let query = supabase
+      .from('contract_signatories')
+      .select('tenant_id, contract_id, signatory_email, recipient_type, routing_order')
+      .eq('docusign_envelope_id', params.envelopeId)
+      .is('deleted_at', null)
+      .limit(1)
+
+    if (params.recipientEmail) {
+      query = query.eq('signatory_email', params.recipientEmail.trim().toLowerCase())
+    }
+
+    const { data, error } = await query.maybeSingle<{
+      tenant_id: string
+      contract_id: string
+      signatory_email: string
+      recipient_type: 'INTERNAL' | 'EXTERNAL'
+      routing_order: number
+    }>()
+
+    if (error) {
+      throw new DatabaseError('Failed to resolve envelope context', new Error(error.message), {
+        code: error.code,
+      })
+    }
+
+    if (!data) {
+      return null
+    }
+
+    return {
+      tenantId: data.tenant_id,
+      contractId: data.contract_id,
+      signatoryEmail: data.signatory_email,
+      recipientType: data.recipient_type,
+      routingOrder: data.routing_order,
+    }
+  }
+
+  async recordDocusignWebhookEvent(params: {
+    tenantId: string
+    contractId: string
+    envelopeId: string
+    recipientEmail?: string
+    eventType: string
+    eventKey: string
+    payload: Record<string, unknown>
+    signerIp?: string
+  }): Promise<{ inserted: boolean }> {
+    const supabase = createServiceSupabase()
+    const { data, error } = await supabase
+      .from('docusign_webhook_events')
+      .insert({
+        tenant_id: params.tenantId,
+        contract_id: params.contractId,
+        envelope_id: params.envelopeId,
+        recipient_email: params.recipientEmail ?? null,
+        event_type: params.eventType,
+        event_key: params.eventKey,
+        signer_ip: params.signerIp ?? null,
+        payload: params.payload,
+      })
+      .select('id')
+      .maybeSingle<{ id: string }>()
+
+    if (error) {
+      if (error.code === '23505') {
+        return { inserted: false }
+      }
+
+      throw new DatabaseError('Failed to record DocuSign webhook event', new Error(error.message), {
+        code: error.code,
+      })
+    }
+
+    return { inserted: Boolean(data?.id) }
+  }
+
+  async addSignatoryWebhookAuditEvent(params: {
+    tenantId: string
+    contractId: string
+    eventType: string
+    action: string
+    recipientEmail?: string
+    metadata?: Record<string, unknown>
+  }): Promise<void> {
+    const supabase = createServiceSupabase()
+    const { error } = await supabase.from('audit_logs').insert([
+      {
+        tenant_id: params.tenantId,
+        user_id: 'SYSTEM',
+        event_type: params.eventType,
+        action: params.action,
+        actor_email: null,
+        actor_role: 'SYSTEM',
+        resource_type: 'contract',
+        resource_id: params.contractId,
+        target_email: params.recipientEmail ?? null,
+        metadata: params.metadata ?? null,
+      },
+    ])
+
+    if (error) {
+      throw new DatabaseError('Failed to append signatory webhook audit event', new Error(error.message), {
+        code: error.code,
       })
     }
   }
@@ -2020,6 +2505,206 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     if (auditError) {
       throw new DatabaseError('Failed to write signatory signed audit event', new Error(auditError.message), {
         code: auditError.code,
+      })
+    }
+  }
+
+  async listFailedNotificationDeliveries(params: {
+    tenantId: string
+    cursor?: string
+    limit: number
+    contractId?: string
+  }): Promise<{ items: ContractNotificationFailure[]; nextCursor?: string; total: number }> {
+    const supabase = createServiceSupabase()
+    const decodedCursor = this.decodeCursor(params.cursor)
+
+    let query = supabase
+      .from('contract_notification_deliveries')
+      .select(
+        'id, contract_id, envelope_id, recipient_email, notification_type, template_id, provider_name, provider_message_id, retry_count, max_retries, next_retry_at, last_error, created_at, updated_at'
+      )
+      .eq('tenant_id', params.tenantId)
+      .eq('status', contractNotificationStatuses.failed)
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: false })
+      .limit(params.limit + 1)
+
+    if (params.contractId) {
+      query = query.eq('contract_id', params.contractId)
+    }
+
+    if (decodedCursor) {
+      query = query.lt('created_at', decodedCursor.createdAt)
+    }
+
+    const { data, error } = await query
+
+    if (error) {
+      throw new DatabaseError('Failed to list failed notification deliveries', new Error(error.message), {
+        code: error.code,
+      })
+    }
+
+    let totalQuery = supabase
+      .from('contract_notification_deliveries')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', params.tenantId)
+      .eq('status', contractNotificationStatuses.failed)
+
+    if (params.contractId) {
+      totalQuery = totalQuery.eq('contract_id', params.contractId)
+    }
+
+    const { count: totalCount, error: totalError } = await totalQuery
+
+    if (totalError) {
+      throw new DatabaseError('Failed to count failed notification deliveries', new Error(totalError.message), {
+        code: totalError.code,
+      })
+    }
+
+    const rows = (data ?? []) as Array<{
+      id: string
+      contract_id: string
+      envelope_id: string | null
+      recipient_email: string
+      notification_type: 'SIGNATORY_LINK' | 'SIGNING_COMPLETED'
+      template_id: number
+      provider_name: string
+      provider_message_id: string | null
+      retry_count: number
+      max_retries: number
+      next_retry_at: string | null
+      last_error: string | null
+      created_at: string
+      updated_at: string
+    }>
+
+    const hasNext = rows.length > params.limit
+    const items = rows.slice(0, params.limit).map((row) => ({
+      id: row.id,
+      contractId: row.contract_id,
+      envelopeId: row.envelope_id,
+      recipientEmail: row.recipient_email,
+      notificationType: row.notification_type,
+      templateId: row.template_id,
+      providerName: row.provider_name,
+      providerMessageId: row.provider_message_id,
+      retryCount: row.retry_count,
+      maxRetries: row.max_retries,
+      nextRetryAt: row.next_retry_at,
+      lastError: row.last_error,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }))
+
+    const nextCursor = hasNext ? this.encodeCursor(items[items.length - 1]?.createdAt ?? '') : undefined
+
+    return {
+      items,
+      nextCursor,
+      total: totalCount ?? 0,
+    }
+  }
+
+  async getEnvelopeNotificationProfile(params: { tenantId: string; contractId: string; envelopeId: string }): Promise<{
+    contractTitle: string
+    recipientEmails: string[]
+  } | null> {
+    const supabase = createServiceSupabase()
+
+    const { data: contract, error: contractError } = await supabase
+      .from('contracts')
+      .select('title, uploaded_by_email')
+      .eq('tenant_id', params.tenantId)
+      .eq('id', params.contractId)
+      .is('deleted_at', null)
+      .maybeSingle<{ title: string; uploaded_by_email: string }>()
+
+    if (contractError) {
+      throw new DatabaseError('Failed to load contract notification profile', new Error(contractError.message), {
+        code: contractError.code,
+      })
+    }
+
+    if (!contract) {
+      return null
+    }
+
+    const { data: recipients, error: recipientsError } = await supabase
+      .from('contract_signatories')
+      .select('signatory_email')
+      .eq('tenant_id', params.tenantId)
+      .eq('contract_id', params.contractId)
+      .eq('docusign_envelope_id', params.envelopeId)
+      .is('deleted_at', null)
+
+    if (recipientsError) {
+      throw new DatabaseError('Failed to load envelope notification recipients', new Error(recipientsError.message), {
+        code: recipientsError.code,
+      })
+    }
+
+    const normalizedEmails = new Set<string>([contract.uploaded_by_email.trim().toLowerCase()])
+    for (const recipient of (recipients ?? []) as Array<{ signatory_email: string }>) {
+      normalizedEmails.add(recipient.signatory_email.trim().toLowerCase())
+    }
+
+    return {
+      contractTitle: contract.title,
+      recipientEmails: Array.from(normalizedEmails),
+    }
+  }
+
+  async recordContractNotificationDelivery(params: {
+    tenantId: string
+    contractId: string
+    envelopeId?: string
+    recipientEmail: string
+    channel: 'EMAIL'
+    notificationType: 'SIGNATORY_LINK' | 'SIGNING_COMPLETED'
+    templateId: number
+    providerName: string
+    providerMessageId?: string
+    status: 'SENT' | 'FAILED'
+    retryCount: number
+    maxRetries: number
+    nextRetryAt?: string
+    lastError?: string
+    metadata?: Record<string, unknown>
+  }): Promise<void> {
+    if (
+      !Object.values(contractNotificationChannels).includes(params.channel) ||
+      !Object.values(contractNotificationTypes).includes(params.notificationType) ||
+      !Object.values(contractNotificationStatuses).includes(params.status)
+    ) {
+      throw new BusinessRuleError('NOTIFICATION_DELIVERY_INVALID', 'Invalid notification delivery payload')
+    }
+
+    const supabase = createServiceSupabase()
+    const { error } = await supabase.from('contract_notification_deliveries').insert([
+      {
+        tenant_id: params.tenantId,
+        contract_id: params.contractId,
+        envelope_id: params.envelopeId ?? null,
+        recipient_email: params.recipientEmail.trim().toLowerCase(),
+        channel: params.channel,
+        notification_type: params.notificationType,
+        template_id: params.templateId,
+        provider_name: params.providerName,
+        provider_message_id: params.providerMessageId ?? null,
+        status: params.status,
+        retry_count: params.retryCount,
+        max_retries: params.maxRetries,
+        next_retry_at: params.nextRetryAt ?? null,
+        last_error: params.lastError ?? null,
+        metadata: params.metadata ?? null,
+      },
+    ])
+
+    if (error) {
+      throw new DatabaseError('Failed to record contract notification delivery', new Error(error.message), {
+        code: error.code,
       })
     }
   }
@@ -3129,9 +3814,13 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
   }
 
   private isMissingRelationError(
-    error: { code?: string; message?: string; details?: string; hint?: string },
-    relation: string
+    error: { code?: string; message?: string; details?: string; hint?: string } | null,
+    relation?: string
   ): boolean {
+    if (!error) {
+      return false
+    }
+
     if (error.code === '42P01' || error.code === 'PGRST205') {
       return true
     }
@@ -3141,7 +3830,16 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       return false
     }
 
-    return combined.includes('does not exist') && combined.includes(relation.toLowerCase())
+    const hasMissingRelationSignal =
+      combined.includes('does not exist') ||
+      combined.includes('could not find the table') ||
+      combined.includes('relation')
+
+    if (!relation) {
+      return hasMissingRelationSignal
+    }
+
+    return hasMissingRelationSignal && combined.includes(relation.toLowerCase())
   }
 
   private isMissingColumnError(
@@ -3491,6 +4189,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       backgroundOfRequest: row.background_of_request,
       budgetApproved: row.budget_approved,
       requestCreatedAt: row.request_created_at,
+      currentDocumentId: row.current_document_id,
       hodApprovedAt: row.hod_approved_at,
       tatDeadlineAt: row.tat_deadline_at,
       tatBreachedAt: row.tat_breached_at,

@@ -43,6 +43,7 @@ type ContractRecord = {
   backgroundOfRequest?: string
   budgetApproved?: boolean
   requestCreatedAt?: string
+  currentDocumentId?: string | null
   tatDeadlineAt?: string | null
   tatBreachedAt?: string | null
   agingBusinessDays?: number | null
@@ -61,7 +62,8 @@ type ContractRecord = {
 
 type ContractDocument = {
   id: string
-  documentKind: 'PRIMARY' | 'COUNTERPARTY_SUPPORTING'
+  documentKind: 'PRIMARY' | 'COUNTERPARTY_SUPPORTING' | 'EXECUTED_CONTRACT' | 'AUDIT_CERTIFICATE'
+  versionNumber?: number
   counterpartyId?: string | null
   counterpartyName?: string | null
   displayName: string
@@ -123,11 +125,43 @@ type ContractLegalCollaborator = {
 type ContractSignatory = {
   id: string
   signatoryEmail: string
+  recipientType: 'INTERNAL' | 'EXTERNAL'
+  routingOrder: number
+  fieldConfig: Array<{
+    fieldType: 'SIGNATURE' | 'INITIAL' | 'STAMP' | 'NAME' | 'DATE' | 'TIME' | 'TEXT'
+    pageNumber: number | null
+    xPosition: number | null
+    yPosition: number | null
+    anchorString: string | null
+    assignedSignerEmail: string
+  }>
   status: 'PENDING' | 'SIGNED'
   signedAt: string | null
   docusignEnvelopeId: string
   docusignRecipientId: string
   createdAt: string
+}
+
+type ContractSigningPreparationDraft = {
+  contractId: string
+  recipients: Array<{
+    name: string
+    email: string
+    recipientType: 'INTERNAL' | 'EXTERNAL'
+    routingOrder: number
+  }>
+  fields: Array<{
+    fieldType: 'SIGNATURE' | 'INITIAL' | 'STAMP' | 'NAME' | 'DATE' | 'TIME' | 'TEXT'
+    pageNumber: number | null
+    xPosition: number | null
+    yPosition: number | null
+    anchorString: string | null
+    assignedSignerEmail: string
+  }>
+  createdByEmployeeId: string
+  updatedByEmployeeId: string
+  createdAt: string
+  updatedAt: string
 }
 
 type ContractDetailResponse = {
@@ -544,6 +578,29 @@ export const contractsClient = {
     return parseApiResponse<{ contract: ContractRecord }>(response)
   },
 
+  async replaceMainDocument(params: {
+    contractId: string
+    file: File
+    idempotencyKey: string
+  }): Promise<ApiResponse<{ document: ContractDocument }>> {
+    const formData = new FormData()
+    formData.set('file', params.file)
+
+    const response = await fetch(
+      resolveContractPath(routeRegistry.api.contracts.replaceMainDocument, params.contractId),
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Idempotency-Key': params.idempotencyKey,
+        },
+        body: formData,
+      }
+    )
+
+    return parseApiResponse<{ document: ContractDocument }>(response)
+  },
+
   async action(contractId: string, payload: { action: ContractActionName; noteText?: string }) {
     const response = await fetch(resolveContractPath(routeRegistry.api.contracts.action, contractId), {
       method: 'POST',
@@ -596,7 +653,26 @@ export const contractsClient = {
     return parseApiResponse<ContractDetailResponse>(response)
   },
 
-  async addSignatory(contractId: string, payload: { signatoryEmail: string }) {
+  async addSignatory(
+    contractId: string,
+    payload:
+      | { signatoryEmail: string }
+      | {
+          recipients: Array<{
+            signatoryEmail: string
+            recipientType: 'INTERNAL' | 'EXTERNAL'
+            routingOrder: number
+            fields: Array<{
+              field_type: 'SIGNATURE' | 'INITIAL' | 'STAMP' | 'NAME' | 'DATE' | 'TIME' | 'TEXT'
+              page_number?: number
+              x_position?: number
+              y_position?: number
+              anchor_string?: string
+              assigned_signer_email: string
+            }>
+          }>
+        }
+  ) {
     const response = await fetch(resolveContractPath(routeRegistry.api.contracts.signatories, contractId), {
       method: 'POST',
       credentials: 'include',
@@ -607,6 +683,55 @@ export const contractsClient = {
     })
 
     return parseApiResponse<ContractDetailResponse>(response)
+  },
+
+  async saveSigningPreparationDraft(
+    contractId: string,
+    payload: {
+      recipients: Array<{
+        name: string
+        email: string
+        recipient_type: 'INTERNAL' | 'EXTERNAL'
+        routing_order: number
+      }>
+      fields: Array<{
+        field_type: 'SIGNATURE' | 'INITIAL' | 'STAMP' | 'NAME' | 'DATE' | 'TIME' | 'TEXT'
+        page_number?: number
+        x_position?: number
+        y_position?: number
+        anchor_string?: string
+        assigned_signer_email: string
+      }>
+    }
+  ) {
+    const response = await fetch(resolveContractPath(routeRegistry.api.contracts.signingPreparationDraft, contractId), {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    })
+
+    return parseApiResponse<ContractSigningPreparationDraft>(response)
+  },
+
+  async getSigningPreparationDraft(contractId: string) {
+    const response = await fetch(resolveContractPath(routeRegistry.api.contracts.signingPreparationDraft, contractId), {
+      method: 'GET',
+      credentials: 'include',
+    })
+
+    return parseApiResponse<ContractSigningPreparationDraft | null>(response)
+  },
+
+  async sendSigningPreparationDraft(contractId: string) {
+    const response = await fetch(resolveContractPath(routeRegistry.api.contracts.signingPreparationSend, contractId), {
+      method: 'POST',
+      credentials: 'include',
+    })
+
+    return parseApiResponse<{ envelopeId: string; contractView: ContractDetailResponse }>(response)
   },
 
   async download(
@@ -657,6 +782,7 @@ export type {
   ContractAdditionalApprover,
   ContractLegalCollaborator,
   ContractSignatory,
+  ContractSigningPreparationDraft,
   AdditionalApproverDecisionHistoryRecord,
   AdditionalApproverHistoryResponse,
   ContractDetailResponse,
