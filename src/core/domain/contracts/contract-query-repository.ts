@@ -176,7 +176,7 @@ export type ContractAdditionalApprover = {
   approverEmployeeId: string
   approverEmail: string
   sequenceOrder: number
-  status: 'PENDING' | 'APPROVED' | 'REJECTED'
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'BYPASSED'
   approvedAt: string | null
 }
 
@@ -393,6 +393,15 @@ export interface ContractQueryRepository {
     actorRole: string
     actorEmail: string
     approverEmail: string
+  }): Promise<void>
+  bypassAdditionalApprover(params: {
+    tenantId: string
+    contractId: string
+    approverId: string
+    actorEmployeeId: string
+    actorRole: string
+    actorEmail: string
+    reason: string
   }): Promise<void>
   setLegalOwnerByEmail(params: {
     tenantId: string

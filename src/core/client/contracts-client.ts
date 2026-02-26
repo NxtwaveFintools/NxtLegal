@@ -1,5 +1,6 @@
 import { routeRegistry } from '@/core/config/route-registry'
 import type { ApiResponse } from '@/core/http/response'
+import type { ContractUploadMode } from '@/core/constants/contracts'
 
 type ContractActionName =
   | 'hod.approve'
@@ -18,6 +19,8 @@ type ContractActionName =
   | 'legal.query.reroute'
   | 'approver.approve'
   | 'approver.reject'
+
+type ContractBypassApprovalActionName = 'BYPASS_APPROVAL'
 
 type ContractRecord = {
   id: string
@@ -179,7 +182,7 @@ type ContractAdditionalApprover = {
   approverEmployeeId: string
   approverEmail: string
   sequenceOrder: number
-  status: 'PENDING' | 'APPROVED' | 'REJECTED'
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'BYPASSED'
   approvedAt: string | null
 }
 
@@ -715,6 +718,9 @@ export const contractsClient = {
     backgroundOfRequest?: string
     departmentId?: string
     budgetApproved?: boolean
+    uploadMode?: ContractUploadMode
+    bypassHodApproval?: boolean
+    bypassReason?: string
     file: File
     supportingFiles?: File[]
     idempotencyKey: string
@@ -739,6 +745,15 @@ export const contractsClient = {
     }
     if (typeof params.budgetApproved === 'boolean') {
       formData.set('budgetApproved', String(params.budgetApproved))
+    }
+    if (params.uploadMode) {
+      formData.set('uploadMode', params.uploadMode)
+    }
+    if (typeof params.bypassHodApproval === 'boolean') {
+      formData.set('bypassHodApproval', String(params.bypassHodApproval))
+    }
+    if (params.bypassReason?.trim()) {
+      formData.set('bypassReason', params.bypassReason.trim())
     }
     if (params.counterpartyName?.trim()) {
       formData.set('counterpartyName', params.counterpartyName.trim())
@@ -805,7 +820,12 @@ export const contractsClient = {
     return parseApiResponse<{ document: ContractDocument }>(response)
   },
 
-  async action(contractId: string, payload: { action: ContractActionName; noteText?: string }) {
+  async action(
+    contractId: string,
+    payload:
+      | { action: ContractActionName; noteText?: string }
+      | { action: ContractBypassApprovalActionName; approverId: string; reason: string }
+  ) {
     const response = await fetch(resolveContractPath(routeRegistry.api.contracts.action, contractId), {
       method: 'POST',
       credentials: 'include',

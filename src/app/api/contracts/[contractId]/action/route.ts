@@ -4,7 +4,8 @@ import { withAuth } from '@/core/http/with-auth'
 import { errorResponse, okResponse } from '@/core/http/response'
 import { isAppError } from '@/core/http/errors'
 import { getContractApprovalNotificationService, getContractQueryService } from '@/core/registry/service-registry'
-import { contractActionSchema } from '@/core/domain/contracts/schemas'
+import { contractActionCommandSchema, bypassApprovalActionName } from '@/core/domain/contracts/schemas'
+import { contractWorkflowRoles } from '@/core/constants/contracts'
 
 const POSTHandler = withAuth(async (request: NextRequest, { session, params }) => {
   try {
@@ -20,22 +21,47 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
       return NextResponse.json(errorResponse('CONTRACT_ID_REQUIRED', 'Contract ID is required'), { status: 400 })
     }
 
-    const payload = contractActionSchema.parse(await request.json())
+    const payload = contractActionCommandSchema.parse(await request.json())
 
     const contractQueryService = getContractQueryService()
-    const contractView = await contractQueryService.applyContractAction({
-      tenantId,
-      contractId,
-      action: payload.action,
-      actorEmployeeId: session.employeeId,
-      actorRole: session.role,
-      actorEmail: session.email ?? '',
-      noteText: payload.noteText,
-    })
+
+    const contractView =
+      payload.action === bypassApprovalActionName
+        ? await (() => {
+            if (session.role !== contractWorkflowRoles.legalTeam && session.role !== contractWorkflowRoles.admin) {
+              return NextResponse.json(
+                errorResponse('CONTRACT_ACTION_FORBIDDEN', 'Only LEGAL_TEAM or ADMIN can bypass approvals'),
+                { status: 403 }
+              )
+            }
+
+            return contractQueryService.bypassAdditionalApprover({
+              tenantId,
+              contractId,
+              approverId: payload.approverId,
+              actorEmployeeId: session.employeeId,
+              actorRole: session.role,
+              actorEmail: session.email ?? '',
+              reason: payload.reason,
+            })
+          })()
+        : await contractQueryService.applyContractAction({
+            tenantId,
+            contractId,
+            action: payload.action,
+            actorEmployeeId: session.employeeId,
+            actorRole: session.role,
+            actorEmail: session.email ?? '',
+            noteText: payload.noteText,
+          })
+
+    if (contractView instanceof NextResponse) {
+      return contractView
+    }
 
     const contractApprovalNotificationService = getContractApprovalNotificationService()
 
-    if (payload.action === 'hod.approve') {
+    if (payload.action !== bypassApprovalActionName && payload.action === 'hod.approve') {
       await contractApprovalNotificationService.notifyApprovalReceived({
         tenantId,
         contractId,
@@ -46,7 +72,7 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
       })
     }
 
-    if (payload.action === 'approver.approve') {
+    if (payload.action !== bypassApprovalActionName && payload.action === 'approver.approve') {
       await contractApprovalNotificationService.notifyApprovalReceived({
         tenantId,
         contractId,
@@ -57,7 +83,7 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
       })
     }
 
-    if (payload.action === 'legal.query.reroute') {
+    if (payload.action !== bypassApprovalActionName && payload.action === 'legal.query.reroute') {
       await contractApprovalNotificationService.notifyReturnedToHod({
         tenantId,
         contractId,
@@ -67,7 +93,10 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
       })
     }
 
-    if (payload.action === 'legal.reject' || payload.action === 'hod.reject') {
+    if (
+      payload.action !== bypassApprovalActionName &&
+      (payload.action === 'legal.reject' || payload.action === 'hod.reject')
+    ) {
       await contractApprovalNotificationService.notifyContractRejected({
         tenantId,
         contractId,

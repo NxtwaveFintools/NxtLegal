@@ -45,6 +45,18 @@ export const contractWorkflowRoles = {
   system: 'SYSTEM',
 } as const
 
+export const contractUploadModes = {
+  default: 'DEFAULT',
+  legalSendForSigning: 'LEGAL_SEND_FOR_SIGNING',
+} as const
+
+export type ContractUploadMode = (typeof contractUploadModes)[keyof typeof contractUploadModes]
+
+export const contractWorkflowIdentities = {
+  legalDepartmentName: 'Legal and Compliance',
+  legalHodEmail: 'legalhod@nxtwave.co.in',
+} as const
+
 export type ContractWorkflowRole = (typeof contractWorkflowRoles)[keyof typeof contractWorkflowRoles]
 
 export const contractLegalAssignmentAllowedRoles = [contractWorkflowRoles.legalTeam] as const
@@ -95,7 +107,7 @@ export const contractDocumentVersioning = {
 } as const
 
 export const contractDocumentUploadRules = {
-  initialAllowedRoles: [contractWorkflowRoles.poc] as const,
+  initialAllowedRoles: [contractWorkflowRoles.poc, contractWorkflowRoles.legalTeam] as const,
   replacementAllowedRoles: [contractWorkflowRoles.legalTeam] as const,
   initialAllowedMimeTypes: [contractDocumentMimeTypes.docx] as const,
   replacementAllowedMimeTypes: [contractDocumentMimeTypes.docx, contractDocumentMimeTypes.pdf] as const,
@@ -186,6 +198,7 @@ export const contractAuditEvents = {
   signatoryCompleted: 'CONTRACT_SIGNATORY_COMPLETED',
   signatoryDeclined: 'CONTRACT_SIGNATORY_DECLINED',
   signatoryExpired: 'CONTRACT_SIGNATORY_EXPIRED',
+  approverBypassed: 'CONTRACT_APPROVER_BYPASSED',
 } as const
 
 export const contractAuditActions = {
@@ -197,6 +210,7 @@ export const contractAuditActions = {
   signatoryCompleted: 'contract.signatory.completed',
   signatoryDeclined: 'contract.signatory.declined',
   signatoryExpired: 'contract.signatory.expired',
+  approverBypassed: 'contract.approver.bypassed',
 } as const
 
 export const contractStatusLabels: Record<ContractStatus, string> = {

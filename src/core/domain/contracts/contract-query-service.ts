@@ -7,7 +7,7 @@ import type {
   ContractSignatoryRecipientType,
   ContractStatus,
 } from '@/core/constants/contracts'
-import { contractStatuses } from '@/core/constants/contracts'
+import { contractStatuses, contractWorkflowRoles } from '@/core/constants/contracts'
 import type {
   AdditionalApproverDecisionHistoryItem,
   ContractActivityReadState,
@@ -391,6 +391,56 @@ export class ContractQueryService {
       actorRole: params.actorRole,
       actorEmail: params.actorEmail,
       approverEmail: params.approverEmail,
+    })
+
+    const contract = await this.contractRepository.getById(params.tenantId, params.contractId)
+
+    if (!contract) {
+      throw new NotFoundError('Contract', params.contractId)
+    }
+
+    return this.getContractDetailAfterMutation({
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      employeeId: params.actorEmployeeId,
+      role: params.actorRole,
+      updatedContract: contract,
+    })
+  }
+
+  async bypassAdditionalApprover(params: {
+    tenantId: string
+    contractId: string
+    approverId: string
+    actorEmployeeId: string
+    actorRole?: string
+    actorEmail: string
+    reason: string
+  }): Promise<ContractDetailView> {
+    if (!params.actorRole) {
+      throw new AuthorizationError('CONTRACT_ACTION_FORBIDDEN', 'User role is required for approval bypass')
+    }
+
+    if (params.actorRole !== contractWorkflowRoles.legalTeam && params.actorRole !== contractWorkflowRoles.admin) {
+      throw new AuthorizationError('CONTRACT_ACTION_FORBIDDEN', 'Only LEGAL_TEAM or ADMIN can bypass approvals')
+    }
+
+    if (!params.actorEmail) {
+      throw new BusinessRuleError('ACTOR_EMAIL_REQUIRED', 'Actor email is required')
+    }
+
+    if (!params.reason.trim()) {
+      throw new BusinessRuleError('REMARK_REQUIRED', 'Remarks are mandatory for this action')
+    }
+
+    await this.contractRepository.bypassAdditionalApprover({
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      approverId: params.approverId,
+      actorEmployeeId: params.actorEmployeeId,
+      actorRole: params.actorRole,
+      actorEmail: params.actorEmail,
+      reason: params.reason,
     })
 
     const contract = await this.contractRepository.getById(params.tenantId, params.contractId)

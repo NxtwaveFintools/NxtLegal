@@ -148,6 +148,16 @@ export const contractActionSchema = z
     }
   })
 
+export const bypassApprovalActionName = 'BYPASS_APPROVAL' as const
+
+export const contractBypassApprovalSchema = z.object({
+  action: z.literal(bypassApprovalActionName),
+  approverId: z.string().trim().uuid('Valid approverId is required'),
+  reason: z.string().trim().min(1, 'Bypass reason is required').max(2000, 'Bypass reason exceeds maximum length'),
+})
+
+export const contractActionCommandSchema = z.union([contractActionSchema, contractBypassApprovalSchema])
+
 export const contractNoteSchema = z.object({
   noteText: z.string().trim().min(1, 'Note is required').max(2000, 'Note exceeds maximum length'),
 })
@@ -309,6 +319,9 @@ export const docusignWebhookSchema = z.object({
 })
 
 export type ContractActionName = (typeof contractActionNames)[number]
+export type ContractBypassApprovalActionName = typeof bypassApprovalActionName
+export type ContractBypassApprovalPayload = z.infer<typeof contractBypassApprovalSchema>
+export type ContractActionCommandPayload = z.infer<typeof contractActionCommandSchema>
 export type DashboardContractsFilter = (typeof dashboardContractsFilterValues)[number]
 export type ContractLegalAssignmentOperation = z.infer<typeof contractLegalAssignmentSchema>['operation']
 export type ContractSignatoryPayload = z.infer<typeof contractSignatorySchema>

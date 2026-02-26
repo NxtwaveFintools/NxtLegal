@@ -572,6 +572,29 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     }
   }
 
+  const handleBypassApprover = async (approverId: string, reason: string) => {
+    if (!selectedContractId) {
+      return
+    }
+
+    setIsMutating(true)
+    const response = await contractsClient.action(selectedContractId, {
+      action: 'BYPASS_APPROVAL',
+      approverId,
+      reason: reason.trim(),
+    })
+    setIsMutating(false)
+
+    if (!response.ok || !response.data) {
+      setError(response.error?.message ?? 'Failed to bypass approval')
+      throw new Error(response.error?.message ?? 'Failed to bypass approval')
+    }
+
+    applyContractView(response.data)
+    await loadContractContext(selectedContractId)
+    await loadContracts()
+    router.refresh()
+  }
   const handleAddCollaborator = async () => {
     if (!selectedContractId || !collaboratorEmail.trim() || isAddingCollaborator) {
       return
@@ -1388,10 +1411,12 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                     approvers={approvers}
                     isMutating={isMutating}
                     canManageApprovals={session.role === 'LEGAL_TEAM' || session.role === 'ADMIN'}
+                    canBypassApprovals={session.role === 'LEGAL_TEAM' || session.role === 'ADMIN'}
                     approverEmail={approverEmail}
                     onApproverEmailChange={setApproverEmail}
                     onAddApprover={handleAddApprover}
                     onRemindApprover={handleRemindApprover}
+                    onBypassApprover={handleBypassApprover}
                   />
                 )}
               </div>

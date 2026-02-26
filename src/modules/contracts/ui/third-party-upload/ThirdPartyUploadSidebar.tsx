@@ -4,6 +4,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { contractsClient, type ContractTypeOption, type DepartmentOption } from '@/core/client/contracts-client'
+import {
+  contractUploadModes,
+  contractWorkflowIdentities,
+  contractWorkflowRoles,
+  type ContractUploadMode,
+} from '@/core/constants/contracts'
 import WorkflowSidebar from './WorkflowSidebar'
 import ChooseFilesStep from './steps/ChooseFilesStep'
 import AdditionalDataStep from './steps/AdditionalDataStep'
@@ -14,6 +20,8 @@ import styles from './third-party-upload.module.css'
 type ThirdPartyUploadSidebarProps = {
   isOpen: boolean
   onClose: () => void
+  mode?: ContractUploadMode
+  actorRole?: string
   onUploaded?: () => Promise<void> | void
 }
 
@@ -25,8 +33,17 @@ type CounterpartyEntry = {
   supportingFiles: File[]
 }
 
-export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }: ThirdPartyUploadSidebarProps) {
+export default function ThirdPartyUploadSidebar({
+  isOpen,
+  onClose,
+  mode = contractUploadModes.default,
+  actorRole,
+  onUploaded,
+}: ThirdPartyUploadSidebarProps) {
   const router = useRouter()
+  const isLegalSendForSigningMode = mode === contractUploadModes.legalSendForSigning
+  const acceptedFileTypes = isLegalSendForSigningMode ? '.pdf' : '.docx'
+  const acceptedExtensionsLabel = isLegalSendForSigningMode ? 'PDF (.pdf)' : 'Word (.docx)'
   const steps = useMemo(() => ['Choose Files', 'Additional Data', 'Review', 'Upload'], [])
   const [activeStep, setActiveStep] = useState(0)
   const [mainFile, setMainFile] = useState<File | null>(null)
@@ -51,11 +68,21 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null)
   const [uploadIdempotencyKey, setUploadIdempotencyKey] = useState<string | null>(null)
+  const [bypassHodApproval, setBypassHodApproval] = useState(false)
+  const [bypassReason, setBypassReason] = useState('')
 
   const showCounterpartyModal = counterpartyEntries.some(
     (entry) => entry.counterpartyName.trim() !== '' && !COUNTERPARTIES.includes(entry.counterpartyName.trim())
   )
-  const selectedDepartmentName = departments.find((item) => item.id === departmentId)?.name ?? ''
+  const legalDepartment = departments.find(
+    (item) => item.name.trim().toLowerCase() === contractWorkflowIdentities.legalDepartmentName.toLowerCase()
+  )
+  const legalDepartmentId = legalDepartment?.id ?? ''
+  const isLegalActor = actorRole === contractWorkflowRoles.legalTeam
+  const effectiveDepartmentId = isLegalSendForSigningMode ? departmentId || legalDepartmentId : departmentId
+  const selectedDepartmentName = isLegalSendForSigningMode
+    ? contractWorkflowIdentities.legalDepartmentName
+    : (departments.find((item) => item.id === departmentId)?.name ?? '')
   const selectedContractTypeName = contractTypes.find((item) => item.id === contractType)?.name ?? ''
 
   useEffect(() => {
@@ -109,13 +136,20 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
     setUploadSuccess(null)
     setIsSubmitting(false)
     setUploadIdempotencyKey(null)
+    setBypassHodApproval(false)
+    setBypassReason('')
   }
 
   const handleMainFile = (file: File) => {
-    const isDocx = file.name.toLowerCase().endsWith('.docx')
-    if (!isDocx) {
+    const isValidFile = isLegalSendForSigningMode
+      ? file.name.toLowerCase().endsWith('.pdf')
+      : file.name.toLowerCase().endsWith('.docx')
+
+    if (!isValidFile) {
       setMainFile(null)
-      setMainFileError('Only Word (.docx) files allowed.')
+      setMainFileError(
+        isLegalSendForSigningMode ? 'Only PDF (.pdf) files allowed.' : 'Only Word (.docx) files allowed.'
+      )
       return
     }
 
@@ -126,7 +160,11 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
   const handleNext = () => {
     if (activeStep === 0) {
       if (!mainFile) {
-        setMainFileError('Please upload a .docx contract to continue.')
+        setMainFileError(
+          isLegalSendForSigningMode
+            ? 'Please upload a .pdf contract to continue.'
+            : 'Please upload a .docx contract to continue.'
+        )
         return
       }
     }
@@ -146,7 +184,7 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
         !signatoryDesignation.trim() ||
         !signatoryEmail.trim() ||
         !backgroundOfRequest.trim() ||
-        !departmentId
+        !effectiveDepartmentId
       ) {
         setStepError('Please complete the required fields before continuing.')
         return
@@ -160,6 +198,23 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
       if (departments.length === 0) {
         setStepError('No departments are configured for this tenant.')
         return
+      }
+
+      if (isLegalSendForSigningMode) {
+        if (!isLegalActor) {
+          setStepError('Only Legal Team can use Send for Signing mode.')
+          return
+        }
+
+        if (!legalDepartmentId || effectiveDepartmentId !== legalDepartmentId) {
+          setStepError('Legal and Compliance department is required for this workflow.')
+          return
+        }
+
+        if (bypassHodApproval && !bypassReason.trim()) {
+          setStepError('Bypass reason is required when bypassing HOD approval.')
+          return
+        }
       }
 
       for (const counterparty of normalizedCounterparties) {
@@ -218,8 +273,11 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
         signatoryDesignation: signatoryDesignation.trim(),
         signatoryEmail: signatoryEmail.trim().toLowerCase(),
         backgroundOfRequest: backgroundOfRequest.trim(),
-        departmentId,
+        departmentId: effectiveDepartmentId,
         budgetApproved,
+        uploadMode: mode,
+        bypassHodApproval: isLegalSendForSigningMode ? bypassHodApproval : false,
+        bypassReason: isLegalSendForSigningMode ? bypassReason.trim() : undefined,
         file: mainFile,
         idempotencyKey,
       })
@@ -261,6 +319,8 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
           mainFile={mainFile}
           errorMessage={mainFileError}
           isDragging={isDragging}
+          acceptedFileTypes={acceptedFileTypes}
+          acceptedExtensionsLabel={acceptedExtensionsLabel}
           onFileSelected={handleMainFile}
           onFileRemoved={() => {
             setMainFile(null)
@@ -319,9 +379,13 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
             signatoryDesignation={signatoryDesignation}
             signatoryEmail={signatoryEmail}
             backgroundOfRequest={backgroundOfRequest}
-            departmentId={departmentId}
+            departmentId={effectiveDepartmentId}
             departments={departments}
+            isDepartmentLocked={isLegalSendForSigningMode}
+            lockedDepartmentName={contractWorkflowIdentities.legalDepartmentName}
             budgetApproved={budgetApproved}
+            bypassHodApproval={bypassHodApproval}
+            bypassReason={bypassReason}
             onSignatoryNameChange={(value) => {
               setSignatoryName(value)
               setStepError(null)
@@ -346,6 +410,25 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
               setBudgetApproved(value)
               setStepError(null)
             }}
+            onBypassHodApprovalChange={
+              isLegalSendForSigningMode
+                ? (value) => {
+                    setBypassHodApproval(value)
+                    if (!value) {
+                      setBypassReason('')
+                    }
+                    setStepError(null)
+                  }
+                : undefined
+            }
+            onBypassReasonChange={
+              isLegalSendForSigningMode
+                ? (value) => {
+                    setBypassReason(value)
+                    setStepError(null)
+                  }
+                : undefined
+            }
             onSupportingFilesSelected={(counterpartyIndex, files) => {
               setCounterpartyEntries((current) =>
                 current.map((entry, currentIndex) =>
@@ -393,6 +476,8 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
           signatoryEmail={signatoryEmail}
           backgroundOfRequest={backgroundOfRequest}
           budgetApproved={budgetApproved}
+          bypassHodApproval={isLegalSendForSigningMode ? bypassHodApproval : false}
+          bypassReason={isLegalSendForSigningMode ? bypassReason.trim() : undefined}
           organizationEntity={ORGANIZATION_ENTITY}
         />
       )
@@ -434,7 +519,7 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
   return (
     <WorkflowSidebar
       isOpen={isOpen}
-      title="Upload third party contract"
+      title={isLegalSendForSigningMode ? 'Send for signing' : 'Upload third party contract'}
       steps={steps}
       activeStep={activeStep}
       onStepChange={(stepIndex) => setActiveStep(stepIndex)}

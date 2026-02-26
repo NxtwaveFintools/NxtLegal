@@ -21,6 +21,7 @@ type CanonicalContractLogEventType =
   | 'ADDITIONAL_APPROVER_ADDED'
   | 'ADDITIONAL_APPROVED'
   | 'ADDITIONAL_REJECTED'
+  | 'ADDITIONAL_BYPASSED'
 
 type FormattedContractLogEvent = {
   id: string
@@ -52,6 +53,7 @@ const eventTemplates: Record<CanonicalContractLogEventType, string> = {
   ADDITIONAL_APPROVER_ADDED: '{actor} added {target} as an additional approver.',
   ADDITIONAL_APPROVED: '{actor} approved as additional approver.',
   ADDITIONAL_REJECTED: '{actor} rejected as additional approver.',
+  ADDITIONAL_BYPASSED: '{actor} bypassed {target} as an additional approver.',
 }
 
 const actionMessageOverrides: Record<string, string> = {
@@ -92,6 +94,8 @@ function normalizeEventType(rawType?: string | null): CanonicalContractLogEventT
       return 'ADDITIONAL_APPROVED'
     case 'CONTRACT_APPROVER_REJECTED':
       return 'ADDITIONAL_REJECTED'
+    case 'CONTRACT_APPROVER_BYPASSED':
+      return 'ADDITIONAL_BYPASSED'
     case 'CONTRACT_BYPASSED':
       return 'HOD_BYPASSED'
     case 'CONTRACT_ASSIGNEE_SET':
@@ -152,6 +156,8 @@ function normalizeFromAction(rawAction: string): CanonicalContractLogEventType |
       return 'ADDITIONAL_APPROVED'
     case 'contract.approver.rejected':
       return 'ADDITIONAL_REJECTED'
+    case 'contract.approver.bypassed':
+      return 'ADDITIONAL_BYPASSED'
     default:
       return null
   }

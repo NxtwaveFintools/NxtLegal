@@ -8,7 +8,7 @@ import Spinner from '@/components/ui/Spinner'
 import ThirdPartyUploadSidebar from '@/modules/contracts/ui/third-party-upload/ThirdPartyUploadSidebar'
 import ContractStatusBadge from '@/modules/contracts/ui/ContractStatusBadge'
 import { contractsClient, type ContractRecord, type DashboardContractsFilter } from '@/core/client/contracts-client'
-import { contractWorkflowRoles } from '@/core/constants/contracts'
+import { contractUploadModes, contractWorkflowRoles, type ContractUploadMode } from '@/core/constants/contracts'
 import { limits } from '@/core/constants/limits'
 import ProtectedAppShell from '@/modules/dashboard/ui/ProtectedAppShell'
 import styles from './dashboard.module.css'
@@ -144,6 +144,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   const lastVisibilityRefreshAtRef = useRef(0)
 
   const [isUploadOpen, setIsUploadOpen] = useState(false)
+  const [uploadMode, setUploadMode] = useState<ContractUploadMode>(contractUploadModes.default)
   const [contracts, setContracts] = useState<ContractRecord[]>([])
   const [isLoadingContracts, setIsLoadingContracts] = useState(true)
   const [isLoadingPageChange, setIsLoadingPageChange] = useState(false)
@@ -514,8 +515,22 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                 count={activeFilterTotal}
                 description="Upload third-party contracts for review"
                 icon={uploadIcon}
-                onClick={() => setIsUploadOpen(true)}
+                onClick={() => {
+                  setUploadMode(contractUploadModes.default)
+                  setIsUploadOpen(true)
+                }}
               />
+              {session.role === contractWorkflowRoles.legalTeam ? (
+                <DashboardActionCard
+                  title="Send for Signing"
+                  count={activeFilterTotal}
+                  description="Initiate legal signing workflow"
+                  onClick={() => {
+                    setUploadMode(contractUploadModes.legalSendForSigning)
+                    setIsUploadOpen(true)
+                  }}
+                />
+              ) : null}
               {roleConfig.showApproveCard ? (
                 <DashboardActionCard
                   title="Approve"
@@ -873,7 +888,12 @@ export default function DashboardClient({ session }: DashboardClientProps) {
 
       <ThirdPartyUploadSidebar
         isOpen={isUploadOpen}
-        onClose={() => setIsUploadOpen(false)}
+        mode={uploadMode}
+        actorRole={session.role}
+        onClose={() => {
+          setIsUploadOpen(false)
+          setUploadMode(contractUploadModes.default)
+        }}
         onUploaded={async () => {
           await Promise.all([loadContractsForFilter(activeFilter), loadFilterCounts(), loadPendingApprovals()])
           router.refresh()

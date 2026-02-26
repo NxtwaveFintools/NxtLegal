@@ -3,7 +3,6 @@ import 'server-only'
 import {
   contractRepositoryStatusLabels,
   contractRepositoryExportColumnLabels,
-  contractRepositoryReportStatusBuckets,
   contractRepositoryStatusMetricKeys,
   contractRepositoryStatusMetricLabels,
   contractRepositoryTatPolicy,
@@ -16,6 +15,7 @@ import {
   contractLegalAssignmentEditableStatuses,
   contractSignatoryStatuses,
   contractStatuses,
+  contractWorkflowRoles,
   repositoryStatusToWorkflowStatuses,
   resolveRepositoryStatus,
   resolveContractStatusDisplayLabel,
@@ -82,19 +82,6 @@ const remarkRequiredActions = new Set<ContractActionName>([
   'approver.reject',
 ])
 const bypassAllowedRoles = new Set(['LEGAL_TEAM', 'ADMIN'])
-const legalActionNames = new Set<ContractActionName>([
-  'legal.set.under_review',
-  'legal.set.pending_internal',
-  'legal.set.pending_external',
-  'legal.set.offline_execution',
-  'legal.set.on_hold',
-  'legal.set.completed',
-  'legal.void',
-  'legal.approve',
-  'legal.reject',
-  'legal.query',
-  'legal.query.reroute',
-])
 const activityMessageAllowedRoles = new Set(['LEGAL_TEAM', 'ADMIN', 'HOD'])
 
 const contractsListSelectWithSlaMetrics =
@@ -167,7 +154,7 @@ type AdditionalApproverEntity = {
   approver_employee_id: string
   approver_email: string
   sequence_order: number
-  status: 'PENDING' | 'APPROVED' | 'REJECTED'
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'BYPASSED'
   approved_at: string | null
 }
 
@@ -2385,6 +2372,172 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
     if (auditError) {
       throw new DatabaseError('Failed to write approver audit event', new Error(auditError.message), {
+        code: auditError.code,
+      })
+    }
+  }
+
+  async bypassAdditionalApprover(params: {
+    tenantId: string
+    contractId: string
+    approverId: string
+    actorEmployeeId: string
+    actorRole: string
+    actorEmail: string
+    reason: string
+  }): Promise<void> {
+    this.assertActorMetadata({
+      actorEmployeeId: params.actorEmployeeId,
+      actorEmail: params.actorEmail,
+      actorRole: params.actorRole,
+    })
+
+    if (params.actorRole !== contractWorkflowRoles.legalTeam && params.actorRole !== contractWorkflowRoles.admin) {
+      throw new AuthorizationError('CONTRACT_ACTION_FORBIDDEN', 'Only LEGAL_TEAM or ADMIN can bypass approvals')
+    }
+
+    if (!params.reason?.trim()) {
+      throw new BusinessRuleError('REMARK_REQUIRED', 'Remarks are mandatory for this action')
+    }
+
+    const contract = await this.getById(params.tenantId, params.contractId)
+    if (!contract) {
+      throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found')
+    }
+
+    const canAccess = await this.canActorAccessContract({
+      tenantId: params.tenantId,
+      actorEmployeeId: params.actorEmployeeId,
+      actorRole: params.actorRole,
+      contract,
+    })
+
+    if (!canAccess) {
+      throw new AuthorizationError('CONTRACT_ACTION_FORBIDDEN', 'You do not have access to this contract')
+    }
+
+    if (contract.status === contractStatuses.void) {
+      throw new BusinessRuleError('CONTRACT_TERMINAL_STATUS', 'Void Documents is terminal and cannot be changed')
+    }
+
+    const supabase = createServiceSupabase()
+
+    const { data: approver, error: approverError } = await supabase
+      .from('contract_additional_approvers')
+      .select('id, approver_email, sequence_order, status')
+      .eq('tenant_id', params.tenantId)
+      .eq('contract_id', params.contractId)
+      .eq('id', params.approverId)
+      .is('deleted_at', null)
+      .maybeSingle<{
+        id: string
+        approver_email: string
+        sequence_order: number
+        status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'BYPASSED'
+      }>()
+
+    if (approverError) {
+      throw new DatabaseError('Failed to fetch additional approver for bypass', new Error(approverError.message), {
+        code: approverError.code,
+      })
+    }
+
+    if (!approver) {
+      throw new BusinessRuleError('APPROVER_NOT_FOUND', 'Additional approver not found for this contract')
+    }
+
+    if (approver.status !== 'PENDING') {
+      throw new BusinessRuleError('APPROVER_ACTION_INVALID_STATUS', 'Only pending approvals can be bypassed')
+    }
+
+    const { data: bypassedApprover, error: bypassError } = await supabase
+      .from('contract_additional_approvers')
+      .update({
+        status: 'BYPASSED',
+        approved_at: null,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('tenant_id', params.tenantId)
+      .eq('contract_id', params.contractId)
+      .eq('id', params.approverId)
+      .eq('status', 'PENDING')
+      .is('deleted_at', null)
+      .select('id')
+      .maybeSingle<{ id: string }>()
+
+    if (bypassError) {
+      throw new DatabaseError('Failed to bypass additional approver', new Error(bypassError.message), {
+        code: bypassError.code,
+      })
+    }
+
+    if (!bypassedApprover) {
+      throw new ConflictError('Additional approver action was already processed. Please refresh and retry.', {
+        contractId: params.contractId,
+        tenantId: params.tenantId,
+        action: 'BYPASS_APPROVAL',
+        approverId: params.approverId,
+      })
+    }
+
+    const legalAssignee = await this.getLegalAssignee(params.tenantId)
+
+    const { data: updatedContract, error: contractUpdateError } = await supabase
+      .from('contracts')
+      .update({
+        status: contractStatuses.underReview,
+        current_assignee_employee_id: legalAssignee.id,
+        current_assignee_email: legalAssignee.email,
+        row_version: contract.rowVersion + 1,
+      })
+      .eq('id', contract.id)
+      .eq('tenant_id', params.tenantId)
+      .eq('row_version', contract.rowVersion)
+      .select('id')
+      .maybeSingle<{ id: string }>()
+
+    if (contractUpdateError) {
+      throw new DatabaseError(
+        'Failed to update contract after approval bypass',
+        new Error(contractUpdateError.message),
+        {
+          code: contractUpdateError.code,
+        }
+      )
+    }
+
+    if (!updatedContract) {
+      throw new ConflictError('Contract was modified by another request. Please refresh and retry.', {
+        contractId: params.contractId,
+        tenantId: params.tenantId,
+        action: 'BYPASS_APPROVAL',
+        expectedRowVersion: contract.rowVersion,
+      })
+    }
+
+    const { error: auditError } = await supabase.from('audit_logs').insert([
+      {
+        tenant_id: params.tenantId,
+        user_id: params.actorEmployeeId,
+        event_type: contractAuditEvents.approverBypassed,
+        action: contractAuditActions.approverBypassed,
+        actor_email: params.actorEmail,
+        actor_role: params.actorRole,
+        resource_type: 'contract',
+        resource_id: params.contractId,
+        target_email: approver.approver_email,
+        note_text: params.reason.trim(),
+        metadata: {
+          approver_id: approver.id,
+          sequence_order: approver.sequence_order,
+          from_status: contract.status,
+          to_status: contractStatuses.underReview,
+        },
+      },
+    ])
+
+    if (auditError) {
+      throw new DatabaseError('Failed to write approval bypass audit event', new Error(auditError.message), {
         code: auditError.code,
       })
     }
