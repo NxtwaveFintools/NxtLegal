@@ -33,7 +33,7 @@ function createContractView() {
     contract: {
       id: 'contract-1',
       title: 'Master Service Agreement',
-      status: 'IN_SIGNATURE',
+      status: 'PENDING_WITH_EXTERNAL_STAKEHOLDERS',
       uploadedByEmployeeId: 'employee-1',
       uploadedByEmail: 'legal@nxtwave.co.in',
       currentAssigneeEmployeeId: 'employee-2',
@@ -53,7 +53,7 @@ describe('PrepareForSigningModal', () => {
     jest.restoreAllMocks()
   })
 
-  it('blocks send when recipient has no SIGNATURE field', async () => {
+  it('disables send when recipient has no SIGNATURE field', async () => {
     jest.spyOn(contractsClient, 'getSigningPreparationDraft').mockResolvedValue({
       ok: true,
       data: {
@@ -83,7 +83,7 @@ describe('PrepareForSigningModal', () => {
       <PrepareForSigningModal
         isOpen
         contractId="contract-1"
-        contractStatus="FINAL_APPROVED"
+        contractStatus="COMPLETED"
         pdfUrl="/api/contracts/contract-1/preview"
         onClose={jest.fn()}
         onSent={jest.fn()}
@@ -92,9 +92,7 @@ describe('PrepareForSigningModal', () => {
 
     await waitFor(() => expect(contractsClient.getSigningPreparationDraft).toHaveBeenCalled())
 
-    fireEvent.click(screen.getByRole('button', { name: 'Review & Send' }))
-
-    expect(await screen.findByText(/At least one SIGNATURE field is required/i)).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Review & Send' })).toBeDisabled()
     expect(sendSpy).not.toHaveBeenCalled()
   })
 
@@ -137,7 +135,7 @@ describe('PrepareForSigningModal', () => {
       <PrepareForSigningModal
         isOpen
         contractId="contract-1"
-        contractStatus="FINAL_APPROVED"
+        contractStatus="COMPLETED"
         pdfUrl="/api/contracts/contract-1/preview"
         onClose={jest.fn()}
         onSent={jest.fn()}
@@ -220,7 +218,7 @@ describe('PrepareForSigningModal', () => {
       <PrepareForSigningModal
         isOpen
         contractId="contract-1"
-        contractStatus="FINAL_APPROVED"
+        contractStatus="COMPLETED"
         pdfUrl="/api/contracts/contract-1/preview"
         onClose={onClose}
         onSent={onSent}

@@ -19,6 +19,11 @@ type ThirdPartyUploadSidebarProps = {
 const COUNTERPARTIES = ['NA', 'Acme Corp', 'Orion Systems', 'Northwind Traders']
 const ORGANIZATION_ENTITY = 'NxtWave Disruptive Technologies Pvt Ltd'
 
+type CounterpartyEntry = {
+  counterpartyName: string
+  supportingFiles: File[]
+}
+
 export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }: ThirdPartyUploadSidebarProps) {
   const router = useRouter()
   const steps = useMemo(() => ['Choose Files', 'Additional Data', 'Review', 'Upload'], [])
@@ -27,7 +32,9 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
   const [mainFileError, setMainFileError] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const [contractType, setContractType] = useState('')
-  const [counterparty, setCounterparty] = useState('')
+  const [counterpartyEntries, setCounterpartyEntries] = useState<CounterpartyEntry[]>([
+    { counterpartyName: '', supportingFiles: [] },
+  ])
   const [signatoryName, setSignatoryName] = useState('')
   const [signatoryDesignation, setSignatoryDesignation] = useState('')
   const [signatoryEmail, setSignatoryEmail] = useState('')
@@ -38,15 +45,15 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
   const [contractTypesLoaded, setContractTypesLoaded] = useState(false)
   const [departments, setDepartments] = useState<DepartmentOption[]>([])
   const [departmentsLoaded, setDepartmentsLoaded] = useState(false)
-  const [supportingFiles, setSupportingFiles] = useState<File[]>([])
   const [stepError, setStepError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [uploadError, setUploadError] = useState<string | null>(null)
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null)
   const [uploadIdempotencyKey, setUploadIdempotencyKey] = useState<string | null>(null)
 
-  const requiresSupportingDocs = counterparty.trim() !== '' && counterparty.trim().toUpperCase() !== 'NA'
-  const showCounterpartyModal = counterparty.trim() !== '' && !COUNTERPARTIES.includes(counterparty.trim())
+  const showCounterpartyModal = counterpartyEntries.some(
+    (entry) => entry.counterpartyName.trim() !== '' && !COUNTERPARTIES.includes(entry.counterpartyName.trim())
+  )
   const selectedDepartmentName = departments.find((item) => item.id === departmentId)?.name ?? ''
   const selectedContractTypeName = contractTypes.find((item) => item.id === contractType)?.name ?? ''
 
@@ -89,14 +96,13 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
     setMainFile(null)
     setMainFileError(null)
     setContractType('')
-    setCounterparty('')
+    setCounterpartyEntries([{ counterpartyName: '', supportingFiles: [] }])
     setSignatoryName('')
     setSignatoryDesignation('')
     setSignatoryEmail('')
     setBackgroundOfRequest('')
     setDepartmentId('')
     setBudgetApproved(false)
-    setSupportingFiles([])
     setStepError(null)
     setUploadError(null)
     setUploadSuccess(null)
@@ -125,9 +131,16 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
     }
 
     if (activeStep === 1) {
+      const normalizedCounterparties = counterpartyEntries
+        .map((entry) => ({
+          counterpartyName: entry.counterpartyName.trim(),
+          supportingFiles: entry.supportingFiles,
+        }))
+        .filter((entry) => entry.counterpartyName.length > 0)
+
       if (
         !contractType ||
-        !counterparty ||
+        normalizedCounterparties.length === 0 ||
         !signatoryName.trim() ||
         !signatoryDesignation.trim() ||
         !signatoryEmail.trim() ||
@@ -148,9 +161,11 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
         return
       }
 
-      if (requiresSupportingDocs && supportingFiles.length === 0) {
-        setStepError('Supporting documents are required for this counterparty.')
-        return
+      for (const counterparty of normalizedCounterparties) {
+        if (counterparty.counterpartyName.toUpperCase() !== 'NA' && counterparty.supportingFiles.length === 0) {
+          setStepError(`Supporting documents are required for counterparty ${counterparty.counterpartyName}.`)
+          return
+        }
       }
     }
 
@@ -173,7 +188,10 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
       return
     }
 
-    const generatedTitle = `${selectedContractTypeName || 'Contract'} - ${counterparty || 'Counterparty'}`
+    const primaryCounterpartyName =
+      counterpartyEntries.find((entry) => entry.counterpartyName.trim().length > 0)?.counterpartyName.trim() ??
+      'Counterparty'
+    const generatedTitle = `${selectedContractTypeName || 'Contract'} - ${primaryCounterpartyName}`
 
     setUploadError(null)
     setUploadSuccess(null)
@@ -187,7 +205,13 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
     const response = await contractsClient.upload({
       title: generatedTitle,
       contractTypeId: contractType,
-      counterpartyName: counterparty.trim(),
+      counterpartyName: primaryCounterpartyName,
+      counterparties: counterpartyEntries
+        .map((entry) => ({
+          counterpartyName: entry.counterpartyName.trim(),
+          supportingFiles: entry.supportingFiles,
+        }))
+        .filter((entry) => entry.counterpartyName.length > 0),
       signatoryName: signatoryName.trim(),
       signatoryDesignation: signatoryDesignation.trim(),
       signatoryEmail: signatoryEmail.trim().toLowerCase(),
@@ -195,7 +219,6 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
       departmentId,
       budgetApproved,
       file: mainFile,
-      supportingFiles,
       idempotencyKey,
     })
 
@@ -256,15 +279,28 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
             mainFileName={mainFile?.name || null}
             contractType={contractType}
             contractTypes={contractTypes}
-            counterparty={counterparty}
-            counterparties={COUNTERPARTIES}
+            counterparties={counterpartyEntries}
+            counterpartyOptions={COUNTERPARTIES}
             showCounterpartyModal={showCounterpartyModal}
             onContractTypeChange={(value) => {
               setContractType(value)
               setStepError(null)
             }}
-            onCounterpartyChange={(value) => {
-              setCounterparty(value)
+            onCounterpartyNameChange={(index, value) => {
+              setCounterpartyEntries((current) =>
+                current.map((entry, currentIndex) =>
+                  currentIndex === index
+                    ? {
+                        ...entry,
+                        counterpartyName: value,
+                      }
+                    : entry
+                )
+              )
+              setStepError(null)
+            }}
+            onAddCounterparty={() => {
+              setCounterpartyEntries((current) => [...current, { counterpartyName: '', supportingFiles: [] }])
               setStepError(null)
             }}
             signatoryName={signatoryName}
@@ -298,15 +334,31 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
               setBudgetApproved(value)
               setStepError(null)
             }}
-            supportingFiles={supportingFiles}
-            onSupportingFilesSelected={(files) => {
-              setSupportingFiles((current) => [...current, ...files])
+            onSupportingFilesSelected={(counterpartyIndex, files) => {
+              setCounterpartyEntries((current) =>
+                current.map((entry, currentIndex) =>
+                  currentIndex === counterpartyIndex
+                    ? {
+                        ...entry,
+                        supportingFiles: [...entry.supportingFiles, ...files],
+                      }
+                    : entry
+                )
+              )
               setStepError(null)
             }}
-            onSupportingFileRemoved={(index) =>
-              setSupportingFiles((current) => current.filter((_, currentIndex) => currentIndex !== index))
+            onSupportingFileRemoved={(counterpartyIndex, fileIndex) =>
+              setCounterpartyEntries((current) =>
+                current.map((entry, currentIndex) =>
+                  currentIndex === counterpartyIndex
+                    ? {
+                        ...entry,
+                        supportingFiles: entry.supportingFiles.filter((_, index) => index !== fileIndex),
+                      }
+                    : entry
+                )
+              )
             }
-            showSupportingUpload={requiresSupportingDocs}
           />
         </>
       )
@@ -317,14 +369,18 @@ export default function ThirdPartyUploadSidebar({ isOpen, onClose, onUploaded }:
         <ReviewStep
           mainFileName={mainFile?.name || null}
           contractType={selectedContractTypeName}
-          counterparty={counterparty}
+          counterparties={counterpartyEntries
+            .map((entry) => ({
+              counterpartyName: entry.counterpartyName.trim(),
+              supportingCount: entry.supportingFiles.length,
+            }))
+            .filter((entry) => entry.counterpartyName.length > 0)}
           departmentName={selectedDepartmentName}
           signatoryName={signatoryName}
           signatoryDesignation={signatoryDesignation}
           signatoryEmail={signatoryEmail}
           backgroundOfRequest={backgroundOfRequest}
           budgetApproved={budgetApproved}
-          supportingCount={supportingFiles.length}
           organizationEntity={ORGANIZATION_ENTITY}
         />
       )

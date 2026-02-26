@@ -24,6 +24,8 @@ export const roleManagementPathSchema = z.object({
 
 const teamOperationValues = ['rename', 'deactivate'] as const
 const teamRoleTypeValues = ['POC', 'HOD'] as const
+const departmentRoleTypeValues = adminGovernance.departmentRoleTypes
+const userRoleTypeValues = adminGovernance.userRoleTypes
 
 const corporateEmailSchema = z
   .string()
@@ -84,8 +86,69 @@ export const legalMatrixRequestSchema = z.object({
   reason: z.string().trim().max(500, 'Reason is too long').optional(),
 })
 
+export const usersQuerySchema = z.object({
+  groupBy: z.enum(['department']).optional(),
+})
+
+export const createUserRequestSchema = z.object({
+  email: corporateEmailSchema,
+  fullName: z.string().trim().min(2, 'Full name is required').max(160, 'Full name is too long').optional(),
+  role: z.enum(userRoleTypeValues).default('LEGAL_TEAM'),
+  isActive: z.boolean().optional().default(true),
+})
+
+export const userStatusPathSchema = z.object({
+  userId: z.string().uuid('Invalid user ID'),
+})
+
+export const updateUserStatusRequestSchema = z.object({
+  isActive: z.boolean(),
+})
+
+export const assignUserDepartmentRoleRequestSchema = z.object({
+  departmentId: z.string().uuid('Invalid department ID'),
+  departmentRole: z.enum(departmentRoleTypeValues),
+})
+
+export const systemConfigurationRequestSchema = z.object({
+  featureFlags: z.object({
+    enableAdminGovernance: z.boolean(),
+    enableContractWorkflow: z.boolean(),
+  }),
+  securitySessionPolicies: z.object({
+    accessTokenDays: z.number().int().min(1).max(30),
+    refreshTokenDays: z.number().int().min(1).max(60),
+    maxLoginAttempts: z.number().int().min(1).max(20),
+  }),
+  defaults: z.object({
+    defaultDepartmentRole: z.enum(departmentRoleTypeValues),
+    defaultUserRole: z.enum(userRoleTypeValues),
+  }),
+  reason: z.string().trim().max(500, 'Reason is too long').optional(),
+})
+
+export const auditViewerQuerySchema = z.object({
+  action: z.string().trim().min(1).max(100).optional(),
+  resourceType: z.string().trim().min(1).max(100).optional(),
+  userId: z.string().trim().min(1).max(120).optional(),
+  query: z.string().trim().min(1).max(200).optional(),
+  from: z.string().datetime().optional(),
+  to: z.string().datetime().optional(),
+  cursor: z.string().trim().min(1).optional(),
+  limit: z.coerce.number().int().min(1).max(200).optional().default(25),
+})
+
+export const auditViewerExportQuerySchema = auditViewerQuerySchema.extend({
+  limit: z.coerce.number().int().min(1).max(5000).optional().default(1000),
+})
+
 export type RoleManagementRequest = z.infer<typeof roleManagementRequestSchema>
 export type CreateDepartmentRequest = z.infer<typeof createDepartmentRequestSchema>
 export type UpdateDepartmentRequest = z.infer<typeof updateDepartmentRequestSchema>
 export type AssignPrimaryRoleRequest = z.infer<typeof assignPrimaryRoleRequestSchema>
 export type LegalMatrixRequest = z.infer<typeof legalMatrixRequestSchema>
+export type CreateUserRequest = z.infer<typeof createUserRequestSchema>
+export type UpdateUserStatusRequest = z.infer<typeof updateUserStatusRequestSchema>
+export type AssignUserDepartmentRoleRequest = z.infer<typeof assignUserDepartmentRoleRequestSchema>
+export type SystemConfigurationRequest = z.infer<typeof systemConfigurationRequestSchema>
+export type AuditViewerQueryRequest = z.infer<typeof auditViewerQuerySchema>

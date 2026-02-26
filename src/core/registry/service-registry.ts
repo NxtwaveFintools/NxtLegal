@@ -14,6 +14,8 @@ import { ContractSignatoryService } from '@/core/domain/contracts/contract-signa
 import { RoleGovernanceService } from '@/core/domain/admin/role-governance-service'
 import { AdminQueryService } from '@/core/domain/admin/admin-query-service'
 import { TeamGovernanceService } from '@/core/domain/admin/team-governance-service'
+import { SystemConfigurationService } from '@/core/domain/admin/system-configuration-service'
+import { AuditViewerService } from '@/core/domain/admin/audit-viewer-service'
 import { supabaseEmployeeRepository } from '@/core/infra/repositories/supabase-employee-repository'
 import { supabaseAuditRepository } from '@/core/infra/repositories/supabase-audit-repository'
 import { supabaseIdempotencyRepository } from '@/core/infra/repositories/supabase-idempotency-repository'
@@ -21,8 +23,10 @@ import { supabaseContractRepository } from '@/core/infra/repositories/supabase-c
 import { supabaseContractStorageRepository } from '@/core/infra/repositories/supabase-contract-storage-repository'
 import { supabaseContractQueryRepository } from '@/core/infra/repositories/supabase-contract-query-repository'
 import { supabaseRoleGovernanceRepository } from '@/core/infra/repositories/supabase-role-governance-repository'
-import { supabaseAdminQueryRepository } from '@/core/infra/repositories/supabase-admin-query-repository'
+import { supabaseAdminQueryRepository } from '../infra/repositories/supabase-admin-query-repository'
 import { supabaseTeamGovernanceRepository } from '@/core/infra/repositories/supabase-team-governance-repository'
+import { supabaseSystemConfigurationRepository } from '@/core/infra/repositories/supabase-system-configuration-repository'
+import { supabaseAdminAuditViewerRepository } from '@/core/infra/repositories/supabase-admin-audit-viewer-repository'
 import { logger } from '@/core/infra/logging/logger'
 import { DocusignClient } from '@/core/infra/integrations/docusign/docusign-client'
 import { BrevoSmtpSender } from '@/core/infra/integrations/email/brevo-smtp-sender'
@@ -40,6 +44,8 @@ let contractSignatoryService: ContractSignatoryService | null = null
 let roleGovernanceService: RoleGovernanceService | null = null
 let adminQueryService: AdminQueryService | null = null
 let teamGovernanceService: TeamGovernanceService | null = null
+let systemConfigurationService: SystemConfigurationService | null = null
+let auditViewerService: AuditViewerService | null = null
 
 /**
  * Get or create AuthService singleton with dependencies injected
@@ -223,6 +229,22 @@ export function getTeamGovernanceService(): TeamGovernanceService {
   return teamGovernanceService
 }
 
+export function getSystemConfigurationService(): SystemConfigurationService {
+  if (!systemConfigurationService) {
+    systemConfigurationService = new SystemConfigurationService(supabaseSystemConfigurationRepository)
+  }
+
+  return systemConfigurationService
+}
+
+export function getAuditViewerService(): AuditViewerService {
+  if (!auditViewerService) {
+    auditViewerService = new AuditViewerService(supabaseAdminAuditViewerRepository)
+  }
+
+  return auditViewerService
+}
+
 /**
  * Reset services (for testing)
  */
@@ -236,6 +258,8 @@ export function resetServices(): void {
   roleGovernanceService = null
   adminQueryService = null
   teamGovernanceService = null
+  systemConfigurationService = null
+  auditViewerService = null
 }
 
 // Export types for use in other files

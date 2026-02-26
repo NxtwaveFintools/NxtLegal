@@ -25,7 +25,7 @@ describe('ContractDocumentsPanel', () => {
     render(
       <ContractDocumentsPanel
         contractId="contract-1"
-        contractStatus="FINAL_APPROVED"
+        contractStatus="COMPLETED"
         userRole="POC"
         currentDocumentId="doc-1"
         documents={[makeDoc()]}
@@ -38,11 +38,11 @@ describe('ContractDocumentsPanel', () => {
     expect(screen.queryByRole('button', { name: 'Replace Document' })).toBeNull()
   })
 
-  it('hides Replace button when status is IN_SIGNATURE', async () => {
+  it('hides Replace button when status is PENDING_WITH_EXTERNAL_STAKEHOLDERS', async () => {
     render(
       <ContractDocumentsPanel
         contractId="contract-1"
-        contractStatus="IN_SIGNATURE"
+        contractStatus="PENDING_WITH_EXTERNAL_STAKEHOLDERS"
         userRole="LEGAL_TEAM"
         currentDocumentId="doc-1"
         documents={[makeDoc()]}
@@ -64,7 +64,7 @@ describe('ContractDocumentsPanel', () => {
     render(
       <ContractDocumentsPanel
         contractId="contract-1"
-        contractStatus="FINAL_APPROVED"
+        contractStatus="COMPLETED"
         userRole="LEGAL_TEAM"
         currentDocumentId="doc-2"
         documents={docs}
@@ -87,7 +87,7 @@ describe('ContractDocumentsPanel', () => {
     render(
       <ContractDocumentsPanel
         contractId="contract-1"
-        contractStatus="FINAL_APPROVED"
+        contractStatus="COMPLETED"
         userRole="LEGAL_TEAM"
         currentDocumentId="doc-3"
         documents={docs}
@@ -112,7 +112,7 @@ describe('ContractDocumentsPanel', () => {
     render(
       <ContractDocumentsPanel
         contractId="contract-1"
-        contractStatus="FINAL_APPROVED"
+        contractStatus="COMPLETED"
         userRole="LEGAL_TEAM"
         currentDocumentId="doc-1"
         documents={[makeDoc()]}
@@ -144,7 +144,7 @@ describe('ContractDocumentsPanel', () => {
     render(
       <ContractDocumentsPanel
         contractId="contract-1"
-        contractStatus="FINAL_APPROVED"
+        contractStatus="COMPLETED"
         userRole="LEGAL_TEAM"
         currentDocumentId="doc-1"
         documents={[
@@ -173,7 +173,7 @@ describe('ContractDocumentsPanel', () => {
     render(
       <ContractDocumentsPanel
         contractId="contract-1"
-        contractStatus="FINAL_APPROVED"
+        contractStatus="COMPLETED"
         userRole="LEGAL_TEAM"
         currentDocumentId="doc-1"
         documents={[

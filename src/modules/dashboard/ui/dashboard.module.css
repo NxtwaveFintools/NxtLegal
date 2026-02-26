@@ -661,9 +661,23 @@
   font-weight: 600;
 }
 
+.contractTitleRow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
 .contractMeta {
   font-size: 12px;
   color: var(--color-text-muted);
+}
+
+.unreadDot {
+  width: 8px;
+  height: 8px;
+  border-radius: var(--radius-pill);
+  background: var(--color-danger);
+  flex-shrink: 0;
 }
 
 .contractActions {
@@ -866,6 +880,16 @@
   padding: 4px 10px;
 }
 
+.assignedTag {
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-success);
+  background: rgba(24, 158, 118, 0.08);
+  color: var(--color-success);
+  font-size: 11px;
+  font-weight: 700;
+  padding: 4px 10px;
+}
+
 .approverDecisionApproved {
   border-radius: var(--radius-pill);
   border: 1px solid var(--color-success);
@@ -884,6 +908,63 @@
   font-size: 11px;
   font-weight: 700;
   padding: 4px 10px;
+}
+
+.actionDialogOverlay {
+  position: fixed;
+  inset: 0;
+  background: var(--color-overlay);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 70;
+  padding: 16px;
+}
+
+.actionDialogModal {
+  width: min(520px, 100%);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface);
+  box-shadow: var(--color-shadow-lg);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.actionDialogTitle {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.actionDialogSubtitle {
+  font-size: 12px;
+  color: var(--color-text-muted);
+}
+
+.actionDialogTextarea {
+  width: 100%;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: var(--color-text);
+  padding: 10px 12px;
+  font-size: 13px;
+  resize: vertical;
+}
+
+.actionDialogTextarea:focus {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px rgba(47, 109, 246, 0.08);
+}
+
+.actionDialogActions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
 }
 
 @media (max-width: 1024px) {

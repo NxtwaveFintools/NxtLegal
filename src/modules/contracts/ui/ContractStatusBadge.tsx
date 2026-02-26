@@ -10,10 +10,14 @@ const statusClassName: Record<ContractStatus, string> = {
   DRAFT: styles.draft,
   UPLOADED: styles.uploaded,
   HOD_PENDING: styles.hodPending,
-  HOD_APPROVED: styles.hodApproved,
-  LEGAL_PENDING: styles.legalPending,
-  LEGAL_QUERY: styles.legalQuery,
-  FINAL_APPROVED: styles.finalApproved,
+  UNDER_REVIEW: styles.legalPending,
+  PENDING_WITH_INTERNAL_STAKEHOLDERS: styles.legalPending,
+  PENDING_WITH_EXTERNAL_STAKEHOLDERS: styles.finalApproved,
+  OFFLINE_EXECUTION: styles.finalApproved,
+  ON_HOLD: styles.legalQuery,
+  COMPLETED: styles.finalApproved,
+  EXECUTED: styles.finalApproved,
+  VOID: styles.legalQuery,
   REJECTED: styles.legalQuery,
 }
 

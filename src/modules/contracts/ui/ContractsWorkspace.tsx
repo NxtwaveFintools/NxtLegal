@@ -10,7 +10,11 @@ import {
   type ContractRecord,
   type ContractTimelineEvent,
 } from '@/core/client/contracts-client'
-import { contractStatuses } from '@/core/constants/contracts'
+import {
+  contractLegalAssignmentEditableStatuses,
+  contractStatuses,
+  contractTransitionActions,
+} from '@/core/constants/contracts'
 import ContractStatusBadge from '@/modules/contracts/ui/ContractStatusBadge'
 import ContractDocumentsPanel from '@/modules/contracts/ui/ContractDocumentsPanel'
 import { formatContractLogEvents, isContractNoteEvent } from '@/modules/contracts/ui/formatContractLogEvent'
@@ -47,18 +51,33 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const [timeline, setTimeline] = useState<ContractTimelineEvent[]>([])
   const [availableActions, setAvailableActions] = useState<ContractAllowedAction[]>([])
   const [approvers, setApprovers] = useState<ContractDetailResponse['additionalApprovers']>([])
+  const [legalCollaborators, setLegalCollaborators] = useState<ContractDetailResponse['legalCollaborators']>([])
   const [signatories, setSignatories] = useState<ContractDetailResponse['signatories']>([])
+  const [counterparties, setCounterparties] = useState<ContractDetailResponse['counterparties']>([])
   const [documents, setDocuments] = useState<ContractDocument[]>([])
   const [noteText, setNoteText] = useState('')
   const [approverEmail, setApproverEmail] = useState('')
+  const [signatoryEmail, setSignatoryEmail] = useState('')
+  const [ownerEmail, setOwnerEmail] = useState('')
+  const [collaboratorEmail, setCollaboratorEmail] = useState('')
+  const [activityMessageText, setActivityMessageText] = useState('')
   const [activeTab, setActiveTab] = useState<TabId>('overview')
+  const [isActivityComposerOpen, setIsActivityComposerOpen] = useState(false)
+  const [isSubmittingActivity, setIsSubmittingActivity] = useState(false)
+  const [isMarkingActivitySeen, setIsMarkingActivitySeen] = useState(false)
   const [isIntakeOpen, setIsIntakeOpen] = useState(false)
   const [isPrepareForSigningOpen, setIsPrepareForSigningOpen] = useState(false)
   const [expandedLogIds, setExpandedLogIds] = useState<Set<string>>(new Set())
   const [showAllLogs, setShowAllLogs] = useState(false)
   const [isLoading, setIsLoading] = useState(true)
+  const [isContractContextLoading, setIsContractContextLoading] = useState(false)
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false)
   const [isMutating, setIsMutating] = useState(false)
   const [activeAction, setActiveAction] = useState<ContractAllowedAction['action'] | null>(null)
+  const [confirmActionItem, setConfirmActionItem] = useState<ContractAllowedAction | null>(null)
+  const [remarkActionItem, setRemarkActionItem] = useState<ContractAllowedAction | null>(null)
+  const [selectedLegalAction, setSelectedLegalAction] = useState<ContractAllowedAction['action'] | ''>('')
+  const [remarkDraft, setRemarkDraft] = useState('')
   const [isViewerOpen, setIsViewerOpen] = useState(false)
   const [viewerUrl, setViewerUrl] = useState<string | null>(null)
   const [viewerExternalUrl, setViewerExternalUrl] = useState<string | null>(null)
@@ -105,11 +124,20 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
   const applyContractView = (contractView: ContractDetailResponse) => {
     setSelectedContract(contractView.contract)
+    setCounterparties(contractView.counterparties ?? [])
     setDocuments(contractView.documents ?? [])
     setAvailableActions(contractView.availableActions)
     setApprovers(contractView.additionalApprovers)
+    setLegalCollaborators(contractView.legalCollaborators)
     setSignatories(contractView.signatories ?? [])
+    setOwnerEmail(contractView.contract.currentAssigneeEmail)
   }
+
+  const syncContractReadState = useCallback((contractId: string, hasUnreadActivity: boolean) => {
+    setContracts((current) =>
+      current.map((contract) => (contract.id === contractId ? { ...contract, hasUnreadActivity } : contract))
+    )
+  }, [])
 
   const loadContractContext = useCallback(async (contractId: string) => {
     const [detailResponse, timelineResponse] = await Promise.all([
@@ -121,9 +149,11 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       setError(detailResponse.error?.message ?? 'Failed to load contract detail')
       setSelectedContract(null)
       setTimeline([])
+      setCounterparties([])
       setDocuments([])
       setAvailableActions([])
       setApprovers([])
+      setLegalCollaborators([])
       setSignatories([])
       return
     }
@@ -155,6 +185,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     let isCancelled = false
 
     const loadSelectedContract = async () => {
+      setIsContractContextLoading(true)
       const [detailResponse, timelineResponse] = await Promise.all([
         contractsClient.detail(selectedContractId),
         contractsClient.timeline(selectedContractId),
@@ -168,10 +199,13 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
         setError(detailResponse.error?.message ?? 'Failed to load contract detail')
         setSelectedContract(null)
         setTimeline([])
+        setCounterparties([])
         setDocuments([])
         setAvailableActions([])
         setApprovers([])
+        setLegalCollaborators([])
         setSignatories([])
+        setIsContractContextLoading(false)
         return
       }
 
@@ -182,6 +216,8 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       } else {
         setTimeline([])
       }
+
+      setIsContractContextLoading(false)
     }
 
     void loadSelectedContract()
@@ -192,6 +228,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   }, [selectedContractId])
 
   const selectContract = (contractId: string) => {
+    setIsContractContextLoading(true)
     setSelectedContractId(contractId)
     setActiveTab('overview')
     setIsIntakeOpen(false)
@@ -218,44 +255,186 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     setIsLoadingMore(false)
   }
 
+  const applyAction = useCallback(
+    async (actionItem: ContractAllowedAction, remark?: string): Promise<boolean> => {
+      if (!selectedContractId) {
+        return false
+      }
+
+      setActiveAction(actionItem.action)
+      const response = await contractsClient.action(selectedContractId, {
+        action: actionItem.action,
+        noteText: remark,
+      })
+      setActiveAction(null)
+
+      if (response.ok !== true) {
+        if (response.error?.code) {
+          setError(response.error.message ?? 'Failed to apply contract action')
+        }
+        return false
+      }
+
+      if (response.data) {
+        applyContractView(response.data)
+      }
+
+      await loadContracts()
+      await loadContractContext(selectedContractId)
+      router.refresh()
+      return true
+    },
+    [loadContractContext, loadContracts, router, selectedContractId]
+  )
+
   const executeAction = async (actionItem: ContractAllowedAction) => {
     if (!selectedContractId) {
       return
     }
 
-    let remark: string | undefined
-    if (actionItem.requiresRemark) {
-      const input = window.prompt('Remarks are required for this action. Enter remarks:')
-      if (!input?.trim()) {
-        setError('Remarks are required for this action')
-        return
-      }
-      remark = input.trim()
-    }
-
-    setActiveAction(actionItem.action)
-    const response = await contractsClient.action(selectedContractId, {
-      action: actionItem.action,
-      noteText: remark,
-    })
-    setActiveAction(null)
-
-    if (response.ok !== true) {
-      if (response.error?.code) {
-        setError(response.error.message ?? 'Failed to apply contract action')
-      }
+    if (actionItem.action.includes('approve')) {
+      setConfirmActionItem(actionItem)
+      setError(null)
       return
     }
 
-    if (response.data) {
-      applyContractView(response.data)
+    if (actionItem.requiresRemark) {
+      setRemarkActionItem(actionItem)
+      setRemarkDraft('')
+      setError(null)
+      return
     }
 
-    // Full refresh on action to keep sidebar consistent
-    await loadContracts()
-    await loadContractContext(selectedContractId)
-    router.refresh()
+    await applyAction(actionItem)
   }
+
+  const closeConfirmDialog = useCallback(() => {
+    if (activeAction) {
+      return
+    }
+
+    setConfirmActionItem(null)
+  }, [activeAction])
+
+  const submitConfirmDialog = useCallback(async () => {
+    if (!confirmActionItem) {
+      return
+    }
+
+    if (confirmActionItem.requiresRemark) {
+      setRemarkActionItem(confirmActionItem)
+      setRemarkDraft('')
+      setConfirmActionItem(null)
+      return
+    }
+
+    const didApply = await applyAction(confirmActionItem)
+    if (didApply) {
+      setConfirmActionItem(null)
+    }
+  }, [applyAction, confirmActionItem])
+
+  const closeRemarkDialog = useCallback(() => {
+    if (activeAction) {
+      return
+    }
+
+    setRemarkActionItem(null)
+    setRemarkDraft('')
+  }, [activeAction])
+
+  const submitRemarkDialog = useCallback(async () => {
+    if (!remarkActionItem) {
+      return
+    }
+
+    const remark = remarkDraft.trim()
+    if (!remark) {
+      setError('Remarks are required for this action')
+      return
+    }
+
+    const didApply = await applyAction(remarkActionItem, remark)
+    if (didApply) {
+      setRemarkActionItem(null)
+      setRemarkDraft('')
+    }
+  }, [applyAction, remarkActionItem, remarkDraft])
+
+  const legalStatusActionSet = useMemo(
+    () =>
+      new Set<ContractAllowedAction['action']>([
+        contractTransitionActions.legalSetUnderReview,
+        contractTransitionActions.legalSetPendingInternal,
+        contractTransitionActions.legalSetPendingExternal,
+        contractTransitionActions.legalSetOfflineExecution,
+        contractTransitionActions.legalSetOnHold,
+        contractTransitionActions.legalSetCompleted,
+        contractTransitionActions.legalReroute,
+        contractTransitionActions.legalReject,
+        contractTransitionActions.legalVoid,
+      ]),
+    []
+  )
+
+  const legalStatusActionRank = useMemo(
+    () =>
+      new Map<ContractAllowedAction['action'], number>([
+        [contractTransitionActions.legalSetUnderReview, 1],
+        [contractTransitionActions.legalSetPendingInternal, 2],
+        [contractTransitionActions.legalSetPendingExternal, 3],
+        [contractTransitionActions.legalSetOfflineExecution, 4],
+        [contractTransitionActions.legalSetOnHold, 5],
+        [contractTransitionActions.legalSetCompleted, 6],
+        [contractTransitionActions.legalReroute, 7],
+        [contractTransitionActions.legalReject, 8],
+        [contractTransitionActions.legalVoid, 9],
+      ]),
+    []
+  )
+
+  const legalStatusActions = useMemo(
+    () =>
+      availableActions
+        .filter((actionItem) => legalStatusActionSet.has(actionItem.action))
+        .sort((left, right) => {
+          const leftRank = legalStatusActionRank.get(left.action) ?? Number.MAX_SAFE_INTEGER
+          const rightRank = legalStatusActionRank.get(right.action) ?? Number.MAX_SAFE_INTEGER
+
+          if (leftRank === rightRank) {
+            return left.label.localeCompare(right.label)
+          }
+
+          return leftRank - rightRank
+        }),
+    [availableActions, legalStatusActionRank, legalStatusActionSet]
+  )
+
+  const nonLegalStatusActions = useMemo(
+    () => availableActions.filter((actionItem) => !legalStatusActionSet.has(actionItem.action)),
+    [availableActions, legalStatusActionSet]
+  )
+
+  const handleLegalActionSelect = useCallback(
+    (actionName: ContractAllowedAction['action'] | '') => {
+      setSelectedLegalAction(actionName)
+
+      if (!actionName) {
+        return
+      }
+
+      const actionItem = legalStatusActions.find((entry) => entry.action === actionName)
+      if (!actionItem) {
+        setSelectedLegalAction('')
+        return
+      }
+
+      setConfirmActionItem(actionItem)
+      setError(null)
+      setSelectedLegalAction('')
+    },
+    [legalStatusActions]
+  )
 
   const handleDownload = async (document?: ContractDocument) => {
     if (!selectedContractId) {
@@ -369,6 +548,92 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     applyContractView(response.data)
   }
 
+  const handleSetOwner = async () => {
+    if (!selectedContractId || !ownerEmail.trim()) {
+      return
+    }
+
+    setIsMutating(true)
+    const response = await contractsClient.manageAssignment(selectedContractId, {
+      operation: 'set_owner',
+      ownerEmail: ownerEmail.trim().toLowerCase(),
+    })
+    setIsMutating(false)
+
+    if (!response.ok || !response.data) {
+      setError(response.error?.message ?? 'Failed to update legal owner')
+      return
+    }
+
+    applyContractView(response.data)
+    await loadContracts()
+  }
+
+  const handleAddCollaborator = async () => {
+    if (!selectedContractId || !collaboratorEmail.trim()) {
+      return
+    }
+
+    setIsMutating(true)
+    const response = await contractsClient.manageAssignment(selectedContractId, {
+      operation: 'add_collaborator',
+      collaboratorEmail: collaboratorEmail.trim().toLowerCase(),
+    })
+    setIsMutating(false)
+
+    if (!response.ok || !response.data) {
+      setError(response.error?.message ?? 'Failed to add legal collaborator')
+      return
+    }
+
+    setCollaboratorEmail('')
+    applyContractView(response.data)
+  }
+
+  const handleRemoveCollaborator = async (email: string) => {
+    if (!selectedContractId) {
+      return
+    }
+
+    setIsMutating(true)
+    const response = await contractsClient.manageAssignment(selectedContractId, {
+      operation: 'remove_collaborator',
+      collaboratorEmail: email,
+    })
+    setIsMutating(false)
+
+    if (!response.ok || !response.data) {
+      setError(response.error?.message ?? 'Failed to remove legal collaborator')
+      return
+    }
+
+    applyContractView(response.data)
+  }
+
+  const handleAddActivityMessage = async () => {
+    if (!selectedContractId || !activityMessageText.trim()) {
+      return
+    }
+
+    setIsSubmittingActivity(true)
+    const response = await contractsClient.addActivityMessage(selectedContractId, {
+      messageText: activityMessageText.trim(),
+    })
+    setIsSubmittingActivity(false)
+
+    if (!response.ok || !response.data) {
+      setError(response.error?.message ?? 'Failed to post activity message')
+      return
+    }
+
+    setActivityMessageText('')
+    setIsActivityComposerOpen(false)
+    applyContractView(response.data)
+    await loadContractContext(selectedContractId)
+    await loadContracts()
+    syncContractReadState(selectedContractId, false)
+  }
+
   const noteEvents = useMemo(() => timeline.filter((event) => isContractNoteEvent(event)), [timeline])
   const timelineById = useMemo(() => new Map(timeline.map((event) => [event.id, event])), [timeline])
   const selectedCurrentDocumentId = selectedContract?.currentDocumentId
@@ -426,8 +691,8 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
     return formattedLogs.slice(0, 5)
   }, [formattedLogs, showAllLogs])
-  const quickMetadata = useMemo(
-    () => [
+  const quickMetadata = useMemo(() => {
+    const metadata: Array<{ label: string; value: string }> = [
       {
         label: 'Created At',
         value: selectedContract?.requestCreatedAt
@@ -440,9 +705,60 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
         label: 'Budget Approved',
         value: selectedContract ? (selectedContract.budgetApproved ? 'Yes' : 'No') : '—',
       },
-    ],
-    [selectedContract]
+    ]
+
+    if (selectedContract?.status === contractStatuses.void) {
+      metadata.push({
+        label: 'Void Reason',
+        value: selectedContract.voidReason?.trim() ? selectedContract.voidReason : '—',
+      })
+    }
+
+    return metadata
+  }, [selectedContract])
+  const canManageLegalWorkSharing = useMemo(() => {
+    if (!(session.role === 'LEGAL_TEAM' || session.role === 'ADMIN')) {
+      return false
+    }
+
+    if (!selectedContract?.status) {
+      return false
+    }
+
+    return contractLegalAssignmentEditableStatuses.includes(
+      selectedContract.status as (typeof contractLegalAssignmentEditableStatuses)[number]
+    )
+  }, [selectedContract, session.role])
+  const selectedContractListRow = useMemo(
+    () => contracts.find((contract) => contract.id === selectedContractId) ?? null,
+    [contracts, selectedContractId]
   )
+  const hasUnreadActivity = Boolean(selectedContractListRow?.hasUnreadActivity)
+
+  useEffect(() => {
+    if (!selectedContractId || activeTab !== 'activity' || !hasUnreadActivity || isMarkingActivitySeen) {
+      return
+    }
+
+    let isCancelled = false
+    const markSeen = async () => {
+      setIsMarkingActivitySeen(true)
+      syncContractReadState(selectedContractId, false)
+      const response = await contractsClient.markActivitySeen(selectedContractId)
+      if (!isCancelled && response.ok && response.data) {
+        syncContractReadState(selectedContractId, response.data.hasUnread)
+      }
+      if (!isCancelled) {
+        setIsMarkingActivitySeen(false)
+      }
+    }
+
+    void markSeen()
+
+    return () => {
+      isCancelled = true
+    }
+  }, [activeTab, hasUnreadActivity, isMarkingActivitySeen, selectedContractId, syncContractReadState])
 
   const handleTabKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     const currentIndex = tabs.findIndex((tab) => tab.id === activeTab)
@@ -520,17 +836,30 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   }
 
   return (
-    <div className={styles.layout}>
+    <div className={`${styles.layout} ${!isSidebarOpen ? styles.layoutCollapsed : ''}`}>
       {/* ── Left Sidebar ── */}
-      <aside className={styles.sidebar}>
+      <aside className={`${styles.sidebar} ${!isSidebarOpen ? styles.sidebarCollapsed : ''}`}>
         <div className={styles.sidebarHeader}>
-          <span className={styles.sidebarTitle}>Contracts</span>
-          {!isLoading && (
-            <span className={styles.sidebarCount}>
-              {contracts.length}
-              {totalContracts > 0 ? ` / ${totalContracts}` : ''}
-            </span>
-          )}
+          <div className={styles.sidebarHeaderRow}>
+            <div>
+              <span className={styles.sidebarTitle}>Contracts</span>
+              {!isLoading && (
+                <span className={styles.sidebarCount}>
+                  {contracts.length}
+                  {totalContracts > 0 ? ` / ${totalContracts}` : ''}
+                </span>
+              )}
+            </div>
+            <button
+              type="button"
+              className={styles.menuButton}
+              aria-label={isSidebarOpen ? 'Hide contracts list' : 'Show contracts list'}
+              aria-expanded={isSidebarOpen}
+              onClick={() => setIsSidebarOpen((current) => !current)}
+            >
+              ☰
+            </button>
+          </div>
         </div>
         {isLoading ? (
           <div className={styles.list}>
@@ -552,6 +881,9 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
               >
                 <div className={styles.itemTitle}>{contract.title}</div>
                 <div className={styles.itemMeta}>
+                  {contract.hasUnreadActivity ? (
+                    <span className={styles.unreadDot} aria-label="Unread activity" />
+                  ) : null}
                   <ContractStatusBadge status={contract.status} displayLabel={contract.displayStatusLabel} />
                 </div>
               </button>
@@ -584,7 +916,27 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                 displayLabel={selectedContract.displayStatusLabel}
               />
             ) : null}
-            {availableActions.map((item) => (
+
+            {legalStatusActions.length > 0 ? (
+              <select
+                className={styles.actionDropdown}
+                value={selectedLegalAction}
+                onChange={(event) =>
+                  handleLegalActionSelect(event.target.value as ContractAllowedAction['action'] | '')
+                }
+                disabled={Boolean(activeAction) || isMutating}
+                aria-label="Legal status actions"
+              >
+                <option value="">Legal Status Actions</option>
+                {legalStatusActions.map((item) => (
+                  <option key={item.action} value={item.action}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+
+            {nonLegalStatusActions.map((item) => (
               <button
                 key={item.action}
                 type="button"
@@ -604,11 +956,33 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
           </div>
         ) : null}
 
+        {selectedContract?.status === contractStatuses.void && selectedContract.voidReason ? (
+          <div className={styles.rejectionContextBanner}>Void reason: {selectedContract.voidReason}</div>
+        ) : null}
+
         {!selectedContract ? (
           <div className={styles.emptyState}>
             <div className={styles.emptyStateIcon}>📄</div>
             <div style={{ fontWeight: 600 }}>Select a contract</div>
             <div className={styles.itemMeta}>Choose a contract from the sidebar to view details</div>
+          </div>
+        ) : isContractContextLoading ? (
+          <div className={styles.detailShimmer}>
+            <div className={styles.shimmerBlock}>
+              <div className={styles.shimmerLine} style={{ width: '28%' }} />
+              <div className={styles.shimmerLine} style={{ width: '92%' }} />
+              <div className={styles.shimmerLine} style={{ width: '84%' }} />
+            </div>
+            <div className={styles.shimmerBlock}>
+              <div className={styles.shimmerLine} style={{ width: '20%' }} />
+              <div className={styles.shimmerLine} style={{ width: '96%' }} />
+              <div className={styles.shimmerLine} style={{ width: '88%' }} />
+              <div className={styles.shimmerLine} style={{ width: '80%' }} />
+            </div>
+            <div className={styles.shimmerBlock}>
+              <div className={styles.shimmerLine} style={{ width: '24%' }} />
+              <div className={styles.shimmerLine} style={{ width: '90%' }} />
+            </div>
           </div>
         ) : (
           <div className={styles.detailsShell}>
@@ -679,6 +1053,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
               >
                 {tabs.map((tab) => {
                   const selected = activeTab === tab.id
+                  const showTabUnreadDot = tab.id === 'activity' && hasUnreadActivity && !selected
 
                   return (
                     <button
@@ -692,7 +1067,10 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                       className={`${styles.tabButton} ${selected ? styles.tabButtonActive : ''}`}
                       onClick={() => handleTabChange(tab.id)}
                     >
-                      {tab.label}
+                      <span className={styles.tabLabelWithDot}>
+                        {tab.label}
+                        {showTabUnreadDot ? <span className={styles.unreadDot} aria-label="Unread activity" /> : null}
+                      </span>
                     </button>
                   )
                 })}
@@ -714,7 +1092,11 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                       </div>
                       <div className={styles.row}>
                         <span>Counterparty</span>
-                        <span>{selectedContract.counterpartyName ?? '—'}</span>
+                        <span>
+                          {counterparties.length > 0
+                            ? counterparties.map((counterparty) => counterparty.counterpartyName).join(', ')
+                            : (selectedContract.counterpartyName ?? '—')}
+                        </span>
                       </div>
                       <div className={styles.row}>
                         <span>File Name</span>
@@ -747,15 +1129,15 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                       {isIntakeOpen ? (
                         <div id="intake-details-panel" className={styles.accordionBody}>
                           <div className={styles.row}>
-                            <span>Signatory Name</span>
+                            <span>Counterparty Signatory Name</span>
                             <span>{selectedContract.signatoryName ?? '—'}</span>
                           </div>
                           <div className={styles.row}>
-                            <span>Signatory Designation</span>
+                            <span>Counterparty Signatory Designation</span>
                             <span>{selectedContract.signatoryDesignation ?? '—'}</span>
                           </div>
                           <div className={styles.row}>
-                            <span>Signatory Email</span>
+                            <span>Counterparty Signatory Email</span>
                             <span>{selectedContract.signatoryEmail ?? '—'}</span>
                           </div>
                           <div className={styles.row}>
@@ -765,6 +1147,65 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                         </div>
                       ) : null}
                     </div>
+
+                    {canManageLegalWorkSharing && (
+                      <div className={styles.card}>
+                        <div className={styles.sectionTitle}>Legal Work Sharing</div>
+                        <div className={styles.inlineForm}>
+                          <input
+                            type="email"
+                            className={styles.input}
+                            placeholder="owner@nxtwave.co.in"
+                            value={ownerEmail}
+                            onChange={(event) => setOwnerEmail(event.target.value)}
+                          />
+                          <button
+                            type="button"
+                            className={styles.button}
+                            disabled={isMutating}
+                            onClick={() => void handleSetOwner()}
+                          >
+                            Set Owner
+                          </button>
+                        </div>
+                        <div className={styles.inlineForm}>
+                          <input
+                            type="email"
+                            className={styles.input}
+                            placeholder="collaborator@nxtwave.co.in"
+                            value={collaboratorEmail}
+                            onChange={(event) => setCollaboratorEmail(event.target.value)}
+                          />
+                          <button
+                            type="button"
+                            className={styles.button}
+                            disabled={isMutating}
+                            onClick={() => void handleAddCollaborator()}
+                          >
+                            Add Collaborator
+                          </button>
+                        </div>
+                        <div className={styles.timeline}>
+                          {legalCollaborators.length === 0 ? (
+                            <div className={styles.eventMeta}>No collaborators assigned.</div>
+                          ) : (
+                            legalCollaborators.map((collaborator) => (
+                              <div key={collaborator.id} className={styles.event}>
+                                <div>{collaborator.collaboratorEmail}</div>
+                                <button
+                                  type="button"
+                                  className={`${styles.button} ${styles.buttonGhost}`}
+                                  disabled={isMutating}
+                                  onClick={() => void handleRemoveCollaborator(collaborator.collaboratorEmail)}
+                                >
+                                  Remove
+                                </button>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    )}
 
                     {(session.role === 'LEGAL_TEAM' || session.role === 'ADMIN') && (
                       <>
@@ -801,7 +1242,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
                         <div className={styles.card}>
                           <div className={styles.sectionTitle}>Signatories</div>
-                          {selectedContract.status === contractStatuses.finalApproved ? (
+                          {selectedContract.status === contractStatuses.completed ? (
                             <div className={styles.inlineForm}>
                               <button
                                 type="button"
@@ -813,7 +1254,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                               </button>
                             </div>
                           ) : (
-                            <div className={styles.eventMeta}>Sign is available only after FINAL_APPROVED.</div>
+                            <div className={styles.eventMeta}>Sign is available only after COMPLETED.</div>
                           )}
                           <div className={styles.timeline}>
                             {signatories.map((signatory) => (
@@ -834,7 +1275,41 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                 {activeTab === 'activity' && (
                   <div className={styles.tabSection}>
                     <div className={styles.card}>
-                      <div className={styles.sectionTitle}>Logs Timeline</div>
+                      <div className={styles.sectionHeaderRow}>
+                        <div className={styles.sectionTitle}>Logs Timeline</div>
+                        {(session.role === 'LEGAL_TEAM' || session.role === 'ADMIN' || session.role === 'HOD') && (
+                          <button
+                            type="button"
+                            className={`${styles.button} ${styles.buttonGhost}`}
+                            onClick={() => setIsActivityComposerOpen((current) => !current)}
+                          >
+                            {isActivityComposerOpen ? 'Cancel' : '+ Add'}
+                          </button>
+                        )}
+                      </div>
+
+                      {isActivityComposerOpen ? (
+                        <div className={styles.activityComposer}>
+                          <textarea
+                            className={styles.textarea}
+                            placeholder="Discuss this contract. Use @email to tag someone."
+                            value={activityMessageText}
+                            onChange={(event) => setActivityMessageText(event.target.value)}
+                            rows={3}
+                          />
+                          <div className={styles.activityComposerActions}>
+                            <button
+                              type="button"
+                              className={styles.button}
+                              disabled={isSubmittingActivity || isMutating}
+                              onClick={() => void handleAddActivityMessage()}
+                            >
+                              {isSubmittingActivity ? 'Posting…' : 'Post'}
+                            </button>
+                          </div>
+                        </div>
+                      ) : null}
+
                       <div className={styles.logContainer}>
                         {visibleLogs.map((event) => {
                           const rawEvent = timelineById.get(event.id)
@@ -986,6 +1461,72 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                 onClick={() => window.open(viewerExternalUrl ?? viewerUrl, '_blank', 'noopener,noreferrer')}
               >
                 Open in New Tab
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {remarkActionItem ? (
+        <div className={styles.actionRemarkOverlay} role="dialog" aria-modal="true" aria-label="Provide action remarks">
+          <div className={styles.actionRemarkModal}>
+            <div className={styles.sectionTitle}>Remarks Required</div>
+            <div className={styles.eventMeta}>Provide remarks for: {remarkActionItem.label}</div>
+            <textarea
+              className={styles.textarea}
+              value={remarkDraft}
+              onChange={(event) => setRemarkDraft(event.target.value)}
+              rows={4}
+              placeholder="Enter remarks"
+              autoFocus
+            />
+            <div className={styles.actionRemarkActions}>
+              <button
+                type="button"
+                className={styles.button}
+                onClick={closeRemarkDialog}
+                disabled={Boolean(activeAction)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={`${styles.button} ${styles.buttonPrimary}`}
+                onClick={() => {
+                  void submitRemarkDialog()
+                }}
+                disabled={Boolean(activeAction)}
+              >
+                {activeAction === remarkActionItem.action ? 'Processing…' : 'Submit Remarks'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {confirmActionItem ? (
+        <div className={styles.actionRemarkOverlay} role="dialog" aria-modal="true" aria-label="Confirm action">
+          <div className={styles.actionRemarkModal}>
+            <div className={styles.sectionTitle}>Confirm Action</div>
+            <div className={styles.eventMeta}>Are you sure you want to proceed with: {confirmActionItem.label}?</div>
+            <div className={styles.actionRemarkActions}>
+              <button
+                type="button"
+                className={styles.button}
+                onClick={closeConfirmDialog}
+                disabled={Boolean(activeAction)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={`${styles.button} ${styles.buttonPrimary}`}
+                onClick={() => {
+                  void submitConfirmDialog()
+                }}
+                disabled={Boolean(activeAction)}
+              >
+                {activeAction === confirmActionItem.action ? 'Processing…' : 'Confirm'}
               </button>
             </div>
           </div>

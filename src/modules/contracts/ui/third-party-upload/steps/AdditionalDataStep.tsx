@@ -7,11 +7,15 @@ type AdditionalDataStepProps = {
   mainFileName: string | null
   contractType: string
   contractTypes: Array<{ id: string; name: string }>
-  counterparty: string
-  counterparties: string[]
+  counterparties: Array<{
+    counterpartyName: string
+    supportingFiles: File[]
+  }>
+  counterpartyOptions: string[]
   showCounterpartyModal: boolean
   onContractTypeChange: (value: string) => void
-  onCounterpartyChange: (value: string) => void
+  onCounterpartyNameChange: (index: number, value: string) => void
+  onAddCounterparty: () => void
   signatoryName: string
   signatoryDesignation: string
   signatoryEmail: string
@@ -25,21 +29,20 @@ type AdditionalDataStepProps = {
   onBackgroundOfRequestChange: (value: string) => void
   onDepartmentIdChange: (value: string) => void
   onBudgetApprovedChange: (value: boolean) => void
-  supportingFiles: File[]
-  onSupportingFilesSelected: (files: File[]) => void
-  onSupportingFileRemoved: (index: number) => void
-  showSupportingUpload: boolean
+  onSupportingFilesSelected: (counterpartyIndex: number, files: File[]) => void
+  onSupportingFileRemoved: (counterpartyIndex: number, fileIndex: number) => void
 }
 
 export default function AdditionalDataStep({
   mainFileName,
   contractType,
   contractTypes,
-  counterparty,
   counterparties,
+  counterpartyOptions,
   showCounterpartyModal,
   onContractTypeChange,
-  onCounterpartyChange,
+  onCounterpartyNameChange,
+  onAddCounterparty,
   signatoryName,
   signatoryDesignation,
   signatoryEmail,
@@ -53,10 +56,8 @@ export default function AdditionalDataStep({
   onBackgroundOfRequestChange,
   onDepartmentIdChange,
   onBudgetApprovedChange,
-  supportingFiles,
   onSupportingFilesSelected,
   onSupportingFileRemoved,
-  showSupportingUpload,
 }: AdditionalDataStepProps) {
   return (
     <div>
@@ -112,7 +113,7 @@ export default function AdditionalDataStep({
 
           <div className={styles.fieldGroup}>
             <label className={styles.label} htmlFor="signatory-name">
-              Signatory Name*
+              Counterparty Signatory Name*
             </label>
             <input
               id="signatory-name"
@@ -125,7 +126,7 @@ export default function AdditionalDataStep({
 
           <div className={styles.fieldGroup}>
             <label className={styles.label} htmlFor="signatory-designation">
-              Signatory Designation*
+              Counterparty Signatory Designation*
             </label>
             <input
               id="signatory-designation"
@@ -138,7 +139,7 @@ export default function AdditionalDataStep({
 
           <div className={styles.fieldGroup}>
             <label className={styles.label} htmlFor="signatory-email">
-              Signatory Email*
+              Counterparty Signatory Email*
             </label>
             <input
               id="signatory-email"
@@ -179,69 +180,83 @@ export default function AdditionalDataStep({
             </select>
           </div>
 
-          <div className={styles.fieldGroup}>
-            <label className={styles.label} htmlFor="counterparty-name">
-              Counterparty Name*
-            </label>
-            <input
-              id="counterparty-name"
-              className={styles.input}
-              list="counterparty-options"
-              placeholder="Select or type counterparty"
-              value={counterparty}
-              onChange={(event) => onCounterpartyChange(event.target.value)}
-            />
-            <datalist id="counterparty-options">
-              {counterparties.map((option) => (
-                <option key={option} value={option} />
-              ))}
-            </datalist>
-          </div>
+          {counterparties.map((counterparty, counterpartyIndex) => {
+            const requiresSupportingDocs =
+              counterparty.counterpartyName.trim() !== '' && counterparty.counterpartyName.trim().toUpperCase() !== 'NA'
+
+            return (
+              <div key={`counterparty-${counterpartyIndex}`} className={styles.counterpartyCard}>
+                <div className={styles.counterpartyHeader}>
+                  <label className={styles.label} htmlFor={`counterparty-name-${counterpartyIndex}`}>
+                    Counterparty Name* {counterparties.length > 1 ? `(${counterpartyIndex + 1})` : ''}
+                  </label>
+                  {counterpartyIndex === counterparties.length - 1 ? (
+                    <button type="button" className={styles.counterpartyAddButton} onClick={onAddCounterparty}>
+                      +
+                    </button>
+                  ) : null}
+                </div>
+                <input
+                  id={`counterparty-name-${counterpartyIndex}`}
+                  className={styles.input}
+                  list="counterparty-options"
+                  placeholder="Select or type counterparty"
+                  value={counterparty.counterpartyName}
+                  onChange={(event) => onCounterpartyNameChange(counterpartyIndex, event.target.value)}
+                />
+                {requiresSupportingDocs && (
+                  <div className={styles.fieldGroup}>
+                    <label className={styles.label} htmlFor={`supporting-docs-${counterpartyIndex}`}>
+                      Supporting Document*
+                    </label>
+                    <div className={styles.dropzone}>
+                      <span>Add supporting documents</span>
+                      <label className={styles.dropzoneButton} htmlFor={`supporting-docs-${counterpartyIndex}`}>
+                        Add files
+                      </label>
+                      <input
+                        id={`supporting-docs-${counterpartyIndex}`}
+                        className={styles.hiddenInput}
+                        type="file"
+                        multiple
+                        onChange={(event) => {
+                          const files = Array.from(event.target.files || [])
+                          if (files.length) {
+                            onSupportingFilesSelected(counterpartyIndex, files)
+                          }
+                        }}
+                      />
+                    </div>
+                    <div className={styles.supportingList}>
+                      {counterparty.supportingFiles.map((file, fileIndex) => (
+                        <div key={`${file.name}-${counterpartyIndex}-${fileIndex}`} className={styles.fileCard}>
+                          <div className={styles.fileMeta}>
+                            <span className={styles.fileName}>{file.name}</span>
+                            <span className={styles.fileSize}>{formatFileSize(file.size)}</span>
+                          </div>
+                          <button
+                            type="button"
+                            className={styles.removeButton}
+                            onClick={() => onSupportingFileRemoved(counterpartyIndex, fileIndex)}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })}
+
+          <datalist id="counterparty-options">
+            {counterpartyOptions.map((option) => (
+              <option key={option} value={option} />
+            ))}
+          </datalist>
 
           {showCounterpartyModal && <div className={styles.inlineModal} />}
-
-          {showSupportingUpload && (
-            <div className={styles.fieldGroup}>
-              <label className={styles.label} htmlFor="supporting-docs">
-                Supporting Document*
-              </label>
-              <div className={styles.dropzone}>
-                <span>Add supporting documents</span>
-                <label className={styles.dropzoneButton} htmlFor="supporting-docs">
-                  Add files
-                </label>
-                <input
-                  id="supporting-docs"
-                  className={styles.hiddenInput}
-                  type="file"
-                  multiple
-                  onChange={(event) => {
-                    const files = Array.from(event.target.files || [])
-                    if (files.length) {
-                      onSupportingFilesSelected(files)
-                    }
-                  }}
-                />
-              </div>
-              <div className={styles.supportingList}>
-                {supportingFiles.map((file, index) => (
-                  <div key={`${file.name}-${index}`} className={styles.fileCard}>
-                    <div className={styles.fileMeta}>
-                      <span className={styles.fileName}>{file.name}</span>
-                      <span className={styles.fileSize}>{formatFileSize(file.size)}</span>
-                    </div>
-                    <button
-                      type="button"
-                      className={styles.removeButton}
-                      onClick={() => onSupportingFileRemoved(index)}
-                    >
-                      Remove
-                    </button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
 
           <div className={styles.fieldGroup}>
             <label className={styles.label} htmlFor="org-entity">

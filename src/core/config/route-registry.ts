@@ -1,3 +1,5 @@
+import { adminSectionRegistry } from '@/core/config/admin-section-registry'
+
 export const routeRegistry = {
   public: {
     login: '/login',
@@ -6,7 +8,18 @@ export const routeRegistry = {
   protected: {
     dashboard: '/dashboard',
     repository: '/repository',
-    adminConsole: '/admin',
+    adminRoot: '/admin',
+    adminConsole: adminSectionRegistry.defaultSectionPath,
+    adminSection: '/admin/:section',
+    adminSections: {
+      teamManagement: adminSectionRegistry.sectionPaths.teamManagement,
+      userManagement: adminSectionRegistry.sectionPaths.userManagement,
+      roleManagement: adminSectionRegistry.sectionPaths.roleManagement,
+      hodPocAssignmentControl: adminSectionRegistry.sectionPaths.hodPocAssignmentControl,
+      legalTeamAssignmentMatrix: adminSectionRegistry.sectionPaths.legalTeamAssignmentMatrix,
+      systemConfiguration: adminSectionRegistry.sectionPaths.systemConfiguration,
+      auditLogsViewer: adminSectionRegistry.sectionPaths.auditLogsViewer,
+    },
     additionalApproverHistory: '/approver-history',
     contractDetail: '/contracts/:contractId',
   },
@@ -25,15 +38,20 @@ export const routeRegistry = {
       dashboard: '/api/contracts/dashboard',
       additionalApproverHistory: '/api/contracts/additional-approver-history',
       repository: '/api/contracts/repository',
+      repositoryReport: '/api/contracts/repository/report',
+      repositoryExport: '/api/contracts/repository/export',
       upload: '/api/contracts/upload',
       detail: '/api/contracts/:contractId',
       replaceMainDocument: '/api/contracts/:contractId/replace-main-document',
       download: '/api/contracts/:contractId/download',
       preview: '/api/contracts/:contractId/preview',
       timeline: '/api/contracts/:contractId/timeline',
+      activity: '/api/contracts/:contractId/activity',
+      activityReadState: '/api/contracts/:contractId/activity/read-state',
       action: '/api/contracts/:contractId/action',
       note: '/api/contracts/:contractId/note',
       approvers: '/api/contracts/:contractId/approvers',
+      assignments: '/api/contracts/:contractId/assignments',
       signatories: '/api/contracts/:contractId/signatories',
       signingPreparationDraft: '/api/contracts/:contractId/signing-preparation-draft',
       signingPreparationSend: '/api/contracts/:contractId/signing-prep/send',
@@ -44,10 +62,40 @@ export const routeRegistry = {
       users: '/api/admin/users',
       roles: '/api/admin/roles',
       userRoles: '/api/admin/users/:userId/roles',
+      userStatus: '/api/admin/users/:userId/status',
+      userDepartment: '/api/admin/users/:userId/department',
       teams: '/api/admin/teams',
       teamDetail: '/api/admin/teams/:teamId',
       teamPrimaryRole: '/api/admin/teams/:teamId/primary-role',
       teamLegalMatrix: '/api/admin/teams/:teamId/legal-matrix',
+    },
+    adminSections: {
+      teamManagement: {
+        teams: '/api/admin/team-management/teams',
+        teamDetail: '/api/admin/team-management/teams/:teamId',
+      },
+      userManagement: {
+        users: '/api/admin/user-management/users',
+        userStatus: '/api/admin/user-management/users/:userId/status',
+        userDepartment: '/api/admin/user-management/users/:userId/department',
+      },
+      roleManagement: {
+        roles: '/api/admin/role-management/roles',
+        userRoles: '/api/admin/role-management/users/:userId/roles',
+      },
+      hodPocAssignmentControl: {
+        teamPrimaryRole: '/api/admin/hod-poc-assignment-control/teams/:teamId/primary-role',
+      },
+      legalTeamAssignmentMatrix: {
+        teamLegalMatrix: '/api/admin/legal-team-assignment-matrix/teams/:teamId/legal-matrix',
+      },
+      systemConfiguration: {
+        config: '/api/admin/system-configuration',
+      },
+      auditLogsViewer: {
+        logs: '/api/admin/audit-logs-viewer',
+        export: '/api/admin/audit-logs-viewer/export',
+      },
     },
   },
 } as const

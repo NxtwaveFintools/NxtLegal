@@ -244,10 +244,12 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
     return primaryDocuments[0]
   }, [currentDocumentId, primaryDocuments])
 
-  const canReplace = userRole === 'LEGAL_TEAM' && contractStatus !== 'IN_SIGNATURE'
+  const canReplace = userRole === 'LEGAL_TEAM' && contractStatus !== 'PENDING_WITH_EXTERNAL_STAKEHOLDERS'
 
   const replaceDisabledMessage =
-    contractStatus === 'IN_SIGNATURE' ? 'Replacement is unavailable while contract is in signature.' : undefined
+    contractStatus === 'PENDING_WITH_EXTERNAL_STAKEHOLDERS'
+      ? 'Replacement is unavailable while contract is in signature.'
+      : undefined
 
   const openFilePicker = () => {
     fileInputRef.current?.click()

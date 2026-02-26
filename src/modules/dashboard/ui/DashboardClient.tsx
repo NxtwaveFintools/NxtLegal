@@ -1,7 +1,7 @@
 'use client'
 
 import type { ReactNode } from 'react'
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import ThirdPartyUploadSidebar from '@/modules/contracts/ui/third-party-upload/ThirdPartyUploadSidebar'
 import ContractStatusBadge from '@/modules/contracts/ui/ContractStatusBadge'
@@ -37,6 +37,20 @@ type DashboardRoleConfig = {
   showApproveCard: boolean
 }
 
+const legacyDashboardFilterMap: Record<string, DashboardContractsFilter> = {
+  LEGAL_PENDING: 'UNDER_REVIEW',
+  FINAL_APPROVED: 'COMPLETED',
+  LEGAL_QUERY: 'ON_HOLD',
+}
+
+const normalizeDashboardFilter = (value: string | null): string | null => {
+  if (!value) {
+    return null
+  }
+
+  return legacyDashboardFilterMap[value] ?? value
+}
+
 const dashboardTimestampFormatter = new Intl.DateTimeFormat('en-GB', {
   day: '2-digit',
   month: 'short',
@@ -70,23 +84,23 @@ function getRoleConfig(role?: string): DashboardRoleConfig {
       filters: [
         { value: 'ALL', label: 'All' },
         { value: 'HOD_PENDING', label: 'HOD Pending' },
-        { value: 'LEGAL_PENDING', label: 'Legal Waiting / Pending' },
-        { value: 'FINAL_APPROVED', label: 'Final Approved' },
-        { value: 'LEGAL_QUERY', label: 'Legal Query' },
+        { value: 'UNDER_REVIEW', label: 'Under Review' },
+        { value: 'COMPLETED', label: 'Completed' },
+        { value: 'ON_HOLD', label: 'On Hold' },
       ],
     }
   }
 
   if (role === contractWorkflowRoles.legalTeam) {
     return {
-      defaultFilter: 'LEGAL_PENDING',
-      approveFilter: 'LEGAL_PENDING',
+      defaultFilter: 'UNDER_REVIEW',
+      approveFilter: 'UNDER_REVIEW',
       showApproveCard: true,
       filters: [
-        { value: 'LEGAL_PENDING', label: 'Legal Waiting / Pending' },
+        { value: 'UNDER_REVIEW', label: 'Under Review' },
         { value: 'HOD_PENDING', label: 'HOD Pending' },
-        { value: 'FINAL_APPROVED', label: 'Final Approved' },
-        { value: 'LEGAL_QUERY', label: 'Legal Query' },
+        { value: 'COMPLETED', label: 'Completed' },
+        { value: 'ON_HOLD', label: 'On Hold' },
       ],
     }
   }
@@ -98,9 +112,9 @@ function getRoleConfig(role?: string): DashboardRoleConfig {
       showApproveCard: true,
       filters: [
         { value: 'HOD_PENDING', label: 'HOD Pending' },
-        { value: 'LEGAL_PENDING', label: 'Legal Waiting / Pending' },
-        { value: 'FINAL_APPROVED', label: 'Final Approved' },
-        { value: 'LEGAL_QUERY', label: 'Legal Query' },
+        { value: 'UNDER_REVIEW', label: 'Under Review' },
+        { value: 'COMPLETED', label: 'Completed' },
+        { value: 'ON_HOLD', label: 'On Hold' },
       ],
     }
   }
@@ -111,9 +125,9 @@ function getRoleConfig(role?: string): DashboardRoleConfig {
     showApproveCard: false,
     filters: [
       { value: 'HOD_PENDING', label: 'HOD Pending' },
-      { value: 'LEGAL_PENDING', label: 'Legal Waiting / Pending' },
-      { value: 'FINAL_APPROVED', label: 'Final Approved' },
-      { value: 'LEGAL_QUERY', label: 'Legal Query' },
+      { value: 'UNDER_REVIEW', label: 'Under Review' },
+      { value: 'COMPLETED', label: 'Completed' },
+      { value: 'ON_HOLD', label: 'On Hold' },
     ],
   }
 }
@@ -123,7 +137,8 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   const searchParams = useSearchParams()
   const roleConfig = useMemo(() => getRoleConfig(session.role), [session.role])
   const contractsSectionRef = useRef<HTMLElement | null>(null)
-  const initialLoadPromiseRef = useRef<Promise<void> | null>(null)
+  const latestContractsRequestIdRef = useRef(0)
+  const lastVisibilityRefreshAtRef = useRef(0)
 
   const [isUploadOpen, setIsUploadOpen] = useState(false)
   const [contracts, setContracts] = useState<ContractRecord[]>([])
@@ -133,9 +148,13 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   const [contractsCursor, setContractsCursor] = useState<string | null>(null)
   const [pageIndex, setPageIndex] = useState(0)
   const [pageCursors, setPageCursors] = useState<Array<string | undefined>>([undefined])
+  const [mutatingContractId, setMutatingContractId] = useState<string | null>(null)
+  const [approvingContractId, setApprovingContractId] = useState<string | null>(null)
+  const [rejectingContractId, setRejectingContractId] = useState<string | null>(null)
+  const [rejectReasonDraft, setRejectReasonDraft] = useState('')
   const [pendingApprovalsCount, setPendingApprovalsCount] = useState(0)
   const [activeFilter, setActiveFilter] = useState<DashboardContractsFilter>(() => {
-    const requestedFilter = searchParams.get('filter')
+    const requestedFilter = normalizeDashboardFilter(searchParams.get('filter'))
     const isAllowedFilter = roleConfig.filters.some((item) => item.value === requestedFilter)
 
     if (requestedFilter && isAllowedFilter) {
@@ -172,6 +191,9 @@ export default function DashboardClient({ session }: DashboardClientProps) {
       filter: DashboardContractsFilter,
       options?: { cursor?: string; pageIndex?: number; isPageChange?: boolean }
     ) => {
+      const requestId = latestContractsRequestIdRef.current + 1
+      latestContractsRequestIdRef.current = requestId
+
       if (options?.isPageChange) {
         setIsLoadingPageChange(true)
       } else {
@@ -184,6 +206,10 @@ export default function DashboardClient({ session }: DashboardClientProps) {
         limit: limits.dashboardContractsPageSize,
         includeExtras: true,
       })
+
+      if (requestId !== latestContractsRequestIdRef.current) {
+        return
+      }
 
       if (!response.ok || !response.data) {
         if (!options?.isPageChange) {
@@ -231,7 +257,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
       roleConfig.filters.map(async (filterOption) => {
         const response = await contractsClient.dashboardContracts({
           filter: filterOption.value,
-          limit: 50,
+          limit: 1,
         })
 
         return {
@@ -253,18 +279,80 @@ export default function DashboardClient({ session }: DashboardClientProps) {
     (filter: DashboardContractsFilter) => {
       setActiveFilter(filter)
       router.replace(`/dashboard?filter=${filter}`)
-      void loadContractsForFilter(filter, { cursor: undefined, pageIndex: 0 })
     },
-    [loadContractsForFilter, router]
+    [router]
   )
 
-  if (initialLoadPromiseRef.current === null) {
-    initialLoadPromiseRef.current = Promise.all([
-      loadPendingApprovals(),
-      loadFilterCounts(),
-      loadContractsForFilter(activeFilter),
-    ]).then(() => undefined)
-  }
+  useEffect(() => {
+    const requestedFilter = normalizeDashboardFilter(searchParams.get('filter'))
+    const isAllowedFilter = roleConfig.filters.some((item) => item.value === requestedFilter)
+
+    if (!requestedFilter || !isAllowedFilter) {
+      return
+    }
+
+    const normalizedFilter = requestedFilter as DashboardContractsFilter
+    if (normalizedFilter === activeFilter) {
+      return
+    }
+
+    const timeoutId = window.setTimeout(() => {
+      setActiveFilter(normalizedFilter)
+    }, 0)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [activeFilter, roleConfig.filters, searchParams])
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      void Promise.all([loadPendingApprovals(), loadFilterCounts()])
+    }, 0)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [loadFilterCounts, loadPendingApprovals])
+
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      void loadContractsForFilter(activeFilter, { cursor: undefined, pageIndex: 0 })
+    }, 0)
+
+    return () => {
+      window.clearTimeout(timeoutId)
+    }
+  }, [activeFilter, loadContractsForFilter])
+
+  useEffect(() => {
+    const reloadContracts = () => {
+      void Promise.all([
+        loadPendingApprovals(),
+        loadContractsForFilter(activeFilter, { cursor: undefined, pageIndex: 0 }),
+      ])
+    }
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState !== 'visible') {
+        return
+      }
+
+      const now = Date.now()
+      if (now - lastVisibilityRefreshAtRef.current < 15000) {
+        return
+      }
+
+      lastVisibilityRefreshAtRef.current = now
+      reloadContracts()
+    }
+
+    document.addEventListener('visibilitychange', handleVisibilityChange)
+
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+    }
+  }, [activeFilter, loadContractsForFilter, loadPendingApprovals])
 
   const uploadIcon = (
     <svg viewBox="0 0 20 20" aria-hidden="true">
@@ -278,6 +366,122 @@ export default function DashboardClient({ session }: DashboardClientProps) {
       />
     </svg>
   )
+
+  const handleRowAction = useCallback(
+    async (contractId: string, action: 'hod.approve' | 'hod.reject', noteText?: string): Promise<boolean> => {
+      if (mutatingContractId) {
+        return false
+      }
+
+      const resolvedNoteText = noteText?.trim()
+      if (action === 'hod.reject' && !resolvedNoteText) {
+        setContractsError('Rejection reason is required.')
+        return false
+      }
+
+      setMutatingContractId(contractId)
+      const response = await contractsClient.action(contractId, {
+        action,
+        noteText: action === 'hod.reject' ? resolvedNoteText : undefined,
+      })
+
+      if (!response.ok) {
+        setContractsError(response.error?.message ?? 'Failed to complete contract action')
+        setMutatingContractId(null)
+        return false
+      }
+
+      await Promise.all([
+        loadPendingApprovals(),
+        loadFilterCounts(),
+        loadContractsForFilter(activeFilter, { cursor: pageCursors[pageIndex], pageIndex, isPageChange: true }),
+      ])
+      setMutatingContractId(null)
+      return true
+    },
+    [
+      activeFilter,
+      loadContractsForFilter,
+      loadFilterCounts,
+      loadPendingApprovals,
+      mutatingContractId,
+      pageCursors,
+      pageIndex,
+    ]
+  )
+
+  const openRejectDialog = useCallback((contractId: string) => {
+    setRejectingContractId(contractId)
+    setRejectReasonDraft('')
+    setContractsError(null)
+  }, [])
+
+  const openApproveDialog = useCallback((contractId: string) => {
+    setApprovingContractId(contractId)
+    setContractsError(null)
+  }, [])
+
+  const closeApproveDialog = useCallback(() => {
+    if (mutatingContractId) {
+      return
+    }
+
+    setApprovingContractId(null)
+  }, [mutatingContractId])
+
+  const submitApproveDialog = useCallback(async () => {
+    if (!approvingContractId) {
+      return
+    }
+
+    const didApprove = await handleRowAction(approvingContractId, 'hod.approve')
+    if (didApprove) {
+      setApprovingContractId(null)
+    }
+  }, [approvingContractId, handleRowAction])
+
+  const closeRejectDialog = useCallback(() => {
+    if (mutatingContractId) {
+      return
+    }
+
+    setRejectingContractId(null)
+    setRejectReasonDraft('')
+  }, [mutatingContractId])
+
+  const submitRejectDialog = useCallback(async () => {
+    if (!rejectingContractId) {
+      return
+    }
+
+    const reason = rejectReasonDraft.trim()
+    if (!reason) {
+      setContractsError('Rejection reason is required.')
+      return
+    }
+
+    const didReject = await handleRowAction(rejectingContractId, 'hod.reject', reason)
+    if (didReject) {
+      setRejectingContractId(null)
+      setRejectReasonDraft('')
+    }
+  }, [handleRowAction, rejectReasonDraft, rejectingContractId])
+
+  const rejectingContractTitle = useMemo(() => {
+    if (!rejectingContractId) {
+      return null
+    }
+
+    return contracts.find((contract) => contract.id === rejectingContractId)?.title ?? null
+  }, [contracts, rejectingContractId])
+
+  const approvingContractTitle = useMemo(() => {
+    if (!approvingContractId) {
+      return null
+    }
+
+    return contracts.find((contract) => contract.id === approvingContractId)?.title ?? null
+  }, [approvingContractId, contracts])
 
   return (
     <ProtectedAppShell
@@ -344,8 +548,17 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                   {actionableAdditionalApprovals.map((contract) => (
                     <div key={contract.id} className={styles.approverInsightItem}>
                       <div className={styles.approverInsightContent}>
-                        <div className={styles.approverInsightItemTitle}>{contract.title}</div>
-                        <div className={styles.approverInsightItemMeta}>Assigned to you for additional approval</div>
+                        <div className={styles.contractTitleRow}>
+                          <div className={styles.approverInsightItemTitle}>{contract.title}</div>
+                          {contract.hasUnreadActivity ? (
+                            <span className={styles.unreadDot} aria-label="Unread activity" />
+                          ) : null}
+                        </div>
+                        <div className={styles.approverInsightItemMeta}>
+                          {session.role === contractWorkflowRoles.hod
+                            ? 'Pending additional approval'
+                            : 'Assigned to you for additional approval'}
+                        </div>
                         {contract.latestAdditionalApproverRejectionReason ? (
                           <div className={styles.approverInsightReason}>
                             Latest rejection reason: {contract.latestAdditionalApproverRejectionReason}
@@ -435,7 +648,12 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                 {contracts.map((contract) => (
                   <div key={contract.id} className={styles.contractItem}>
                     <div>
-                      <div className={styles.contractTitle}>{contract.title}</div>
+                      <div className={styles.contractTitleRow}>
+                        <div className={styles.contractTitle}>{contract.title}</div>
+                        {contract.hasUnreadActivity ? (
+                          <span className={styles.unreadDot} aria-label="Unread activity" />
+                        ) : null}
+                      </div>
                       <div className={styles.contractMeta}>
                         Created by {contract.uploadedByEmail || contract.uploadedByEmployeeId}
                       </div>
@@ -445,6 +663,9 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                     </div>
                     <div className={styles.contractActions}>
                       <ContractStatusBadge status={contract.status} displayLabel={contract.displayStatusLabel} />
+                      {session.role !== contractWorkflowRoles.hod && contract.isAssignedToMe ? (
+                        <span className={styles.assignedTag}>Assigned to you</span>
+                      ) : null}
                       {contract.isAdditionalApproverActionable ? (
                         <span className={styles.approverNeededTag}>Your approval needed</span>
                       ) : null}
@@ -462,19 +683,44 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                       >
                         Open
                       </button>
-                      <button
-                        type="button"
-                        className={styles.contractActionButton}
-                        onClick={async () => {
-                          const response = await contractsClient.download(contract.id)
+                      {session.role === contractWorkflowRoles.hod ? (
+                        <>
+                          {contract.canHodApprove ? (
+                            <button
+                              type="button"
+                              className={styles.contractActionButton}
+                              disabled={Boolean(mutatingContractId)}
+                              onClick={() => openApproveDialog(contract.id)}
+                            >
+                              Approve
+                            </button>
+                          ) : null}
+                          {contract.canHodReject ? (
+                            <button
+                              type="button"
+                              className={styles.contractActionButton}
+                              disabled={Boolean(mutatingContractId)}
+                              onClick={() => openRejectDialog(contract.id)}
+                            >
+                              Reject
+                            </button>
+                          ) : null}
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          className={styles.contractActionButton}
+                          onClick={async () => {
+                            const response = await contractsClient.download(contract.id)
 
-                          if (response.ok && response.data?.signedUrl) {
-                            window.open(response.data.signedUrl, '_blank', 'noopener,noreferrer')
-                          }
-                        }}
-                      >
-                        Download
-                      </button>
+                            if (response.ok && response.data?.signedUrl) {
+                              window.open(response.data.signedUrl, '_blank', 'noopener,noreferrer')
+                            }
+                          }}
+                        >
+                          Download
+                        </button>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -524,6 +770,83 @@ export default function DashboardClient({ session }: DashboardClientProps) {
           </div>
         </section>
       </main>
+
+      {rejectingContractId ? (
+        <div
+          className={styles.actionDialogOverlay}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Provide rejection reason"
+        >
+          <div className={styles.actionDialogModal}>
+            <div className={styles.actionDialogTitle}>Reject Contract</div>
+            <div className={styles.actionDialogSubtitle}>{rejectingContractTitle ?? 'Selected contract'}</div>
+            <textarea
+              className={styles.actionDialogTextarea}
+              value={rejectReasonDraft}
+              onChange={(event) => setRejectReasonDraft(event.target.value)}
+              placeholder="Enter rejection reason"
+              rows={4}
+              autoFocus
+            />
+            <div className={styles.actionDialogActions}>
+              <button
+                type="button"
+                className={styles.contractActionButton}
+                onClick={closeRejectDialog}
+                disabled={Boolean(mutatingContractId)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={`${styles.contractActionButton} ${styles.contractActionPrimary}`}
+                onClick={() => {
+                  void submitRejectDialog()
+                }}
+                disabled={Boolean(mutatingContractId)}
+              >
+                {mutatingContractId === rejectingContractId ? 'Rejecting…' : 'Confirm Reject'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {approvingContractId ? (
+        <div
+          className={styles.actionDialogOverlay}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Confirm contract approval"
+        >
+          <div className={styles.actionDialogModal}>
+            <div className={styles.actionDialogTitle}>Approve Contract</div>
+            <div className={styles.actionDialogSubtitle}>{approvingContractTitle ?? 'Selected contract'}</div>
+            <div className={styles.actionDialogSubtitle}>Are you sure you want to approve this contract?</div>
+            <div className={styles.actionDialogActions}>
+              <button
+                type="button"
+                className={styles.contractActionButton}
+                onClick={closeApproveDialog}
+                disabled={Boolean(mutatingContractId)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={`${styles.contractActionButton} ${styles.contractActionPrimary}`}
+                onClick={() => {
+                  void submitApproveDialog()
+                }}
+                disabled={Boolean(mutatingContractId)}
+              >
+                {mutatingContractId === approvingContractId ? 'Approving…' : 'Confirm Approve'}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <ThirdPartyUploadSidebar
         isOpen={isUploadOpen}

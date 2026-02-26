@@ -38,15 +38,23 @@ const createRepositoryMock = (): jest.Mocked<ContractQueryRepository> => ({
   getActionableAdditionalApprovals: jest.fn(),
   getAdditionalApproverDecisionHistory: jest.fn(),
   listRepositoryContracts: jest.fn(),
+  getRepositoryReport: jest.fn(),
+  listRepositoryExportRows: jest.fn(),
   getById: jest.fn(),
+  getCounterparties: jest.fn(),
   getDocuments: jest.fn(),
   getTimeline: jest.fn(),
   getAdditionalApprovers: jest.fn(),
+  getLegalCollaborators: jest.fn(),
+  isLegalCollaborator: jest.fn(),
   getSignatories: jest.fn(),
   canAccessContract: jest.fn(),
   getAvailableActions: jest.fn(),
   applyAction: jest.fn(),
   addAdditionalApprover: jest.fn(),
+  setLegalOwnerByEmail: jest.fn(),
+  addLegalCollaboratorByEmail: jest.fn(),
+  removeLegalCollaboratorByEmail: jest.fn(),
   addSignatory: jest.fn(),
   saveSigningPreparationDraft: jest.fn(),
   getSigningPreparationDraft: jest.fn(),
@@ -61,6 +69,8 @@ const createRepositoryMock = (): jest.Mocked<ContractQueryRepository> => ({
   getEnvelopeNotificationProfile: jest.fn(),
   recordContractNotificationDelivery: jest.fn(),
   addContractNote: jest.fn(),
+  addContractActivityMessage: jest.fn(),
+  markContractActivitySeen: jest.fn(),
 })
 
 describe('ContractQueryService', () => {
@@ -74,7 +84,7 @@ describe('ContractQueryService', () => {
 
     const updatedContract: ContractDetail = {
       ...baseContract,
-      status: 'LEGAL_PENDING',
+      status: 'UNDER_REVIEW',
       currentAssigneeEmployeeId: 'legal-1',
       currentAssigneeEmail: 'legalteam@nxtwave.co.in',
       rowVersion: 2,
@@ -95,9 +105,11 @@ describe('ContractQueryService', () => {
 
     expect(result).toEqual({
       contract: updatedContract,
+      counterparties: [],
       documents: [],
       availableActions: [],
       additionalApprovers: [],
+      legalCollaborators: [],
       signatories: [],
     })
   })
@@ -111,7 +123,9 @@ describe('ContractQueryService', () => {
     repository.getDocuments.mockResolvedValue([])
     repository.getAvailableActions.mockResolvedValue([])
     repository.getAdditionalApprovers.mockResolvedValue([])
+    repository.getLegalCollaborators.mockResolvedValue([])
     repository.getSignatories.mockResolvedValue([])
+    repository.getCounterparties.mockResolvedValue([])
 
     await service.getContractDetail({
       tenantId: 'tenant-1',
@@ -342,16 +356,16 @@ describe('ContractQueryService', () => {
     expect(repository.applyAction).not.toHaveBeenCalled()
   })
 
-  it('saves signing preparation draft when contract is final approved', async () => {
+  it('saves signing preparation draft when contract is completed', async () => {
     const repository = createRepositoryMock()
     const service = new ContractQueryService(repository)
 
-    const finalApprovedContract: ContractDetail = {
+    const completedContract: ContractDetail = {
       ...baseContract,
-      status: 'FINAL_APPROVED',
+      status: 'COMPLETED',
     }
 
-    repository.getById.mockResolvedValue(finalApprovedContract)
+    repository.getById.mockResolvedValue(completedContract)
     repository.canAccessContract.mockResolvedValue(true)
     repository.getDocuments.mockResolvedValue([])
     repository.getAvailableActions.mockResolvedValue([])
@@ -434,7 +448,7 @@ describe('ContractQueryService', () => {
     })
   })
 
-  it('rejects signing preparation draft save when contract is not final approved', async () => {
+  it('rejects signing preparation draft save when contract is not completed', async () => {
     const repository = createRepositoryMock()
     const service = new ContractQueryService(repository)
 

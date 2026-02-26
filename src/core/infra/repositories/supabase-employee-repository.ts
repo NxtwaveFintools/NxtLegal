@@ -2,6 +2,7 @@ import 'server-only'
 
 import { createServiceSupabase } from '@/lib/supabase/service'
 import { logger } from '@/core/infra/logging/logger'
+import { ExternalServiceError } from '@/core/http/errors'
 import type {
   EmployeeByEmail,
   EmployeeLookup,
@@ -15,6 +16,16 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
 
   private readonly passthroughRoles = new Set(['LEGAL_TEAM'])
 
+  private readonly canonicalRolePrecedence = [
+    'SUPER_ADMIN',
+    'LEGAL_ADMIN',
+    'ADMIN',
+    'LEGAL_TEAM',
+    'HOD',
+    'POC',
+    'USER',
+  ] as const
+
   private readonly selectWithTeamRelation =
     'id, tenant_id, email, full_name, team_id, team_name:teams(name), is_active, password_hash, role, token_version, created_at, updated_at, deleted_at'
 
@@ -23,6 +34,29 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
 
   private readonly selectWithoutTeamRelationLegacy =
     'id, tenant_id, email, full_name, is_active, password_hash, role, created_at, updated_at, deleted_at'
+
+  private isSupabaseTransportError(error: unknown): boolean {
+    if (!(error instanceof Error)) {
+      return false
+    }
+
+    if (error.message.toLowerCase().includes('fetch failed')) {
+      return true
+    }
+
+    const cause = (error as Error & { cause?: unknown }).cause
+    if (cause && typeof cause === 'object' && 'code' in cause) {
+      const code = String((cause as { code?: unknown }).code).toUpperCase()
+      return ['ENOTFOUND', 'ETIMEDOUT', 'ECONNREFUSED', 'ECONNRESET', 'EAI_AGAIN'].includes(code)
+    }
+
+    return false
+  }
+
+  private isSupabasePostgrestTransportError(error: { message?: string; details?: string } | null | undefined): boolean {
+    const message = `${error?.message ?? ''} ${error?.details ?? ''}`.toLowerCase()
+    return message.includes('fetch failed') || message.includes('network') || message.includes('timed out')
+  }
 
   private isSchemaDriftError(error: { message?: string; details?: string } | null | undefined): boolean {
     const message = `${error?.message ?? ''} ${error?.details ?? ''}`.toLowerCase()
@@ -102,13 +136,71 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
     }
   }
 
+  private selectHighestPrecedenceRole(roleSet: Set<string>): string | null {
+    for (const role of this.canonicalRolePrecedence) {
+      if (roleSet.has(role)) {
+        return role
+      }
+    }
+
+    const firstRole = roleSet.values().next().value
+    return typeof firstRole === 'string' ? firstRole : null
+  }
+
+  private async resolveCanonicalUserRole(params: {
+    tenantId: string
+    userId: string
+    supabase: ReturnType<typeof createServiceSupabase>
+  }): Promise<string | null> {
+    const { data, error } = await params.supabase
+      .from('user_roles')
+      .select('roles:role_id(role_key)')
+      .eq('tenant_id', params.tenantId)
+      .eq('user_id', params.userId)
+      .is('deleted_at', null)
+
+    if (error) {
+      logger.warn('Failed to resolve canonical user role from user_roles/roles', {
+        tenantId: params.tenantId,
+        userId: params.userId,
+        error: error.message,
+      })
+      return null
+    }
+
+    const canonicalRoles = new Set<string>()
+    for (const row of data ?? []) {
+      const relation = row.roles as { role_key?: string } | Array<{ role_key?: string }> | null
+      const roleEntries = Array.isArray(relation) ? relation : relation ? [relation] : []
+      for (const roleEntry of roleEntries) {
+        const roleKey = roleEntry.role_key?.trim().toUpperCase()
+        if (roleKey) {
+          canonicalRoles.add(roleKey)
+        }
+      }
+    }
+
+    return this.selectHighestPrecedenceRole(canonicalRoles)
+  }
+
   private async resolveEffectiveRole(params: {
     tenantId: string
+    userId: string
     userEmail: string
     currentRole: string
     supabase: ReturnType<typeof createServiceSupabase>
   }): Promise<string> {
     const normalizedCurrentRole = params.currentRole.trim().toUpperCase()
+
+    const canonicalRole = await this.resolveCanonicalUserRole({
+      tenantId: params.tenantId,
+      userId: params.userId,
+      supabase: params.supabase,
+    })
+
+    if (canonicalRole) {
+      return canonicalRole
+    }
 
     if (this.adminCompatibilityRoles.has(normalizedCurrentRole) || this.passthroughRoles.has(normalizedCurrentRole)) {
       return normalizedCurrentRole
@@ -204,6 +296,13 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
         .single()
 
       if (error) {
+        if (this.isSupabasePostgrestTransportError(error)) {
+          throw new ExternalServiceError('supabase', 'Authentication service temporarily unavailable', undefined, {
+            operation: 'findByEmployeeId',
+            tenantId,
+          })
+        }
+
         if (this.isMissingTokenVersionError(error)) {
           const { data: legacyData, error: legacyError } = await supabase
             .from('users')
@@ -214,6 +313,12 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
             .single()
 
           if (legacyError) {
+            if (this.isSupabasePostgrestTransportError(legacyError)) {
+              throw new ExternalServiceError('supabase', 'Authentication service temporarily unavailable', undefined, {
+                operation: 'findByEmployeeIdLegacyFallback',
+                tenantId,
+              })
+            }
             if (legacyError.code === 'PGRST116') {
               logger.debug('User not found in tenant (legacy token version fallback)', { employeeId, tenantId })
               return null
@@ -229,12 +334,13 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
 
           const effectiveRole = await this.resolveEffectiveRole({
             tenantId,
+            userId: legacyData.id,
             userEmail: legacyData.email,
             currentRole: legacyData.role,
             supabase,
           })
 
-          logger.warn('User lookup by ID used legacy token version fallback', {
+          logger.debug('User lookup by ID used legacy token version fallback', {
             employeeId,
             tenantId,
             role: effectiveRole,
@@ -252,6 +358,13 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
             .single()
 
           if (fallbackError) {
+            if (this.isSupabasePostgrestTransportError(fallbackError)) {
+              throw new ExternalServiceError('supabase', 'Authentication service temporarily unavailable', undefined, {
+                operation: 'findByEmployeeIdSchemaFallback',
+                tenantId,
+              })
+            }
+
             if (this.isMissingTokenVersionError(fallbackError)) {
               const { data: legacyData, error: legacyError } = await supabase
                 .from('users')
@@ -262,6 +375,17 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
                 .single()
 
               if (legacyError) {
+                if (this.isSupabasePostgrestTransportError(legacyError)) {
+                  throw new ExternalServiceError(
+                    'supabase',
+                    'Authentication service temporarily unavailable',
+                    undefined,
+                    {
+                      operation: 'findByEmployeeIdSchemaLegacyFallback',
+                      tenantId,
+                    }
+                  )
+                }
                 if (legacyError.code === 'PGRST116') {
                   logger.debug('User not found in tenant (legacy token version fallback after schema drift)', {
                     employeeId,
@@ -280,12 +404,13 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
 
               const effectiveRole = await this.resolveEffectiveRole({
                 tenantId,
+                userId: legacyData.id,
                 userEmail: legacyData.email,
                 currentRole: legacyData.role,
                 supabase,
               })
 
-              logger.warn('User lookup by ID used legacy token version fallback after schema drift', {
+              logger.debug('User lookup by ID used legacy token version fallback after schema drift', {
                 employeeId,
                 tenantId,
                 role: effectiveRole,
@@ -308,12 +433,13 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
 
           const effectiveRole = await this.resolveEffectiveRole({
             tenantId,
+            userId: fallbackData.id,
             userEmail: fallbackData.email,
             currentRole: fallbackData.role,
             supabase,
           })
 
-          logger.warn('User lookup by ID used schema-drift fallback (no team relation)', {
+          logger.debug('User lookup by ID used schema-drift fallback (no team relation)', {
             employeeId,
             tenantId,
             role: effectiveRole,
@@ -337,6 +463,7 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
 
       const effectiveRole = await this.resolveEffectiveRole({
         tenantId,
+        userId: data.id,
         userEmail: data.email,
         currentRole: data.role,
         supabase,
@@ -351,6 +478,12 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
       })
       return data ? this.mapEmployee({ ...data, role: effectiveRole }) : null
     } catch (error) {
+      if (this.isSupabaseTransportError(error)) {
+        throw new ExternalServiceError('supabase', 'Authentication service temporarily unavailable', undefined, {
+          operation: 'findByEmployeeId',
+          tenantId,
+        })
+      }
       logger.error('User lookup by ID threw error', { employeeId, tenantId, error: String(error) })
       return null
     }
@@ -368,6 +501,13 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
         .single()
 
       if (error) {
+        if (this.isSupabasePostgrestTransportError(error)) {
+          throw new ExternalServiceError('supabase', 'Authentication service temporarily unavailable', undefined, {
+            operation: 'findByEmail',
+            tenantId,
+          })
+        }
+
         if (this.isMissingTokenVersionError(error)) {
           const { data: legacyData, error: legacyError } = await supabase
             .from('users')
@@ -378,6 +518,12 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
             .single()
 
           if (legacyError) {
+            if (this.isSupabasePostgrestTransportError(legacyError)) {
+              throw new ExternalServiceError('supabase', 'Authentication service temporarily unavailable', undefined, {
+                operation: 'findByEmailLegacyFallback',
+                tenantId,
+              })
+            }
             if (legacyError.code === 'PGRST116') {
               return null
             }
@@ -391,12 +537,13 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
 
           const effectiveRole = await this.resolveEffectiveRole({
             tenantId,
+            userId: legacyData.id,
             userEmail: legacyData.email,
             currentRole: legacyData.role,
             supabase,
           })
 
-          logger.warn('Employee lookup by email used legacy token version fallback', {
+          logger.debug('Employee lookup by email used legacy token version fallback', {
             email,
             tenantId,
             role: effectiveRole,
@@ -414,6 +561,13 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
             .single()
 
           if (fallbackError) {
+            if (this.isSupabasePostgrestTransportError(fallbackError)) {
+              throw new ExternalServiceError('supabase', 'Authentication service temporarily unavailable', undefined, {
+                operation: 'findByEmailSchemaFallback',
+                tenantId,
+              })
+            }
+
             if (this.isMissingTokenVersionError(fallbackError)) {
               const { data: legacyData, error: legacyError } = await supabase
                 .from('users')
@@ -424,6 +578,17 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
                 .single()
 
               if (legacyError) {
+                if (this.isSupabasePostgrestTransportError(legacyError)) {
+                  throw new ExternalServiceError(
+                    'supabase',
+                    'Authentication service temporarily unavailable',
+                    undefined,
+                    {
+                      operation: 'findByEmailSchemaLegacyFallback',
+                      tenantId,
+                    }
+                  )
+                }
                 if (legacyError.code === 'PGRST116') {
                   return null
                 }
@@ -437,12 +602,13 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
 
               const effectiveRole = await this.resolveEffectiveRole({
                 tenantId,
+                userId: legacyData.id,
                 userEmail: legacyData.email,
                 currentRole: legacyData.role,
                 supabase,
               })
 
-              logger.warn('Employee lookup by email used legacy token version fallback after schema drift', {
+              logger.debug('Employee lookup by email used legacy token version fallback after schema drift', {
                 email,
                 tenantId,
                 role: effectiveRole,
@@ -463,12 +629,13 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
 
           const effectiveRole = await this.resolveEffectiveRole({
             tenantId,
+            userId: fallbackData.id,
             userEmail: fallbackData.email,
             currentRole: fallbackData.role,
             supabase,
           })
 
-          logger.warn('Employee lookup by email used schema-drift fallback (no team relation)', {
+          logger.debug('Employee lookup by email used schema-drift fallback (no team relation)', {
             email,
             tenantId,
             role: effectiveRole,
@@ -485,6 +652,7 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
 
       const effectiveRole = await this.resolveEffectiveRole({
         tenantId,
+        userId: data.id,
         userEmail: data.email,
         currentRole: data.role,
         supabase,
@@ -492,6 +660,12 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
 
       return data ? this.mapEmployee({ ...data, role: effectiveRole }) : null
     } catch (error) {
+      if (this.isSupabaseTransportError(error)) {
+        throw new ExternalServiceError('supabase', 'Authentication service temporarily unavailable', undefined, {
+          operation: 'findByEmail',
+          tenantId,
+        })
+      }
       logger.error('Employee lookup by email threw error', { email, tenantId, error: String(error) })
       return null
     }
@@ -601,11 +775,11 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
 
       const contractIds = Array.from(new Set(approverRows.map((row) => row.contract_id)))
 
-      const { data: legalPendingContracts, error: contractError } = await supabase
+      const { data: underReviewContracts, error: contractError } = await supabase
         .from('contracts')
         .select('id')
         .eq('tenant_id', tenantId)
-        .eq('status', 'LEGAL_PENDING')
+        .eq('status', 'UNDER_REVIEW')
         .in('id', contractIds)
 
       if (contractError) {
@@ -618,12 +792,12 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
         return false
       }
 
-      const legalPendingContractIds = new Set((legalPendingContracts ?? []).map((row) => row.id))
-      if (legalPendingContractIds.size === 0) {
+      const underReviewContractIds = new Set((underReviewContracts ?? []).map((row) => row.id))
+      if (underReviewContractIds.size === 0) {
         return false
       }
 
-      const actionableApproverRows = approverRows.filter((row) => legalPendingContractIds.has(row.contract_id))
+      const actionableApproverRows = approverRows.filter((row) => underReviewContractIds.has(row.contract_id))
       if (actionableApproverRows.length === 0) {
         return false
       }
@@ -708,7 +882,7 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
           throw legacyError
         }
 
-        logger.warn('Employee create used legacy token version fallback', {
+        logger.debug('Employee create used legacy token version fallback', {
           employeeId: employee.id,
           tenantId: employee.tenantId,
         })
@@ -737,7 +911,7 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
           throw fallbackError
         }
 
-        logger.warn('Employee create used schema-drift fallback (no team relation)', {
+        logger.debug('Employee create used schema-drift fallback (no team relation)', {
           employeeId: employee.id,
           tenantId: employee.tenantId,
         })
@@ -813,7 +987,7 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
             return []
           }
 
-          logger.warn('Employee list used legacy token version fallback', { tenantId })
+          logger.debug('Employee list used legacy token version fallback', { tenantId })
           return (legacyData || []).map((emp) => this.mapEmployeeWithoutTeamLegacy(emp))
         }
 
@@ -841,7 +1015,7 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
             return []
           }
 
-          logger.warn('Employee list used schema-drift fallback (no team relation)', { tenantId })
+          logger.debug('Employee list used schema-drift fallback (no team relation)', { tenantId })
           return (fallbackData || []).map((emp) => this.mapEmployeeWithoutTeam(emp))
         }
 

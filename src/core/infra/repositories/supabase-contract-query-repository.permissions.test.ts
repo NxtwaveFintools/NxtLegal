@@ -14,12 +14,15 @@ describe('supabaseContractQueryRepository action permissions', () => {
 
   it('blocks legal action when actor is not current assignee', async () => {
     const getByIdSpy = jest.spyOn(supabaseContractQueryRepository, 'getById')
+    const collaboratorSpy = jest.spyOn(supabaseContractQueryRepository, 'isLegalCollaborator')
+
+    collaboratorSpy.mockResolvedValue(false)
 
     getByIdSpy.mockResolvedValue({
       id: 'contract-1',
       title: 'Contract A',
       contractTypeId: 'type-1',
-      status: 'LEGAL_PENDING',
+      status: 'UNDER_REVIEW',
       uploadedByEmployeeId: 'poc-1',
       uploadedByEmail: 'poc@nxtwave.co.in',
       currentAssigneeEmployeeId: 'legal-assignee',
@@ -134,7 +137,7 @@ describe('supabaseContractQueryRepository action permissions', () => {
       id: 'contract-1',
       title: 'Contract A',
       contractTypeId: 'type-1',
-      status: 'FINAL_APPROVED',
+      status: 'COMPLETED',
       uploadedByEmployeeId: 'poc-1',
       uploadedByEmail: 'poc@nxtwave.co.in',
       currentAssigneeEmployeeId: 'legal-1',

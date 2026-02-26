@@ -10,6 +10,7 @@ import { logger } from '@/core/infra/logging/logger'
 import { revokedTokensCache } from '@/core/infra/cache/revoked-tokens-cache'
 import { isValidTenantId } from '@/core/constants/tenants'
 import { createServiceSupabase } from '@/lib/supabase/service'
+import { ExternalServiceError, isAppError } from '@/core/http/errors'
 
 export type SessionData = {
   employeeId: string
@@ -39,7 +40,13 @@ const getNormalizedTokenVersion = (tokenVersion: number | undefined): number => 
   return Math.trunc(tokenVersion)
 }
 
-const getCurrentTokenVersion = async (employeeId: string, tenantId: string): Promise<number | null> => {
+type TokenVersionLookupResult =
+  | { state: 'ok'; tokenVersion: number }
+  | { state: 'missing' }
+  | { state: 'error' }
+  | { state: 'service_unavailable' }
+
+const getCurrentTokenVersion = async (employeeId: string, tenantId: string): Promise<TokenVersionLookupResult> => {
   const supabase = createServiceSupabase()
 
   const { data, error } = await supabase
@@ -50,6 +57,19 @@ const getCurrentTokenVersion = async (employeeId: string, tenantId: string): Pro
     .single()
 
   if (error) {
+    const baseErrorMessage = `${error.message ?? ''}`.toLowerCase()
+    if (
+      baseErrorMessage.includes('fetch failed') ||
+      baseErrorMessage.includes('network') ||
+      baseErrorMessage.includes('timed out')
+    ) {
+      logger.warn('Token version lookup temporarily unavailable due to Supabase connectivity', {
+        employeeId,
+        tenantId,
+      })
+      return { state: 'service_unavailable' }
+    }
+
     const errorMessage = `${error.message ?? ''}`.toLowerCase()
     if (errorMessage.includes('token_version') && errorMessage.includes('does not exist')) {
       const { data: legacyData, error: legacyError } = await supabase
@@ -60,24 +80,37 @@ const getCurrentTokenVersion = async (employeeId: string, tenantId: string): Pro
         .single()
 
       if (legacyError) {
+        const legacyErrorMessage = `${legacyError.message ?? ''}`.toLowerCase()
+        if (
+          legacyErrorMessage.includes('fetch failed') ||
+          legacyErrorMessage.includes('network') ||
+          legacyErrorMessage.includes('timed out')
+        ) {
+          logger.warn('Legacy token version lookup temporarily unavailable due to Supabase connectivity', {
+            employeeId,
+            tenantId,
+          })
+          return { state: 'service_unavailable' }
+        }
+
         logger.error('Failed to fetch legacy session validation state', {
           employeeId,
           tenantId,
           error: legacyError.message,
           errorCode: legacyError.code,
         })
-        return null
+        return { state: 'error' }
       }
 
       if (!legacyData || legacyData.is_active !== true || legacyData.deleted_at) {
-        return null
+        return { state: 'missing' }
       }
 
       logger.warn('Using legacy token version fallback (token_version column missing)', {
         employeeId,
         tenantId,
       })
-      return 0
+      return { state: 'ok', tokenVersion: 0 }
     }
 
     logger.error('Failed to fetch token version for session validation', {
@@ -86,18 +119,18 @@ const getCurrentTokenVersion = async (employeeId: string, tenantId: string): Pro
       error: error.message,
       errorCode: error.code,
     })
-    return null
+    return { state: 'error' }
   }
 
   if (!data || data.is_active !== true || data.deleted_at) {
-    return null
+    return { state: 'missing' }
   }
 
   if (typeof data.token_version !== 'number' || Number.isNaN(data.token_version) || data.token_version < 0) {
-    return 0
+    return { state: 'ok', tokenVersion: 0 }
   }
 
-  return Math.trunc(data.token_version)
+  return { state: 'ok', tokenVersion: Math.trunc(data.token_version) }
 }
 
 const signToken = async (data: SessionData, type: TokenType): Promise<{ token: string; expiresAtMs: number }> => {
@@ -218,16 +251,34 @@ export const getSession = async (): Promise<SessionData | null> => {
     }
 
     const jwtTokenVersion = getNormalizedTokenVersion(payload.tokenVersion)
-    const currentTokenVersion = await getCurrentTokenVersion(payload.employeeId, payload.tenantId)
+    const tokenVersionLookup = await getCurrentTokenVersion(payload.employeeId, payload.tenantId)
 
-    if (currentTokenVersion === null || currentTokenVersion !== jwtTokenVersion) {
+    if (tokenVersionLookup.state === 'missing') {
       logger.warn('Session rejected due to token version mismatch', {
         employeeId: payload.employeeId,
         tenantId: payload.tenantId,
         jwtTokenVersion,
-        currentTokenVersion,
+        currentTokenVersion: null,
       })
       return null
+    }
+
+    if (tokenVersionLookup.state === 'ok' && tokenVersionLookup.tokenVersion !== jwtTokenVersion) {
+      logger.warn('Session rejected due to token version mismatch', {
+        employeeId: payload.employeeId,
+        tenantId: payload.tenantId,
+        jwtTokenVersion,
+        currentTokenVersion: tokenVersionLookup.tokenVersion,
+      })
+      return null
+    }
+
+    if (tokenVersionLookup.state === 'error') {
+      logger.warn('Session token version lookup failed; deferring strict validation to auth proxy', {
+        employeeId: payload.employeeId,
+        tenantId: payload.tenantId,
+        jwtTokenVersion,
+      })
     }
 
     return {
@@ -288,13 +339,22 @@ export const refreshSession = async (): Promise<SessionData | null> => {
     }
 
     const jwtTokenVersion = getNormalizedTokenVersion(payload.tokenVersion)
-    const currentTokenVersion = await getCurrentTokenVersion(payload.employeeId, payload.tenantId)
-    if (currentTokenVersion === null || currentTokenVersion !== jwtTokenVersion) {
+    const tokenVersionLookup = await getCurrentTokenVersion(payload.employeeId, payload.tenantId)
+
+    if (tokenVersionLookup.state === 'service_unavailable') {
+      throw new ExternalServiceError('supabase', 'Session validation temporarily unavailable', undefined, {
+        operation: 'refreshSession',
+        employeeId: payload.employeeId,
+        tenantId: payload.tenantId,
+      })
+    }
+
+    if (tokenVersionLookup.state !== 'ok' || tokenVersionLookup.tokenVersion !== jwtTokenVersion) {
       logger.warn('Refresh rejected due to token version mismatch', {
         employeeId: payload.employeeId,
         tenantId: payload.tenantId,
         jwtTokenVersion,
-        currentTokenVersion,
+        currentTokenVersion: tokenVersionLookup.state === 'ok' ? tokenVersionLookup.tokenVersion : null,
       })
       await deleteSession()
       return null
@@ -306,7 +366,7 @@ export const refreshSession = async (): Promise<SessionData | null> => {
       fullName: typeof payload.fullName === 'string' ? payload.fullName : undefined,
       role: typeof payload.role === 'string' ? payload.role : 'viewer',
       tenantId: payload.tenantId, // Already validated above
-      tokenVersion: currentTokenVersion,
+      tokenVersion: tokenVersionLookup.tokenVersion,
     }
 
     // CRITICAL: Revoke old refresh token before issuing new one (token rotation)
@@ -322,6 +382,9 @@ export const refreshSession = async (): Promise<SessionData | null> => {
 
     return sessionData
   } catch (error) {
+    if (isAppError(error)) {
+      throw error
+    }
     logger.error('Session refresh failed', { error: String(error) })
     return null
   }
