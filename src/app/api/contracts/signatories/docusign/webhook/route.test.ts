@@ -11,8 +11,8 @@ jest.mock('@/core/registry/service-registry', () => ({
 
 jest.mock('@/core/config/app-config', () => ({
   appConfig: {
-    docusign: {
-      connectKey: 'test-docusign-connect-key',
+    zohoSign: {
+      webhookSecret: 'test-zoho-webhook-secret',
     },
   },
 }))
@@ -22,18 +22,18 @@ import { POST } from '@/app/api/contracts/signatories/docusign/webhook/route'
 
 type PostRequestArg = Parameters<typeof POST>[0]
 
-const createSignature = (rawBody: string, connectKey: string): string => {
-  return createHmac('sha256', connectKey).update(rawBody, 'utf8').digest('base64')
+const createSignature = (rawBody: string, webhookSecret: string): string => {
+  return createHmac('sha256', webhookSecret).update(rawBody, 'utf8').digest('base64')
 }
 
 describe('DocuSign signatory webhook route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    ;(appConfig.docusign as { connectKey?: string }).connectKey = 'test-docusign-connect-key'
+    ;(appConfig.zohoSign as { webhookSecret?: string }).webhookSecret = 'test-zoho-webhook-secret'
   })
 
   it('returns disabled when connect key is not configured', async () => {
-    ;(appConfig.docusign as { connectKey?: string }).connectKey = undefined
+    ;(appConfig.zohoSign as { webhookSecret?: string }).webhookSecret = undefined
 
     const response = await POST({
       headers: new Headers(),
@@ -48,9 +48,12 @@ describe('DocuSign signatory webhook route', () => {
   })
 
   it('returns forbidden for invalid webhook signature', async () => {
-    const rawBody = JSON.stringify({ envelopeId: 'env-1', status: 'completed' })
+    const rawBody = JSON.stringify({
+      notifications: { operation_type: 'RequestCompleted' },
+      requests: { request_id: 'env-1' },
+    })
     const response = await POST({
-      headers: new Headers({ 'x-docusign-signature-1': 'invalid-signature' }),
+      headers: new Headers({ 'x-zs-webhook-signature': 'invalid-signature' }),
       text: async () => rawBody,
     } as unknown as PostRequestArg)
 
@@ -62,11 +65,11 @@ describe('DocuSign signatory webhook route', () => {
   })
 
   it('returns validation error for invalid payload', async () => {
-    const rawBody = JSON.stringify({ envelopeId: '' })
-    const signature = createSignature(rawBody, 'test-docusign-connect-key')
+    const rawBody = JSON.stringify({ requests: { request_id: '' } })
+    const signature = createSignature(rawBody, 'test-zoho-webhook-secret')
 
     const response = await POST({
-      headers: new Headers({ 'x-docusign-signature-1': signature }),
+      headers: new Headers({ 'x-zs-webhook-signature': signature }),
       text: async () => rawBody,
     } as unknown as PostRequestArg)
 
@@ -79,16 +82,22 @@ describe('DocuSign signatory webhook route', () => {
 
   it('processes valid webhook payload', async () => {
     const payload = {
-      envelopeId: 'env-1',
-      recipientEmail: 'signer@nxtwave.co.in',
-      status: 'completed',
-      eventId: 'event-1',
+      notifications: {
+        operation_type: 'RequestCompleted',
+        action_id: 'action-1',
+        performed_by_email: 'signer@nxtwave.co.in',
+        performed_at: 1700000000000,
+      },
+      requests: {
+        request_id: 'env-1',
+        request_status: 'completed',
+      },
     }
     const rawBody = JSON.stringify(payload)
-    const signature = createSignature(rawBody, 'test-docusign-connect-key')
+    const signature = createSignature(rawBody, 'test-zoho-webhook-secret')
 
     const response = await POST({
-      headers: new Headers({ 'x-docusign-signature-1': signature }),
+      headers: new Headers({ 'x-zs-webhook-signature': signature }),
       text: async () => rawBody,
     } as unknown as PostRequestArg)
 
@@ -100,9 +109,9 @@ describe('DocuSign signatory webhook route', () => {
     expect(mockContractSignatoryService.handleDocusignSignedWebhook).toHaveBeenCalledWith({
       envelopeId: 'env-1',
       recipientEmail: 'signer@nxtwave.co.in',
-      status: 'completed',
-      signedAt: undefined,
-      eventId: 'event-1',
+      status: 'RequestCompleted',
+      signedAt: new Date(1700000000000).toISOString(),
+      eventId: 'action-1',
       signerIp: undefined,
       payload,
     })
@@ -114,13 +123,13 @@ describe('DocuSign signatory webhook route', () => {
     )
 
     const rawBody = JSON.stringify({
-      envelopeId: 'env-1',
-      status: 'completed',
+      notifications: { operation_type: 'RequestCompleted' },
+      requests: { request_id: 'env-1' },
     })
-    const signature = createSignature(rawBody, 'test-docusign-connect-key')
+    const signature = createSignature(rawBody, 'test-zoho-webhook-secret')
 
     const response = await POST({
-      headers: new Headers({ 'x-docusign-signature-1': signature }),
+      headers: new Headers({ 'x-zs-webhook-signature': signature }),
       text: async () => rawBody,
     } as unknown as PostRequestArg)
 

@@ -8,27 +8,13 @@ import { getContractSignatoryService } from '@/core/registry/service-registry'
 import { docusignWebhookSchema } from '@/core/domain/contracts/schemas'
 import { logger } from '@/core/infra/logging/logger'
 
-/*
- * DocuSign Connect can provide signatures in either raw base64 digest or
- * prefixed format (e.g., "sha256=<digest>"). This normalizes both formats
- * into a digest buffer before secure comparison.
- */
-const decodeDocusignSignature = (signatureHeader: string): Buffer | null => {
+const decodeZohoSignature = (signatureHeader: string): Buffer | null => {
   const trimmed = signatureHeader.trim()
   if (!trimmed) {
     return null
   }
 
-  const normalized = trimmed.toLowerCase().startsWith('sha256=') ? trimmed.slice(7).trim() : trimmed
-  if (!normalized) {
-    return null
-  }
-
-  if (/^[a-f0-9]{64}$/i.test(normalized)) {
-    return Buffer.from(normalized, 'hex')
-  }
-
-  const decoded = Buffer.from(normalized, 'base64')
+  const decoded = Buffer.from(trimmed, 'base64')
   return decoded.length > 0 ? decoded : null
 }
 
@@ -42,28 +28,23 @@ const isDigestMatch = (expectedDigest: Buffer, receivedDigest: Buffer): boolean 
 
 export async function POST(request: NextRequest) {
   try {
-    const connectKey = appConfig.docusign.connectKey
-    if (!connectKey) {
-      return NextResponse.json(errorResponse('DOCUSIGN_WEBHOOK_DISABLED', 'DocuSign webhook is not configured'), {
+    const webhookSecret = appConfig.zohoSign.webhookSecret
+    if (!webhookSecret) {
+      return NextResponse.json(errorResponse('DOCUSIGN_WEBHOOK_DISABLED', 'Zoho Sign webhook is not configured'), {
         status: 503,
       })
     }
 
-    /*
-     * Signature verification must use the exact raw request body bytes.
-     * Never parse JSON before this step, otherwise canonicalization can
-     * invalidate the signature comparison.
-     */
     const rawBody = await request.text()
-    const receivedSignatureHeader = request.headers.get('x-docusign-signature-1')
-    const receivedSignature = receivedSignatureHeader ? decodeDocusignSignature(receivedSignatureHeader) : null
-    const expectedDigest = createHmac('sha256', connectKey).update(rawBody, 'utf8').digest()
+    const receivedSignatureHeader = request.headers.get('x-zs-webhook-signature')
+    const receivedSignature = receivedSignatureHeader ? decodeZohoSignature(receivedSignatureHeader) : null
+    const expectedDigest = createHmac('sha256', webhookSecret).update(rawBody, 'utf8').digest()
     const signatureValid = receivedSignature ? isDigestMatch(expectedDigest, receivedSignature) : false
 
     logger.info('DOCUSIGN_SIGNATURE_VALIDATION_RESULT', {
       signatureValid,
       hasSignatureHeader: Boolean(receivedSignatureHeader),
-      signatureHeaderName: 'x-docusign-signature-1',
+      signatureHeaderName: 'x-zs-webhook-signature',
     })
 
     if (!signatureValid) {
@@ -76,25 +57,32 @@ export async function POST(request: NextRequest) {
     const payload = docusignWebhookSchema.parse(rawPayload)
     const contractSignatoryService = getContractSignatoryService()
 
+    const operationType = payload.notifications.operation_type
+    const performedByEmail = payload.notifications.performed_by_email
+    const signedAt =
+      typeof payload.notifications.performed_at === 'number'
+        ? new Date(payload.notifications.performed_at).toISOString()
+        : undefined
+
     await contractSignatoryService.handleDocusignSignedWebhook({
-      envelopeId: payload.envelopeId,
-      recipientEmail: payload.recipientEmail,
-      status: payload.status,
-      signedAt: payload.signedAt,
-      eventId: payload.eventId,
-      signerIp: payload.signerIp,
+      envelopeId: payload.requests.request_id,
+      recipientEmail: performedByEmail,
+      status: operationType,
+      signedAt,
+      eventId: payload.notifications.action_id,
+      signerIp: payload.notifications.ip_address,
       payload: rawPayload,
     })
 
     return NextResponse.json(okResponse({ received: true }))
   } catch (error) {
     if (error instanceof ZodError) {
-      return NextResponse.json(errorResponse('VALIDATION_ERROR', 'Invalid DocuSign webhook payload'), { status: 400 })
+      return NextResponse.json(errorResponse('VALIDATION_ERROR', 'Invalid Zoho Sign webhook payload'), { status: 400 })
     }
 
     const status = isAppError(error) ? error.statusCode : 500
     const code = isAppError(error) ? error.code : 'INTERNAL_ERROR'
-    const message = isAppError(error) ? error.message : 'Failed to process DocuSign webhook'
+    const message = isAppError(error) ? error.message : 'Failed to process Zoho Sign webhook'
 
     return NextResponse.json(errorResponse(code, message), { status })
   }

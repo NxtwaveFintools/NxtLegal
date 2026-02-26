@@ -114,6 +114,13 @@ describe('ContractSignatoryService', () => {
     })
     expect(signatureProvider.createSigningEnvelope).toHaveBeenCalled()
     expect(signatoryMailer.sendTemplateEmail).toHaveBeenCalled()
+    expect(signatoryMailer.sendTemplateEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        templateParams: expect.objectContaining({
+          signing_url: expect.stringContaining('/api/contracts/signatories/docusign/redirect?token='),
+        }),
+      })
+    )
     expect(contractQueryService.recordContractNotificationDelivery).toHaveBeenCalled()
     expect(contractQueryService.addSignatory).toHaveBeenCalledWith({
       tenantId: 'tenant-1',

@@ -1,4 +1,5 @@
 import { AuthorizationError, BusinessRuleError, ExternalServiceError } from '@/core/http/errors'
+import { createSignatoryLinkToken } from '@/core/infra/security/signatory-link-token'
 import {
   contractNotificationChannels,
   contractNotificationPolicy,
@@ -208,7 +209,7 @@ export class ContractSignatoryService {
         returnUrl: `${this.appSiteUrl}/contracts/${params.contractId}`,
       })
     } catch (error) {
-      throw new ExternalServiceError('DOCUSIGN', 'Failed to create DocuSign envelope', error as Error)
+      throw new ExternalServiceError('DOCUSIGN', 'Failed to create Zoho Sign request', error as Error)
     }
 
     if (!envelope?.envelopeId) {
@@ -235,7 +236,11 @@ export class ContractSignatoryService {
           notificationType: contractNotificationTypes.signatoryLink,
           templateParams: {
             contract_title: contractView.contract.title,
-            signing_url: envelopeRecipient.signingUrl,
+            signing_url: await this.buildSignatoryRedirectLink({
+              envelopeId: envelope.envelopeId,
+              recipientEmail: recipient.signatoryEmail,
+              recipientId: envelopeRecipient.recipientId,
+            }),
           },
           strictFailure: true,
         })
@@ -671,16 +676,22 @@ export class ContractSignatoryService {
       normalizedToken === 'COMPLETED' ||
       normalizedToken === 'ENVELOPE_COMPLETED' ||
       normalizedToken === 'RECIPIENT_COMPLETED' ||
-      normalizedToken === 'DOCUMENT_COMPLETED'
+      normalizedToken === 'DOCUMENT_COMPLETED' ||
+      normalizedToken === 'REQUEST_COMPLETED'
     ) {
       return 'COMPLETED'
     }
 
-    if (normalizedToken === 'SIGNED' || normalizedToken === 'RECIPIENT_SIGNED') {
+    if (
+      normalizedToken === 'SIGNED' ||
+      normalizedToken === 'RECIPIENT_SIGNED' ||
+      normalizedToken === 'REQUEST_SIGNING_SUCCESS' ||
+      normalizedToken === 'REQUEST_APPROVED'
+    ) {
       return 'SIGNED'
     }
 
-    if (normalizedToken === 'SENT') {
+    if (normalizedToken === 'SENT' || normalizedToken === 'REQUEST_SUBMITTED') {
       return 'SENT'
     }
 
@@ -688,15 +699,15 @@ export class ContractSignatoryService {
       return 'DELIVERED'
     }
 
-    if (normalizedToken === 'VIEWED') {
+    if (normalizedToken === 'VIEWED' || normalizedToken === 'REQUEST_VIEWED') {
       return 'VIEWED'
     }
 
-    if (normalizedToken === 'DECLINED') {
+    if (normalizedToken === 'DECLINED' || normalizedToken === 'REQUEST_REJECTED') {
       return 'DECLINED'
     }
 
-    if (normalizedToken === 'EXPIRED') {
+    if (normalizedToken === 'EXPIRED' || normalizedToken === 'REQUEST_EXPIRED') {
       return 'EXPIRED'
     }
 
@@ -936,5 +947,19 @@ export class ContractSignatoryService {
 
     const message = typed?.message?.toLowerCase() ?? String(error).toLowerCase()
     return message.includes('duplicate key') || message.includes('unique constraint')
+  }
+
+  private async buildSignatoryRedirectLink(params: {
+    envelopeId: string
+    recipientEmail: string
+    recipientId: string
+  }): Promise<string> {
+    const token = await createSignatoryLinkToken({
+      envelopeId: params.envelopeId,
+      recipientEmail: params.recipientEmail,
+      recipientId: params.recipientId,
+    })
+
+    return `${this.appSiteUrl}/api/contracts/signatories/docusign/redirect?token=${encodeURIComponent(token)}`
   }
 }

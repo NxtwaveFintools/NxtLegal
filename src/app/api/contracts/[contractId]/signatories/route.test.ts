@@ -249,7 +249,7 @@ describe('Contract signatory assignment route', () => {
 
   it('returns provider not configured when integration config is missing', async () => {
     mockContractSignatoryService.assignSignatory.mockRejectedValueOnce(
-      new Error('DocuSign config is incomplete. Please set required DOCUSIGN_* environment variables.')
+      new Error('Zoho Sign config is incomplete. Please set required ZOHO_SIGN_* environment variables.')
     )
 
     const response = await POST(
