@@ -29,9 +29,9 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
       role: session.role,
     })
 
-    if (contractView.contract.status !== contractStatuses.finalApproved) {
+    if (contractView.contract.status !== contractStatuses.completed) {
       return NextResponse.json(
-        errorResponse('SIGNATORY_ASSIGN_INVALID_STATUS', 'Signatories can only be assigned in FINAL_APPROVED'),
+        errorResponse('SIGNATORY_ASSIGN_INVALID_STATUS', 'Signatories can only be assigned in COMPLETED'),
         { status: 409 }
       )
     }

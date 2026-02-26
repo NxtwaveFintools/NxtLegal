@@ -4,7 +4,20 @@ import { createServiceSupabase } from '@/lib/supabase/service'
 import { contractStatuses, forbiddenTransitionKeys, requiredTransitionKeys } from '@/core/constants/contracts'
 import { DEFAULT_TENANT_ID } from '@/core/constants/tenants'
 
-const allowedStatuses = new Set<string>(Object.values(contractStatuses))
+const allowedStatuses = new Set<string>([
+  contractStatuses.draft,
+  contractStatuses.uploaded,
+  contractStatuses.hodPending,
+  contractStatuses.underReview,
+  contractStatuses.pendingInternal,
+  contractStatuses.pendingExternal,
+  contractStatuses.offlineExecution,
+  contractStatuses.onHold,
+  contractStatuses.completed,
+  contractStatuses.executed,
+  contractStatuses.void,
+  contractStatuses.rejected,
+])
 
 type TransitionRow = {
   tenant_id: string

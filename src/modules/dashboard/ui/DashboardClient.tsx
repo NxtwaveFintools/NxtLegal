@@ -37,6 +37,20 @@ type DashboardRoleConfig = {
   showApproveCard: boolean
 }
 
+const legacyDashboardFilterMap: Record<string, DashboardContractsFilter> = {
+  LEGAL_PENDING: 'UNDER_REVIEW',
+  FINAL_APPROVED: 'COMPLETED',
+  LEGAL_QUERY: 'ON_HOLD',
+}
+
+const normalizeDashboardFilter = (value: string | null): string | null => {
+  if (!value) {
+    return null
+  }
+
+  return legacyDashboardFilterMap[value] ?? value
+}
+
 const dashboardTimestampFormatter = new Intl.DateTimeFormat('en-GB', {
   day: '2-digit',
   month: 'short',
@@ -70,23 +84,23 @@ function getRoleConfig(role?: string): DashboardRoleConfig {
       filters: [
         { value: 'ALL', label: 'All' },
         { value: 'HOD_PENDING', label: 'HOD Pending' },
-        { value: 'LEGAL_PENDING', label: 'Legal Waiting / Pending' },
-        { value: 'FINAL_APPROVED', label: 'Final Approved' },
-        { value: 'LEGAL_QUERY', label: 'Legal Query' },
+        { value: 'UNDER_REVIEW', label: 'Under Review' },
+        { value: 'COMPLETED', label: 'Completed' },
+        { value: 'ON_HOLD', label: 'On Hold' },
       ],
     }
   }
 
   if (role === contractWorkflowRoles.legalTeam) {
     return {
-      defaultFilter: 'LEGAL_PENDING',
-      approveFilter: 'LEGAL_PENDING',
+      defaultFilter: 'UNDER_REVIEW',
+      approveFilter: 'UNDER_REVIEW',
       showApproveCard: true,
       filters: [
-        { value: 'LEGAL_PENDING', label: 'Legal Waiting / Pending' },
+        { value: 'UNDER_REVIEW', label: 'Under Review' },
         { value: 'HOD_PENDING', label: 'HOD Pending' },
-        { value: 'FINAL_APPROVED', label: 'Final Approved' },
-        { value: 'LEGAL_QUERY', label: 'Legal Query' },
+        { value: 'COMPLETED', label: 'Completed' },
+        { value: 'ON_HOLD', label: 'On Hold' },
       ],
     }
   }
@@ -98,9 +112,9 @@ function getRoleConfig(role?: string): DashboardRoleConfig {
       showApproveCard: true,
       filters: [
         { value: 'HOD_PENDING', label: 'HOD Pending' },
-        { value: 'LEGAL_PENDING', label: 'Legal Waiting / Pending' },
-        { value: 'FINAL_APPROVED', label: 'Final Approved' },
-        { value: 'LEGAL_QUERY', label: 'Legal Query' },
+        { value: 'UNDER_REVIEW', label: 'Under Review' },
+        { value: 'COMPLETED', label: 'Completed' },
+        { value: 'ON_HOLD', label: 'On Hold' },
       ],
     }
   }
@@ -111,9 +125,9 @@ function getRoleConfig(role?: string): DashboardRoleConfig {
     showApproveCard: false,
     filters: [
       { value: 'HOD_PENDING', label: 'HOD Pending' },
-      { value: 'LEGAL_PENDING', label: 'Legal Waiting / Pending' },
-      { value: 'FINAL_APPROVED', label: 'Final Approved' },
-      { value: 'LEGAL_QUERY', label: 'Legal Query' },
+      { value: 'UNDER_REVIEW', label: 'Under Review' },
+      { value: 'COMPLETED', label: 'Completed' },
+      { value: 'ON_HOLD', label: 'On Hold' },
     ],
   }
 }
@@ -140,7 +154,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   const [rejectReasonDraft, setRejectReasonDraft] = useState('')
   const [pendingApprovalsCount, setPendingApprovalsCount] = useState(0)
   const [activeFilter, setActiveFilter] = useState<DashboardContractsFilter>(() => {
-    const requestedFilter = searchParams.get('filter')
+    const requestedFilter = normalizeDashboardFilter(searchParams.get('filter'))
     const isAllowedFilter = roleConfig.filters.some((item) => item.value === requestedFilter)
 
     if (requestedFilter && isAllowedFilter) {
@@ -270,7 +284,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   )
 
   useEffect(() => {
-    const requestedFilter = searchParams.get('filter')
+    const requestedFilter = normalizeDashboardFilter(searchParams.get('filter'))
     const isAllowedFilter = roleConfig.filters.some((item) => item.value === requestedFilter)
 
     if (!requestedFilter || !isAllowedFilter) {

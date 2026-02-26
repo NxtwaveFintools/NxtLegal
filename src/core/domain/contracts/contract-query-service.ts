@@ -1,5 +1,6 @@
 import { AuthorizationError, BusinessRuleError, NotFoundError } from '@/core/http/errors'
 import type {
+  ContractRepositoryStatus,
   ContractNotificationChannel,
   ContractNotificationStatus,
   ContractNotificationType,
@@ -20,6 +21,11 @@ import type {
   ContractDetailView,
   ContractListItem,
   ContractQueryRepository,
+  RepositoryDateBasis,
+  RepositoryDatePreset,
+  RepositoryExportColumn,
+  RepositoryReport,
+  RepositoryExportRow,
   RepositorySortBy,
   RepositorySortDirection,
   ContractTimelineEvent,
@@ -86,10 +92,46 @@ export class ContractQueryService {
     limit: number
     search?: string
     status?: ContractStatus
+    repositoryStatus?: ContractRepositoryStatus
     sortBy?: RepositorySortBy
     sortDirection?: RepositorySortDirection
+    dateBasis?: RepositoryDateBasis
+    datePreset?: RepositoryDatePreset
+    fromDate?: string
+    toDate?: string
   }): Promise<{ items: ContractListItem[]; nextCursor?: string; total: number }> {
     return this.contractRepository.listRepositoryContracts(params)
+  }
+
+  async getRepositoryReport(params: {
+    tenantId: string
+    employeeId: string
+    role?: string
+    search?: string
+    status?: ContractStatus
+    repositoryStatus?: ContractRepositoryStatus
+    dateBasis?: RepositoryDateBasis
+    datePreset?: RepositoryDatePreset
+    fromDate?: string
+    toDate?: string
+  }): Promise<RepositoryReport> {
+    return this.contractRepository.getRepositoryReport(params)
+  }
+
+  async listRepositoryExportRows(params: {
+    tenantId: string
+    employeeId: string
+    role?: string
+    search?: string
+    status?: ContractStatus
+    repositoryStatus?: ContractRepositoryStatus
+    dateBasis?: RepositoryDateBasis
+    datePreset?: RepositoryDatePreset
+    fromDate?: string
+    toDate?: string
+    columns: RepositoryExportColumn[]
+  }): Promise<RepositoryExportRow[]> {
+    return this.contractRepository.listRepositoryExportRows(params)
   }
 
   async getContractDetail(params: {
@@ -514,10 +556,10 @@ export class ContractQueryService {
       role: params.actorRole,
     })
 
-    if (contractView.contract.status !== contractStatuses.finalApproved) {
+    if (contractView.contract.status !== contractStatuses.completed) {
       throw new BusinessRuleError(
         'SIGNING_PREPARATION_INVALID_STATUS',
-        'Signing preparation drafts can only be saved in FINAL_APPROVED'
+        'Signing preparation drafts can only be saved in COMPLETED'
       )
     }
 
@@ -547,10 +589,10 @@ export class ContractQueryService {
       role: params.actorRole,
     })
 
-    if (contractView.contract.status !== contractStatuses.finalApproved) {
+    if (contractView.contract.status !== contractStatuses.completed) {
       throw new BusinessRuleError(
         'SIGNING_PREPARATION_INVALID_STATUS',
-        'Signing preparation drafts can only be loaded in FINAL_APPROVED'
+        'Signing preparation drafts can only be loaded in COMPLETED'
       )
     }
 

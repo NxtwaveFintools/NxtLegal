@@ -10,8 +10,11 @@ import {
   type ContractRecord,
   type ContractTimelineEvent,
 } from '@/core/client/contracts-client'
-import { contractLegalAssignmentEditableStatuses } from '@/core/constants/contracts'
-import { contractStatuses } from '@/core/constants/contracts'
+import {
+  contractLegalAssignmentEditableStatuses,
+  contractStatuses,
+  contractTransitionActions,
+} from '@/core/constants/contracts'
 import ContractStatusBadge from '@/modules/contracts/ui/ContractStatusBadge'
 import ContractDocumentsPanel from '@/modules/contracts/ui/ContractDocumentsPanel'
 import { formatContractLogEvents, isContractNoteEvent } from '@/modules/contracts/ui/formatContractLogEvent'
@@ -73,6 +76,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const [activeAction, setActiveAction] = useState<ContractAllowedAction['action'] | null>(null)
   const [confirmActionItem, setConfirmActionItem] = useState<ContractAllowedAction | null>(null)
   const [remarkActionItem, setRemarkActionItem] = useState<ContractAllowedAction | null>(null)
+  const [selectedLegalAction, setSelectedLegalAction] = useState<ContractAllowedAction['action'] | ''>('')
   const [remarkDraft, setRemarkDraft] = useState('')
   const [isViewerOpen, setIsViewerOpen] = useState(false)
   const [viewerUrl, setViewerUrl] = useState<string | null>(null)
@@ -357,6 +361,81 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     }
   }, [applyAction, remarkActionItem, remarkDraft])
 
+  const legalStatusActionSet = useMemo(
+    () =>
+      new Set<ContractAllowedAction['action']>([
+        contractTransitionActions.legalSetUnderReview,
+        contractTransitionActions.legalSetPendingInternal,
+        contractTransitionActions.legalSetPendingExternal,
+        contractTransitionActions.legalSetOfflineExecution,
+        contractTransitionActions.legalSetOnHold,
+        contractTransitionActions.legalSetCompleted,
+        contractTransitionActions.legalReroute,
+        contractTransitionActions.legalReject,
+        contractTransitionActions.legalVoid,
+      ]),
+    []
+  )
+
+  const legalStatusActionRank = useMemo(
+    () =>
+      new Map<ContractAllowedAction['action'], number>([
+        [contractTransitionActions.legalSetUnderReview, 1],
+        [contractTransitionActions.legalSetPendingInternal, 2],
+        [contractTransitionActions.legalSetPendingExternal, 3],
+        [contractTransitionActions.legalSetOfflineExecution, 4],
+        [contractTransitionActions.legalSetOnHold, 5],
+        [contractTransitionActions.legalSetCompleted, 6],
+        [contractTransitionActions.legalReroute, 7],
+        [contractTransitionActions.legalReject, 8],
+        [contractTransitionActions.legalVoid, 9],
+      ]),
+    []
+  )
+
+  const legalStatusActions = useMemo(
+    () =>
+      availableActions
+        .filter((actionItem) => legalStatusActionSet.has(actionItem.action))
+        .sort((left, right) => {
+          const leftRank = legalStatusActionRank.get(left.action) ?? Number.MAX_SAFE_INTEGER
+          const rightRank = legalStatusActionRank.get(right.action) ?? Number.MAX_SAFE_INTEGER
+
+          if (leftRank === rightRank) {
+            return left.label.localeCompare(right.label)
+          }
+
+          return leftRank - rightRank
+        }),
+    [availableActions, legalStatusActionRank, legalStatusActionSet]
+  )
+
+  const nonLegalStatusActions = useMemo(
+    () => availableActions.filter((actionItem) => !legalStatusActionSet.has(actionItem.action)),
+    [availableActions, legalStatusActionSet]
+  )
+
+  const handleLegalActionSelect = useCallback(
+    (actionName: ContractAllowedAction['action'] | '') => {
+      setSelectedLegalAction(actionName)
+
+      if (!actionName) {
+        return
+      }
+
+      const actionItem = legalStatusActions.find((entry) => entry.action === actionName)
+      if (!actionItem) {
+        setSelectedLegalAction('')
+        return
+      }
+
+      setConfirmActionItem(actionItem)
+      setError(null)
+      setSelectedLegalAction('')
+    },
+    [legalStatusActions]
+  )
+
   const handleDownload = async (document?: ContractDocument) => {
     if (!selectedContractId) {
       return
@@ -612,8 +691,8 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
     return formattedLogs.slice(0, 5)
   }, [formattedLogs, showAllLogs])
-  const quickMetadata = useMemo(
-    () => [
+  const quickMetadata = useMemo(() => {
+    const metadata: Array<{ label: string; value: string }> = [
       {
         label: 'Created At',
         value: selectedContract?.requestCreatedAt
@@ -626,9 +705,17 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
         label: 'Budget Approved',
         value: selectedContract ? (selectedContract.budgetApproved ? 'Yes' : 'No') : '—',
       },
-    ],
-    [selectedContract]
-  )
+    ]
+
+    if (selectedContract?.status === contractStatuses.void) {
+      metadata.push({
+        label: 'Void Reason',
+        value: selectedContract.voidReason?.trim() ? selectedContract.voidReason : '—',
+      })
+    }
+
+    return metadata
+  }, [selectedContract])
   const canManageLegalWorkSharing = useMemo(() => {
     if (!(session.role === 'LEGAL_TEAM' || session.role === 'ADMIN')) {
       return false
@@ -829,7 +916,27 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                 displayLabel={selectedContract.displayStatusLabel}
               />
             ) : null}
-            {availableActions.map((item) => (
+
+            {legalStatusActions.length > 0 ? (
+              <select
+                className={styles.actionDropdown}
+                value={selectedLegalAction}
+                onChange={(event) =>
+                  handleLegalActionSelect(event.target.value as ContractAllowedAction['action'] | '')
+                }
+                disabled={Boolean(activeAction) || isMutating}
+                aria-label="Legal status actions"
+              >
+                <option value="">Legal Status Actions</option>
+                {legalStatusActions.map((item) => (
+                  <option key={item.action} value={item.action}>
+                    {item.label}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+
+            {nonLegalStatusActions.map((item) => (
               <button
                 key={item.action}
                 type="button"
@@ -847,6 +954,10 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
           <div className={styles.rejectionContextBanner}>
             Additional approver rejection reason: {selectedContract.latestAdditionalApproverRejectionReason}
           </div>
+        ) : null}
+
+        {selectedContract?.status === contractStatuses.void && selectedContract.voidReason ? (
+          <div className={styles.rejectionContextBanner}>Void reason: {selectedContract.voidReason}</div>
         ) : null}
 
         {!selectedContract ? (
@@ -1131,7 +1242,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
                         <div className={styles.card}>
                           <div className={styles.sectionTitle}>Signatories</div>
-                          {selectedContract.status === contractStatuses.finalApproved ? (
+                          {selectedContract.status === contractStatuses.completed ? (
                             <div className={styles.inlineForm}>
                               <button
                                 type="button"
@@ -1143,7 +1254,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                               </button>
                             </div>
                           ) : (
-                            <div className={styles.eventMeta}>Sign is available only after FINAL_APPROVED.</div>
+                            <div className={styles.eventMeta}>Sign is available only after COMPLETED.</div>
                           )}
                           <div className={styles.timeline}>
                             {signatories.map((signatory) => (

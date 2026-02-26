@@ -5,6 +5,13 @@ type ContractActionName =
   | 'hod.approve'
   | 'hod.reject'
   | 'hod.bypass'
+  | 'legal.set.under_review'
+  | 'legal.set.pending_internal'
+  | 'legal.set.pending_external'
+  | 'legal.set.offline_execution'
+  | 'legal.set.on_hold'
+  | 'legal.set.completed'
+  | 'legal.void'
   | 'legal.approve'
   | 'legal.reject'
   | 'legal.query'
@@ -15,6 +22,8 @@ type ContractActionName =
 type ContractRecord = {
   id: string
   title: string
+  voidReason?: string | null
+  creatorName?: string | null
   contractTypeId?: string
   contractTypeName?: string
   counterpartyName?: string | null
@@ -25,6 +34,8 @@ type ContractRecord = {
   }>
   status: string
   displayStatusLabel?: string
+  repositoryStatus?: string
+  repositoryStatusLabel?: string
   uploadedByEmployeeId: string
   uploadedByEmail: string
   currentAssigneeEmployeeId: string
@@ -37,6 +48,7 @@ type ContractRecord = {
   departmentName?: string
   departmentHodName?: string | null
   departmentHodEmail?: string | null
+  assignedToUsers?: string[]
   signatoryName?: string
   signatoryDesignation?: string
   signatoryEmail?: string
@@ -73,10 +85,66 @@ type ContractDocument = {
   createdAt: string
 }
 
-type DashboardContractsFilter = 'ALL' | 'HOD_PENDING' | 'LEGAL_PENDING' | 'FINAL_APPROVED' | 'LEGAL_QUERY'
+type DashboardContractsFilter = 'ALL' | 'HOD_PENDING' | 'UNDER_REVIEW' | 'COMPLETED' | 'ON_HOLD'
 
 type RepositorySortBy = 'title' | 'created_at' | 'hod_approved_at' | 'status' | 'tat_deadline_at'
 type RepositorySortDirection = 'asc' | 'desc'
+type RepositoryDateBasis = 'request_created_at' | 'hod_approved_at'
+type RepositoryDatePreset = 'week' | 'month' | 'multiple_months' | 'quarter' | 'year' | 'custom'
+type RepositoryStatusFilter =
+  | 'HOD_APPROVAL_PENDING'
+  | 'UNDER_REVIEW'
+  | 'OFFLINE_EXECUTION'
+  | 'PENDING_WITH_EXTERNAL_STAKEHOLDERS'
+  | 'PENDING_WITH_INTERNAL_STAKEHOLDERS'
+  | 'ON_HOLD'
+  | 'REJECTED'
+  | 'COMPLETED'
+  | 'EXECUTED'
+type RepositoryExportFormat = 'csv' | 'excel' | 'pdf'
+type RepositoryExportColumn =
+  | 'request_date'
+  | 'creator'
+  | 'department'
+  | 'hod_approval'
+  | 'approval_date'
+  | 'tat'
+  | 'contract_aging'
+  | 'status'
+  | 'assigned_to'
+  | 'tat_breached'
+  | 'overdue_days'
+  | 'contract_title'
+
+type RepositoryDepartmentMetric = {
+  departmentId: string | null
+  departmentName: string | null
+  totalRequestsReceived: number
+  approved: number
+  rejected: number
+  completed: number
+  pending: number
+}
+
+type RepositoryStatusMetric = {
+  key:
+    | 'executed'
+    | 'completed'
+    | 'under_review'
+    | 'pending_internal'
+    | 'pending_external'
+    | 'hod_approval_pending'
+    | 'tat_breached'
+  label: string
+  count: number
+}
+
+type RepositoryReportResponse = {
+  report: {
+    departmentMetrics: RepositoryDepartmentMetric[]
+    statusMetrics: RepositoryStatusMetric[]
+  }
+}
 
 type ContractTimelineEvent = {
   id: string
@@ -408,8 +476,13 @@ export const contractsClient = {
     limit?: number
     search?: string
     status?: string
+    repositoryStatus?: RepositoryStatusFilter
     sortBy?: RepositorySortBy
     sortDirection?: RepositorySortDirection
+    dateBasis?: RepositoryDateBasis
+    datePreset?: RepositoryDatePreset
+    fromDate?: string
+    toDate?: string
   }): Promise<ApiResponse<ContractListResponse>> {
     const query = new URLSearchParams()
 
@@ -429,12 +502,32 @@ export const contractsClient = {
       query.set('status', params.status)
     }
 
+    if (params?.repositoryStatus) {
+      query.set('repositoryStatus', params.repositoryStatus)
+    }
+
     if (params?.sortBy) {
       query.set('sortBy', params.sortBy)
     }
 
     if (params?.sortDirection) {
       query.set('sortDirection', params.sortDirection)
+    }
+
+    if (params?.dateBasis) {
+      query.set('dateBasis', params.dateBasis)
+    }
+
+    if (params?.datePreset) {
+      query.set('datePreset', params.datePreset)
+    }
+
+    if (params?.fromDate) {
+      query.set('fromDate', params.fromDate)
+    }
+
+    if (params?.toDate) {
+      query.set('toDate', params.toDate)
     }
 
     const url =
@@ -449,6 +542,113 @@ export const contractsClient = {
     })
 
     return parseApiResponse<ContractListResponse>(response)
+  },
+
+  async repositoryReport(params?: {
+    search?: string
+    status?: string
+    repositoryStatus?: RepositoryStatusFilter
+    dateBasis?: RepositoryDateBasis
+    datePreset?: RepositoryDatePreset
+    fromDate?: string
+    toDate?: string
+  }): Promise<ApiResponse<RepositoryReportResponse>> {
+    const query = new URLSearchParams()
+
+    if (params?.search?.trim()) {
+      query.set('search', params.search.trim())
+    }
+
+    if (params?.status) {
+      query.set('status', params.status)
+    }
+
+    if (params?.repositoryStatus) {
+      query.set('repositoryStatus', params.repositoryStatus)
+    }
+
+    if (params?.dateBasis) {
+      query.set('dateBasis', params.dateBasis)
+    }
+
+    if (params?.datePreset) {
+      query.set('datePreset', params.datePreset)
+    }
+
+    if (params?.fromDate) {
+      query.set('fromDate', params.fromDate)
+    }
+
+    if (params?.toDate) {
+      query.set('toDate', params.toDate)
+    }
+
+    const url =
+      query.size > 0
+        ? `${routeRegistry.api.contracts.repositoryReport}?${query.toString()}`
+        : routeRegistry.api.contracts.repositoryReport
+
+    const response = await fetch(url, {
+      method: 'GET',
+      credentials: 'include',
+      cache: 'no-store',
+    })
+
+    return parseApiResponse<RepositoryReportResponse>(response)
+  },
+
+  repositoryExportUrl(params?: {
+    search?: string
+    status?: string
+    repositoryStatus?: RepositoryStatusFilter
+    dateBasis?: RepositoryDateBasis
+    datePreset?: RepositoryDatePreset
+    fromDate?: string
+    toDate?: string
+    format?: RepositoryExportFormat
+    columns?: RepositoryExportColumn[]
+  }): string {
+    const query = new URLSearchParams()
+
+    if (params?.search?.trim()) {
+      query.set('search', params.search.trim())
+    }
+
+    if (params?.status) {
+      query.set('status', params.status)
+    }
+
+    if (params?.repositoryStatus) {
+      query.set('repositoryStatus', params.repositoryStatus)
+    }
+
+    if (params?.dateBasis) {
+      query.set('dateBasis', params.dateBasis)
+    }
+
+    if (params?.datePreset) {
+      query.set('datePreset', params.datePreset)
+    }
+
+    if (params?.fromDate) {
+      query.set('fromDate', params.fromDate)
+    }
+
+    if (params?.toDate) {
+      query.set('toDate', params.toDate)
+    }
+
+    if (params?.format) {
+      query.set('format', params.format)
+    }
+
+    if (params?.columns?.length) {
+      query.set('columns', params.columns.join(','))
+    }
+
+    return query.size > 0
+      ? `${routeRegistry.api.contracts.repositoryExport}?${query.toString()}`
+      : routeRegistry.api.contracts.repositoryExport
   },
 
   async detail(contractId: string): Promise<ApiResponse<ContractDetailResponse>> {
@@ -789,4 +989,9 @@ export type {
   DashboardContractsFilter,
   RepositorySortBy,
   RepositorySortDirection,
+  RepositoryDateBasis,
+  RepositoryDatePreset,
+  RepositoryExportFormat,
+  RepositoryExportColumn,
+  RepositoryStatusFilter,
 }

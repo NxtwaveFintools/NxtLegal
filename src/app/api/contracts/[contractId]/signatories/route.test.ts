@@ -55,7 +55,7 @@ describe('Contract signatory assignment route', () => {
     jest.clearAllMocks()
     mockSession.tenantId = '00000000-0000-0000-0000-000000000000'
     mockContractQueryService.getContractDetail.mockResolvedValue({
-      contract: { status: 'FINAL_APPROVED' },
+      contract: { status: 'COMPLETED' },
     })
   })
 
@@ -190,7 +190,7 @@ describe('Contract signatory assignment route', () => {
     })
   })
 
-  it('returns invalid status when contract is not final approved', async () => {
+  it('returns invalid status when contract is not completed', async () => {
     mockContractQueryService.getContractDetail.mockResolvedValueOnce({
       contract: { status: 'LEGAL_PENDING' },
     })

@@ -38,6 +38,8 @@ export const routeRegistry = {
       dashboard: '/api/contracts/dashboard',
       additionalApproverHistory: '/api/contracts/additional-approver-history',
       repository: '/api/contracts/repository',
+      repositoryReport: '/api/contracts/repository/report',
+      repositoryExport: '/api/contracts/repository/export',
       upload: '/api/contracts/upload',
       detail: '/api/contracts/:contractId',
       replaceMainDocument: '/api/contracts/:contractId/replace-main-document',

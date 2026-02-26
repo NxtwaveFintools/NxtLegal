@@ -1,4 +1,5 @@
 import type {
+  ContractRepositoryStatus,
   ContractNotificationChannel,
   ContractNotificationStatus,
   ContractNotificationType,
@@ -13,7 +14,11 @@ export type ContractListItem = {
   id: string
   title: string
   status: ContractStatus
+  voidReason?: string | null
   displayStatusLabel?: string
+  repositoryStatus?: ContractRepositoryStatus
+  repositoryStatusLabel?: string
+  creatorName?: string | null
   uploadedByEmployeeId: string
   uploadedByEmail: string
   currentAssigneeEmployeeId: string
@@ -31,14 +36,65 @@ export type ContractListItem = {
   hasUnreadActivity?: boolean
   canHodApprove?: boolean
   canHodReject?: boolean
+  requestCreatedAt?: string | null
+  departmentId?: string | null
+  departmentName?: string | null
+  assignedToUsers?: string[]
   createdAt: string
   updatedAt: string
 }
 
-export type DashboardContractFilter = 'ALL' | 'HOD_PENDING' | 'LEGAL_PENDING' | 'FINAL_APPROVED' | 'LEGAL_QUERY'
+export type DashboardContractFilter = 'ALL' | 'HOD_PENDING' | 'UNDER_REVIEW' | 'COMPLETED' | 'ON_HOLD'
 
 export type RepositorySortBy = 'title' | 'created_at' | 'hod_approved_at' | 'status' | 'tat_deadline_at'
 export type RepositorySortDirection = 'asc' | 'desc'
+export type RepositoryDateBasis = 'request_created_at' | 'hod_approved_at'
+export type RepositoryDatePreset = 'week' | 'month' | 'multiple_months' | 'quarter' | 'year' | 'custom'
+export type RepositoryStatusMetricKey =
+  | 'executed'
+  | 'completed'
+  | 'under_review'
+  | 'pending_internal'
+  | 'pending_external'
+  | 'hod_approval_pending'
+  | 'tat_breached'
+export type RepositoryExportFormat = 'csv' | 'excel' | 'pdf'
+export type RepositoryExportColumn =
+  | 'request_date'
+  | 'creator'
+  | 'department'
+  | 'hod_approval'
+  | 'approval_date'
+  | 'tat'
+  | 'contract_aging'
+  | 'status'
+  | 'assigned_to'
+  | 'tat_breached'
+  | 'overdue_days'
+  | 'contract_title'
+
+export type RepositoryDepartmentMetric = {
+  departmentId: string | null
+  departmentName: string | null
+  totalRequestsReceived: number
+  approved: number
+  rejected: number
+  completed: number
+  pending: number
+}
+
+export type RepositoryStatusMetric = {
+  key: RepositoryStatusMetricKey
+  label: string
+  count: number
+}
+
+export type RepositoryReport = {
+  departmentMetrics: RepositoryDepartmentMetric[]
+  statusMetrics: RepositoryStatusMetric[]
+}
+
+export type RepositoryExportRow = Record<RepositoryExportColumn, string | number>
 
 export type ContractDetail = ContractListItem & {
   contractTypeId: string
@@ -256,9 +312,39 @@ export interface ContractQueryRepository {
     limit: number
     search?: string
     status?: ContractStatus
+    repositoryStatus?: ContractRepositoryStatus
     sortBy?: RepositorySortBy
     sortDirection?: RepositorySortDirection
+    dateBasis?: RepositoryDateBasis
+    datePreset?: RepositoryDatePreset
+    fromDate?: string
+    toDate?: string
   }): Promise<{ items: ContractListItem[]; nextCursor?: string; total: number }>
+  getRepositoryReport(params: {
+    tenantId: string
+    employeeId: string
+    role?: string
+    search?: string
+    status?: ContractStatus
+    repositoryStatus?: ContractRepositoryStatus
+    dateBasis?: RepositoryDateBasis
+    datePreset?: RepositoryDatePreset
+    fromDate?: string
+    toDate?: string
+  }): Promise<RepositoryReport>
+  listRepositoryExportRows(params: {
+    tenantId: string
+    employeeId: string
+    role?: string
+    search?: string
+    status?: ContractStatus
+    repositoryStatus?: ContractRepositoryStatus
+    dateBasis?: RepositoryDateBasis
+    datePreset?: RepositoryDatePreset
+    fromDate?: string
+    toDate?: string
+    columns: RepositoryExportColumn[]
+  }): Promise<RepositoryExportRow[]>
   getById(tenantId: string, contractId: string): Promise<ContractDetail | null>
   getCounterparties(tenantId: string, contractId: string): Promise<ContractCounterparty[]>
   getDocuments(tenantId: string, contractId: string): Promise<ContractDocument[]>
