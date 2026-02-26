@@ -3625,11 +3625,21 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     }
 
     if (params.actorRole !== 'HOD') {
-      return this.isActionableAdditionalApprover({
+      const isActionableApprover = await this.isActionableAdditionalApprover({
         tenantId: params.tenantId,
         contractId: params.contract.id,
         actorEmployeeId: params.actorEmployeeId,
         status: params.contract.status,
+      })
+
+      if (isActionableApprover) {
+        return true
+      }
+
+      return this.isAdditionalApproverParticipant({
+        tenantId: params.tenantId,
+        contractId: params.contract.id,
+        actorEmployeeId: params.actorEmployeeId,
       })
     }
 
@@ -3642,11 +3652,21 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       return true
     }
 
-    return this.isActionableAdditionalApprover({
+    const isActionableApprover = await this.isActionableAdditionalApprover({
       tenantId: params.tenantId,
       contractId: params.contract.id,
       actorEmployeeId: params.actorEmployeeId,
       status: params.contract.status,
+    })
+
+    if (isActionableApprover) {
+      return true
+    }
+
+    return this.isAdditionalApproverParticipant({
+      tenantId: params.tenantId,
+      contractId: params.contract.id,
+      actorEmployeeId: params.actorEmployeeId,
     })
   }
 
@@ -3979,6 +3999,42 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
     const firstPendingApprover = await this.getFirstPendingApprover(params.tenantId, params.contractId)
     return firstPendingApprover?.approverEmployeeId === params.actorEmployeeId
+  }
+
+  private async isAdditionalApproverParticipant(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+  }): Promise<boolean> {
+    const supabase = createServiceSupabase()
+    const { data, error } = await supabase
+      .from('contract_additional_approvers')
+      .select('id')
+      .eq('tenant_id', params.tenantId)
+      .eq('contract_id', params.contractId)
+      .eq('approver_employee_id', params.actorEmployeeId)
+      .is('deleted_at', null)
+      .limit(1)
+      .maybeSingle<{ id: string }>()
+
+    if (error) {
+      if (
+        this.isMissingRelationError(error, 'contract_additional_approvers') ||
+        this.isMissingColumnError(error, 'contract_additional_approvers')
+      ) {
+        return false
+      }
+
+      throw new DatabaseError(
+        'Failed to resolve additional approver contract participation',
+        new Error(error.message),
+        {
+          code: error.code,
+        }
+      )
+    }
+
+    return Boolean(data?.id)
   }
 
   private async getAdditionalApproverContractContextMap(
