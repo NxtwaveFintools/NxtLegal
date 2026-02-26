@@ -54,7 +54,7 @@ describe('Contract signing preparation draft route', () => {
     mockSession.tenantId = '00000000-0000-0000-0000-000000000000'
   })
 
-  it('saves draft when contract is FINAL_APPROVED', async () => {
+  it('saves draft when contract is COMPLETED', async () => {
     mockContractQueryService.saveSigningPreparationDraft.mockResolvedValueOnce({
       contractId: 'contract-1',
       recipients: [
@@ -136,7 +136,7 @@ describe('Contract signing preparation draft route', () => {
     })
   })
 
-  it('returns invalid status when contract is not final approved', async () => {
+  it('returns invalid status when contract is not completed', async () => {
     mockContractQueryService.saveSigningPreparationDraft.mockRejectedValueOnce(
       new BusinessRuleError('SIGNING_PREPARATION_INVALID_STATUS', 'Invalid status')
     )

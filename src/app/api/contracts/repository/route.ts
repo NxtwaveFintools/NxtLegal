@@ -14,7 +14,19 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
     }
 
     const queryParams = Object.fromEntries(request.nextUrl.searchParams.entries())
-    const { cursor, limit, search, status, sortBy, sortDirection } = repositoryContractsQuerySchema.parse(queryParams)
+    const {
+      cursor,
+      limit,
+      search,
+      status,
+      repositoryStatus,
+      sortBy,
+      sortDirection,
+      dateBasis,
+      datePreset,
+      fromDate,
+      toDate,
+    } = repositoryContractsQuerySchema.parse(queryParams)
 
     const contractQueryService = getContractQueryService()
     const result = await contractQueryService.listRepositoryContracts({
@@ -25,8 +37,13 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
       limit,
       search,
       status,
+      repositoryStatus,
       sortBy,
       sortDirection,
+      dateBasis,
+      datePreset,
+      fromDate,
+      toDate,
     })
 
     return NextResponse.json(

@@ -8,6 +8,8 @@ type CanonicalContractLogEventType =
   | 'LEGAL_APPROVED'
   | 'LEGAL_REJECTED'
   | 'LEGAL_QUERY_RAISED'
+  | 'LEGAL_STATUS_UPDATED'
+  | 'LEGAL_VOIDED'
   | 'HOD_BYPASSED'
   | 'CONTRACT_REROUTED_TO_HOD'
   | 'LEGAL_OWNER_SET'
@@ -37,6 +39,8 @@ const eventTemplates: Record<CanonicalContractLogEventType, string> = {
   LEGAL_APPROVED: '{actor} approved the contract as Legal.',
   LEGAL_REJECTED: '{actor} rejected the contract as Legal.',
   LEGAL_QUERY_RAISED: '{actor} raised a legal query.',
+  LEGAL_STATUS_UPDATED: '{actor} updated the legal workflow status.',
+  LEGAL_VOIDED: '{actor} marked this contract as Void Documents.',
   HOD_BYPASSED: '{actor} bypassed HOD approval.',
   CONTRACT_REROUTED_TO_HOD: '{actor} rerouted contract to HOD.',
   LEGAL_OWNER_SET: '{actor} set {target} as legal owner.',
@@ -107,6 +111,15 @@ function normalizeFromAction(rawAction: string): CanonicalContractLogEventType |
       return 'LEGAL_REJECTED'
     case 'contract.legal.query':
       return 'LEGAL_QUERY_RAISED'
+    case 'contract.legal.set.under_review':
+    case 'contract.legal.set.pending_internal':
+    case 'contract.legal.set.pending_external':
+    case 'contract.legal.set.offline_execution':
+    case 'contract.legal.set.on_hold':
+    case 'contract.legal.set.completed':
+      return 'LEGAL_STATUS_UPDATED'
+    case 'contract.legal.void':
+      return 'LEGAL_VOIDED'
     case 'contract.hod.bypass':
       return 'HOD_BYPASSED'
     case 'contract.legal.query.reroute':

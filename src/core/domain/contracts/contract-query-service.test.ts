@@ -38,6 +38,8 @@ const createRepositoryMock = (): jest.Mocked<ContractQueryRepository> => ({
   getActionableAdditionalApprovals: jest.fn(),
   getAdditionalApproverDecisionHistory: jest.fn(),
   listRepositoryContracts: jest.fn(),
+  getRepositoryReport: jest.fn(),
+  listRepositoryExportRows: jest.fn(),
   getById: jest.fn(),
   getCounterparties: jest.fn(),
   getDocuments: jest.fn(),
@@ -82,7 +84,7 @@ describe('ContractQueryService', () => {
 
     const updatedContract: ContractDetail = {
       ...baseContract,
-      status: 'LEGAL_PENDING',
+      status: 'UNDER_REVIEW',
       currentAssigneeEmployeeId: 'legal-1',
       currentAssigneeEmail: 'legalteam@nxtwave.co.in',
       rowVersion: 2,
@@ -354,16 +356,16 @@ describe('ContractQueryService', () => {
     expect(repository.applyAction).not.toHaveBeenCalled()
   })
 
-  it('saves signing preparation draft when contract is final approved', async () => {
+  it('saves signing preparation draft when contract is completed', async () => {
     const repository = createRepositoryMock()
     const service = new ContractQueryService(repository)
 
-    const finalApprovedContract: ContractDetail = {
+    const completedContract: ContractDetail = {
       ...baseContract,
-      status: 'FINAL_APPROVED',
+      status: 'COMPLETED',
     }
 
-    repository.getById.mockResolvedValue(finalApprovedContract)
+    repository.getById.mockResolvedValue(completedContract)
     repository.canAccessContract.mockResolvedValue(true)
     repository.getDocuments.mockResolvedValue([])
     repository.getAvailableActions.mockResolvedValue([])
@@ -446,7 +448,7 @@ describe('ContractQueryService', () => {
     })
   })
 
-  it('rejects signing preparation draft save when contract is not final approved', async () => {
+  it('rejects signing preparation draft save when contract is not completed', async () => {
     const repository = createRepositoryMock()
     const service = new ContractQueryService(repository)
 

@@ -1,11 +1,23 @@
 import { z } from 'zod'
 import { limits } from '@/core/constants/limits'
-import { contractStatuses } from '@/core/constants/contracts'
+import {
+  contractRepositoryExportColumns,
+  contractRepositoryExportFormats,
+  contractRepositoryStatuses,
+  contractStatuses,
+} from '@/core/constants/contracts'
 
 export const contractActionNames = [
   'hod.approve',
   'hod.reject',
   'hod.bypass',
+  'legal.set.under_review',
+  'legal.set.pending_internal',
+  'legal.set.pending_external',
+  'legal.set.offline_execution',
+  'legal.set.on_hold',
+  'legal.set.completed',
+  'legal.void',
   'legal.approve',
   'legal.reject',
   'legal.query',
@@ -19,13 +31,7 @@ export const listContractsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(limits.paginationPageSize).default(20),
 })
 
-export const dashboardContractsFilterValues = [
-  'ALL',
-  'HOD_PENDING',
-  'LEGAL_PENDING',
-  'FINAL_APPROVED',
-  'LEGAL_QUERY',
-] as const
+export const dashboardContractsFilterValues = ['ALL', 'HOD_PENDING', 'UNDER_REVIEW', 'COMPLETED', 'ON_HOLD'] as const
 
 export const dashboardContractsQuerySchema = z.object({
   filter: z.enum(dashboardContractsFilterValues),
@@ -57,14 +63,59 @@ export const failedContractNotificationsQuerySchema = z.object({
 
 export const repositorySortByValues = ['title', 'created_at', 'hod_approved_at', 'status', 'tat_deadline_at'] as const
 export const repositorySortDirectionValues = ['asc', 'desc'] as const
+export const repositoryDateBasisValues = ['request_created_at', 'hod_approved_at'] as const
+export const repositoryDatePresetValues = ['week', 'month', 'multiple_months', 'quarter', 'year', 'custom'] as const
 
 export const repositoryContractsQuerySchema = z.object({
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(limits.paginationPageSize).default(20),
   search: z.string().trim().max(200).optional(),
   status: z.nativeEnum(contractStatuses).optional(),
+  repositoryStatus: z.nativeEnum(contractRepositoryStatuses).optional(),
   sortBy: z.enum(repositorySortByValues).default('created_at'),
   sortDirection: z.enum(repositorySortDirectionValues).default('desc'),
+  dateBasis: z.enum(repositoryDateBasisValues).optional(),
+  datePreset: z.enum(repositoryDatePresetValues).optional(),
+  fromDate: z.string().date().optional(),
+  toDate: z.string().date().optional(),
+})
+
+const repositoryExportColumnValues = Object.values(contractRepositoryExportColumns) as [
+  (typeof contractRepositoryExportColumns)[keyof typeof contractRepositoryExportColumns],
+  ...(typeof contractRepositoryExportColumns)[keyof typeof contractRepositoryExportColumns][],
+]
+
+const repositoryExportFormatValues = Object.values(contractRepositoryExportFormats) as [
+  (typeof contractRepositoryExportFormats)[keyof typeof contractRepositoryExportFormats],
+  ...(typeof contractRepositoryExportFormats)[keyof typeof contractRepositoryExportFormats][],
+]
+
+export const repositoryReportingQuerySchema = repositoryContractsQuerySchema.omit({
+  cursor: true,
+  limit: true,
+  sortBy: true,
+  sortDirection: true,
+})
+
+export const repositoryExportQuerySchema = repositoryReportingQuerySchema.extend({
+  format: z.enum(repositoryExportFormatValues).default(contractRepositoryExportFormats.csv),
+  columns: z
+    .string()
+    .optional()
+    .transform((value) => {
+      if (!value) {
+        return [] as (typeof repositoryExportColumnValues)[number][]
+      }
+
+      const values = value
+        .split(',')
+        .map((column) => column.trim())
+        .filter((column): column is (typeof repositoryExportColumnValues)[number] =>
+          repositoryExportColumnValues.includes(column as (typeof repositoryExportColumnValues)[number])
+        )
+
+      return Array.from(new Set(values))
+    }),
 })
 
 export const contractActionSchema = z
@@ -77,6 +128,7 @@ export const contractActionSchema = z
       value.action === 'legal.query.reroute' ||
       value.action === 'hod.bypass' ||
       value.action === 'hod.reject' ||
+      value.action === 'legal.void' ||
       value.action === 'legal.reject' ||
       value.action === 'approver.reject'
 

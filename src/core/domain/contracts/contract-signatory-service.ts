@@ -130,11 +130,8 @@ export class ContractSignatoryService {
       role: params.actorRole,
     })
 
-    if (contractView.contract.status !== contractStatuses.finalApproved) {
-      throw new BusinessRuleError(
-        'SIGNATORY_ASSIGN_INVALID_STATUS',
-        'Signatories can only be assigned in FINAL_APPROVED'
-      )
+    if (contractView.contract.status !== contractStatuses.completed) {
+      throw new BusinessRuleError('SIGNATORY_ASSIGN_INVALID_STATUS', 'Signatories can only be assigned in COMPLETED')
     }
 
     const normalizedRecipients = params.recipients.map((recipient) => ({

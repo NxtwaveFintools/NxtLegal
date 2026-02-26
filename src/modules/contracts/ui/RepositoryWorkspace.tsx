@@ -5,8 +5,20 @@ import { useRouter } from 'next/navigation'
 import { type ColumnDef, type SortingState, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table'
 import ContractStatusBadge from '@/modules/contracts/ui/ContractStatusBadge'
 import ProtectedAppShell from '@/modules/dashboard/ui/ProtectedAppShell'
-import { contractStatuses } from '@/core/constants/contracts'
-import { contractsClient, type ContractRecord, type RepositorySortBy } from '@/core/client/contracts-client'
+import {
+  contractRepositoryExportColumnLabels,
+  contractRepositoryExportColumns,
+  contractRepositoryStatusLabels,
+} from '@/core/constants/contracts'
+import {
+  contractsClient,
+  type ContractRecord,
+  type RepositoryDateBasis,
+  type RepositoryExportColumn,
+  type RepositoryStatusFilter,
+  type RepositoryDatePreset,
+  type RepositorySortBy,
+} from '@/core/client/contracts-client'
 import styles from './RepositoryWorkspace.module.css'
 
 type RepositoryWorkspaceProps = {
@@ -17,6 +29,14 @@ type RepositoryWorkspaceProps = {
     role?: string | null
     canAccessApproverHistory?: boolean
   }
+}
+
+type RepositorySavedView = {
+  id: string
+  label: string
+  statusFilter: RepositoryStatusFilter | ''
+  dateBasis: RepositoryDateBasis
+  datePreset: RepositoryDatePreset | ''
 }
 
 const timestampFormatter = new Intl.DateTimeFormat('en-GB', {
@@ -30,9 +50,146 @@ const timestampFormatter = new Intl.DateTimeFormat('en-GB', {
 
 const sortableColumnMap: Record<string, RepositorySortBy> = {
   title: 'title',
-  createdAt: 'created_at',
+  requestDate: 'created_at',
   hodApprovedAt: 'hod_approved_at',
   status: 'status',
+  contractAging: 'tat_deadline_at',
+}
+
+const repositoryDatePresetOptions: Array<{ value: RepositoryDatePreset; label: string }> = [
+  { value: 'week', label: 'Week' },
+  { value: 'month', label: 'Month' },
+  { value: 'multiple_months', label: 'Multiple Months' },
+  { value: 'quarter', label: 'Quarter' },
+  { value: 'year', label: 'Year' },
+  { value: 'custom', label: 'Custom Date Range' },
+]
+
+const repositoryDateBasisOptions: Array<{ value: RepositoryDateBasis; label: string }> = [
+  { value: 'request_created_at', label: 'Request Date' },
+  { value: 'hod_approved_at', label: 'HOD Approval Date' },
+]
+
+const agingPolicyText = '7 business days'
+const defaultExportColumns = Object.values(contractRepositoryExportColumns) as RepositoryExportColumn[]
+const stuckStateStatuses = new Set([
+  'UNDER_REVIEW',
+  'PENDING_WITH_INTERNAL_STAKEHOLDERS',
+  'PENDING_WITH_EXTERNAL_STAKEHOLDERS',
+])
+
+function resolveSavedViews(role?: string | null): RepositorySavedView[] {
+  const normalizedRole = (role ?? '').toUpperCase()
+
+  if (normalizedRole === 'HOD') {
+    return [
+      {
+        id: 'hod_pending',
+        label: 'HOD Queue',
+        statusFilter: 'HOD_APPROVAL_PENDING',
+        dateBasis: 'request_created_at',
+        datePreset: '',
+      },
+      {
+        id: 'hod_recent',
+        label: 'HOD Last 30 Days',
+        statusFilter: 'HOD_APPROVAL_PENDING',
+        dateBasis: 'request_created_at',
+        datePreset: 'month',
+      },
+    ]
+  }
+
+  if (normalizedRole === 'LEGAL_TEAM' || normalizedRole === 'LEGAL_ADMIN' || normalizedRole === 'ADMIN') {
+    return [
+      {
+        id: 'legal_under_review',
+        label: 'Legal Under Review',
+        statusFilter: 'UNDER_REVIEW',
+        dateBasis: 'hod_approved_at',
+        datePreset: '',
+      },
+      {
+        id: 'legal_pending_external',
+        label: 'Legal Pending External',
+        statusFilter: 'PENDING_WITH_EXTERNAL_STAKEHOLDERS',
+        dateBasis: 'request_created_at',
+        datePreset: '',
+      },
+      {
+        id: 'legal_on_hold',
+        label: 'Legal On Hold',
+        statusFilter: 'ON_HOLD',
+        dateBasis: 'request_created_at',
+        datePreset: '',
+      },
+    ]
+  }
+
+  return [
+    {
+      id: 'default_all',
+      label: 'All Contracts',
+      statusFilter: '',
+      dateBasis: 'request_created_at',
+      datePreset: '',
+    },
+  ]
+}
+
+function getDaysInStatus(updatedAt?: string): number | null {
+  if (!updatedAt) {
+    return null
+  }
+
+  const updatedAtDate = new Date(updatedAt)
+  if (Number.isNaN(updatedAtDate.getTime())) {
+    return null
+  }
+
+  const msDifference = Date.now() - updatedAtDate.getTime()
+  return Math.max(0, Math.floor(msDifference / (1000 * 60 * 60 * 24)))
+}
+
+function getStuckTone(daysInStatus: number): 'green' | 'yellow' | 'red' {
+  if (daysInStatus <= 3) {
+    return 'green'
+  }
+
+  if (daysInStatus <= 7) {
+    return 'yellow'
+  }
+
+  return 'red'
+}
+
+function getAgingTone(agingBusinessDays: number | null | undefined): 'green' | 'yellow' | 'red' | 'neutral' {
+  if (typeof agingBusinessDays !== 'number') {
+    return 'neutral'
+  }
+
+  if (agingBusinessDays <= 5) {
+    return 'green'
+  }
+
+  if (agingBusinessDays <= 7) {
+    return 'yellow'
+  }
+
+  return 'red'
+}
+
+function formatOverdueLabel(record: ContractRecord): string | null {
+  if (!record.isTatBreached || typeof record.agingBusinessDays !== 'number') {
+    return null
+  }
+
+  const overdueDays = Math.max(record.agingBusinessDays - 7, 0)
+  if (overdueDays === 0) {
+    return 'TAT Breached'
+  }
+
+  return `Overdue by ${overdueDays} day${overdueDays === 1 ? '' : 's'}`
 }
 
 export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProps) {
@@ -41,15 +198,36 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState<string>('')
-  const [sorting, setSorting] = useState<SortingState>([{ id: 'createdAt', desc: true }])
+  const [statusFilter, setStatusFilter] = useState<RepositoryStatusFilter | ''>('')
+  const [dateBasis, setDateBasis] = useState<RepositoryDateBasis>('request_created_at')
+  const [datePreset, setDatePreset] = useState<RepositoryDatePreset | ''>('')
+  const [customFromDate, setCustomFromDate] = useState('')
+  const [customToDate, setCustomToDate] = useState('')
+  const [sorting, setSorting] = useState<SortingState>([{ id: 'requestDate', desc: true }])
   const [cursorHistory, setCursorHistory] = useState<Array<string | undefined>>([undefined])
   const [nextCursor, setNextCursor] = useState<string | null>(null)
+  const [reportMetrics, setReportMetrics] = useState<{
+    departmentMetrics: Array<{
+      departmentId: string | null
+      departmentName: string | null
+      totalRequestsReceived: number
+      approved: number
+      rejected: number
+      completed: number
+      pending: number
+    }>
+    statusMetrics: Array<{ key: string; label: string; count: number }>
+  } | null>(null)
+  const [isReportLoading, setIsReportLoading] = useState(false)
+  const [reportError, setReportError] = useState<string | null>(null)
+  const [selectedExportColumns, setSelectedExportColumns] = useState<RepositoryExportColumn[]>(defaultExportColumns)
+  const savedViews = useMemo(() => resolveSavedViews(session.role), [session.role])
+  const [activeSavedViewId, setActiveSavedViewId] = useState<string>('custom')
 
   const activeCursor = cursorHistory[cursorHistory.length - 1]
 
   const activeSort = sorting[0]
-  const sortBy = sortableColumnMap[activeSort?.id ?? 'createdAt'] ?? 'created_at'
+  const sortBy = sortableColumnMap[activeSort?.id ?? 'requestDate'] ?? 'created_at'
   const sortDirection = activeSort?.desc ? 'desc' : 'asc'
 
   const loadContracts = useCallback(async () => {
@@ -59,9 +237,13 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
       cursor: activeCursor,
       limit: 15,
       search,
-      status: statusFilter || undefined,
+      repositoryStatus: statusFilter || undefined,
       sortBy,
       sortDirection,
+      dateBasis,
+      datePreset: datePreset || undefined,
+      fromDate: datePreset === 'custom' && customFromDate ? customFromDate : undefined,
+      toDate: datePreset === 'custom' && customToDate ? customToDate : undefined,
     })
 
     if (!response.ok || !response.data) {
@@ -76,44 +258,218 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     setNextCursor(response.data.pagination.cursor)
     setError(null)
     setIsLoading(false)
-  }, [activeCursor, search, statusFilter, sortBy, sortDirection])
+  }, [activeCursor, customFromDate, customToDate, dateBasis, datePreset, search, statusFilter, sortBy, sortDirection])
 
   useEffect(() => {
     void loadContracts()
   }, [loadContracts])
 
   useEffect(() => {
+    const loadReport = async () => {
+      setIsReportLoading(true)
+
+      const response = await contractsClient.repositoryReport({
+        search,
+        repositoryStatus: statusFilter || undefined,
+        dateBasis,
+        datePreset: datePreset || undefined,
+        fromDate: datePreset === 'custom' && customFromDate ? customFromDate : undefined,
+        toDate: datePreset === 'custom' && customToDate ? customToDate : undefined,
+      })
+
+      if (!response.ok || !response.data) {
+        setReportError(response.error?.message ?? 'Failed to load repository report')
+        setReportMetrics(null)
+        setIsReportLoading(false)
+        return
+      }
+
+      setReportMetrics(response.data.report)
+      setReportError(null)
+      setIsReportLoading(false)
+    }
+
+    void loadReport()
+  }, [customFromDate, customToDate, dateBasis, datePreset, search, statusFilter])
+
+  useEffect(() => {
     setCursorHistory([undefined])
-  }, [search, statusFilter, sortBy, sortDirection])
+  }, [customFromDate, customToDate, dateBasis, datePreset, search, statusFilter, sortBy, sortDirection])
+
+  useEffect(() => {
+    if (savedViews.length === 0) {
+      return
+    }
+
+    const defaultView = savedViews[0]
+    setActiveSavedViewId(defaultView.id)
+    setStatusFilter(defaultView.statusFilter)
+    setDateBasis(defaultView.dateBasis)
+    setDatePreset(defaultView.datePreset)
+    setCustomFromDate('')
+    setCustomToDate('')
+    setSearch('')
+  }, [savedViews])
+
+  const handleSavedViewChange = (viewId: string) => {
+    if (viewId === 'custom') {
+      setActiveSavedViewId('custom')
+      return
+    }
+
+    const selectedView = savedViews.find((view) => view.id === viewId)
+    if (!selectedView) {
+      setActiveSavedViewId('custom')
+      return
+    }
+
+    setActiveSavedViewId(selectedView.id)
+    setStatusFilter(selectedView.statusFilter)
+    setDateBasis(selectedView.dateBasis)
+    setDatePreset(selectedView.datePreset)
+    setCustomFromDate('')
+    setCustomToDate('')
+    setSearch('')
+  }
+
+  const handleStatusFilterChange = (value: RepositoryStatusFilter | '') => {
+    setActiveSavedViewId('custom')
+    setStatusFilter(value)
+  }
+
+  const handleDateBasisChange = (value: RepositoryDateBasis) => {
+    setActiveSavedViewId('custom')
+    setDateBasis(value)
+  }
+
+  const handleDatePresetChange = (value: RepositoryDatePreset | '') => {
+    setActiveSavedViewId('custom')
+    setDatePreset(value)
+    if (value !== 'custom') {
+      setCustomFromDate('')
+      setCustomToDate('')
+    }
+  }
 
   const columns = useMemo<ColumnDef<ContractRecord>[]>(
     () => [
       {
-        accessorKey: 'title',
-        header: 'Name',
-        cell: ({ row }) => row.original.title,
+        accessorKey: 'requestDate',
+        header: 'Request Date',
+        cell: ({ row }) => {
+          const requestDate = row.original.requestCreatedAt ?? row.original.createdAt
+          return requestDate ? timestampFormatter.format(new Date(requestDate)) : '—'
+        },
+      },
+      {
+        accessorKey: 'creator',
+        header: 'Creator',
+        cell: ({ row }) => row.original.creatorName ?? row.original.uploadedByEmail ?? '—',
+      },
+      {
+        accessorKey: 'department',
+        header: 'Department',
+        cell: ({ row }) => row.original.departmentName ?? '—',
       },
       {
         accessorKey: 'createdAt',
-        header: 'Created At',
-        cell: ({ row }) => timestampFormatter.format(new Date(row.original.createdAt)),
+        header: 'Contract',
+        cell: ({ row }) => row.original.title,
       },
       {
         accessorKey: 'hodApprovedAt',
-        header: 'HOD Approved At',
+        header: 'HOD Approval',
         cell: ({ row }) =>
-          row.original.hodApprovedAt ? timestampFormatter.format(new Date(row.original.hodApprovedAt)) : '—',
+          row.original.hodApprovedAt ? (
+            <div className={styles.hodApprovalWrap}>
+              <span className={styles.hodApproved}>Yes</span>
+              <span className={styles.muted}>{timestampFormatter.format(new Date(row.original.hodApprovedAt))}</span>
+            </div>
+          ) : (
+            <span className={styles.hodPending}>No</span>
+          ),
+      },
+      {
+        accessorKey: 'tatPolicy',
+        header: 'TAT',
+        cell: () => agingPolicyText,
+      },
+      {
+        accessorKey: 'contractAging',
+        header: 'Contract Aging',
+        cell: ({ row }) => {
+          const tone = getAgingTone(row.original.agingBusinessDays)
+          const overdueLabel = formatOverdueLabel(row.original)
+
+          return (
+            <div className={styles.agingWrap}>
+              <span className={styles[`agingTone${tone.charAt(0).toUpperCase()}${tone.slice(1)}`]}>
+                {typeof row.original.agingBusinessDays === 'number' ? `${row.original.agingBusinessDays} days` : '—'}
+              </span>
+              {overdueLabel ? <span className={styles.overdueLabel}>{overdueLabel}</span> : null}
+            </div>
+          )
+        },
       },
       {
         accessorKey: 'status',
         header: 'Status',
-        cell: ({ row }) => (
-          <ContractStatusBadge status={row.original.status} displayLabel={row.original.displayStatusLabel} />
-        ),
+        cell: ({ row }) => {
+          const daysInStatus = getDaysInStatus(row.original.updatedAt)
+          const shouldShowStuckBadge = stuckStateStatuses.has(row.original.status) && typeof daysInStatus === 'number'
+          const stuckTone = typeof daysInStatus === 'number' ? getStuckTone(daysInStatus) : 'green'
+
+          return (
+            <div className={styles.statusWrap}>
+              <ContractStatusBadge
+                status={row.original.status}
+                displayLabel={row.original.repositoryStatusLabel ?? row.original.displayStatusLabel}
+              />
+              {shouldShowStuckBadge ? (
+                <span className={styles[`stuckTone${stuckTone.charAt(0).toUpperCase()}${stuckTone.slice(1)}`]}>
+                  {daysInStatus} day{daysInStatus === 1 ? '' : 's'} in status
+                </span>
+              ) : null}
+              {row.original.status === 'VOID' && row.original.voidReason ? (
+                <span className={styles.voidReason}>Void: {row.original.voidReason}</span>
+              ) : null}
+            </div>
+          )
+        },
+      },
+      {
+        accessorKey: 'assignedTo',
+        header: 'Assigned To',
+        cell: ({ row }) => (row.original.assignedToUsers ?? [row.original.currentAssigneeEmail]).join(', '),
       },
     ],
     []
   )
+
+  const toggleExportColumn = (column: RepositoryExportColumn) => {
+    setSelectedExportColumns((previous) => {
+      if (previous.includes(column)) {
+        return previous.filter((entry) => entry !== column)
+      }
+
+      return [...previous, column]
+    })
+  }
+
+  const downloadExport = (format: 'csv' | 'excel' | 'pdf') => {
+    const exportUrl = contractsClient.repositoryExportUrl({
+      search,
+      repositoryStatus: statusFilter || undefined,
+      dateBasis,
+      datePreset: datePreset || undefined,
+      fromDate: datePreset === 'custom' && customFromDate ? customFromDate : undefined,
+      toDate: datePreset === 'custom' && customToDate ? customToDate : undefined,
+      format,
+      columns: selectedExportColumns,
+    })
+
+    window.open(exportUrl, '_blank', 'noopener,noreferrer')
+  }
 
   // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
@@ -145,22 +501,154 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
               className={styles.searchInput}
               placeholder="Search by contract name"
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(event) => {
+                setActiveSavedViewId('custom')
+                setSearch(event.target.value)
+              }}
             />
             <select
               className={styles.statusSelect}
+              value={activeSavedViewId}
+              onChange={(event) => handleSavedViewChange(event.target.value)}
+            >
+              {savedViews.map((view) => (
+                <option key={view.id} value={view.id}>
+                  {view.label}
+                </option>
+              ))}
+              <option value="custom">Custom View</option>
+            </select>
+            <select
+              className={styles.statusSelect}
               value={statusFilter}
-              onChange={(event) => setStatusFilter(event.target.value)}
+              onChange={(event) => handleStatusFilterChange(event.target.value as RepositoryStatusFilter | '')}
             >
               <option value="">All statuses</option>
-              <option value={contractStatuses.hodPending}>HOD Pending</option>
-              <option value={contractStatuses.legalPending}>Legal Waiting / Pending</option>
-              <option value={contractStatuses.finalApproved}>Final Approved</option>
-              <option value={contractStatuses.legalQuery}>Legal Query</option>
-              <option value={contractStatuses.hodApproved}>HOD Approved</option>
-              <option value={contractStatuses.uploaded}>Uploaded</option>
+              {Object.entries(contractRepositoryStatusLabels).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
             </select>
+            <select
+              className={styles.statusSelect}
+              value={dateBasis}
+              onChange={(event) => handleDateBasisChange(event.target.value as RepositoryDateBasis)}
+            >
+              {repositoryDateBasisOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            <select
+              className={styles.statusSelect}
+              value={datePreset}
+              onChange={(event) => handleDatePresetChange(event.target.value as RepositoryDatePreset | '')}
+            >
+              <option value="">All time</option>
+              {repositoryDatePresetOptions.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            {datePreset === 'custom' ? (
+              <>
+                <input
+                  type="date"
+                  className={styles.searchInput}
+                  value={customFromDate}
+                  onChange={(event) => {
+                    setActiveSavedViewId('custom')
+                    setCustomFromDate(event.target.value)
+                  }}
+                />
+                <input
+                  type="date"
+                  className={styles.searchInput}
+                  value={customToDate}
+                  onChange={(event) => {
+                    setActiveSavedViewId('custom')
+                    setCustomToDate(event.target.value)
+                  }}
+                />
+              </>
+            ) : null}
           </div>
+        </section>
+
+        <section className={styles.reportingSection}>
+          <div className={styles.reportingHeader}>
+            <h2 className={styles.reportingTitle}>Repository Reporting</h2>
+            <div className={styles.exportActions}>
+              <button type="button" className={styles.pageButton} onClick={() => downloadExport('csv')}>
+                Export CSV
+              </button>
+              <button type="button" className={styles.pageButton} onClick={() => downloadExport('excel')}>
+                Export Excel
+              </button>
+              <button type="button" className={styles.pageButton} onClick={() => downloadExport('pdf')}>
+                Export PDF
+              </button>
+            </div>
+          </div>
+
+          <div className={styles.exportColumnsGrid}>
+            {defaultExportColumns.map((column) => (
+              <label key={column} className={styles.exportColumnItem}>
+                <input
+                  type="checkbox"
+                  checked={selectedExportColumns.includes(column)}
+                  onChange={() => toggleExportColumn(column)}
+                />
+                <span>{contractRepositoryExportColumnLabels[column]}</span>
+              </label>
+            ))}
+          </div>
+
+          {isReportLoading ? (
+            <div className={styles.empty}>Loading report...</div>
+          ) : reportError ? (
+            <div className={styles.empty}>{reportError}</div>
+          ) : reportMetrics ? (
+            <div className={styles.reportingGrid}>
+              <div className={styles.metricCard}>
+                <h3 className={styles.metricTitle}>Department-wise Reporting</h3>
+                {reportMetrics.departmentMetrics.length === 0 ? (
+                  <p className={styles.muted}>No department metrics available.</p>
+                ) : (
+                  <ul className={styles.metricList}>
+                    {reportMetrics.departmentMetrics.map((metric) => (
+                      <li key={metric.departmentId ?? 'unassigned'} className={styles.metricListItem}>
+                        <span className={styles.metricName}>{metric.departmentName ?? 'Unassigned'}</span>
+                        <span className={styles.metricMeta}>
+                          Total {metric.totalRequestsReceived} · Approved {metric.approved} · Rejected {metric.rejected}{' '}
+                          · Completed {metric.completed} · Pending {metric.pending}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+
+              <div className={styles.metricCard}>
+                <h3 className={styles.metricTitle}>Status-wise Reporting</h3>
+                {reportMetrics.statusMetrics.length === 0 ? (
+                  <p className={styles.muted}>No status metrics available.</p>
+                ) : (
+                  <ul className={styles.metricList}>
+                    {reportMetrics.statusMetrics.map((metric) => (
+                      <li key={metric.key} className={styles.metricListItem}>
+                        <span className={styles.metricName}>{metric.label}</span>
+                        <span className={styles.metricValue}>{metric.count}</span>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          ) : null}
         </section>
 
         <section className={styles.tableWrap}>
@@ -209,7 +697,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
               <tbody>
                 {table.getRowModel().rows.length === 0 ? (
                   <tr>
-                    <td colSpan={4} className={styles.empty}>
+                    <td colSpan={9} className={styles.empty}>
                       No contracts found.
                     </td>
                   </tr>
@@ -217,7 +705,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
                   table.getRowModel().rows.map((row) => (
                     <tr
                       key={row.id}
-                      className={styles.row}
+                      className={`${styles.row} ${row.original.isTatBreached ? styles.rowBreached : ''}`}
                       onClick={() =>
                         router.push(
                           contractsClient.resolveProtectedContractPath(row.original.id, {

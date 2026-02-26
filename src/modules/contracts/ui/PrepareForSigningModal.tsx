@@ -38,6 +38,13 @@ type PrepareForSigningModalProps = {
   onSent: (contractView: ContractDetailResponse) => void
 }
 
+type PreflightCheck = {
+  key: string
+  label: string
+  isReady: boolean
+  detail: string
+}
+
 const fieldPalette: FieldType[] = ['SIGNATURE', 'INITIAL', 'STAMP', 'NAME', 'DATE', 'TIME', 'TEXT']
 
 const createDraftId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`
@@ -64,7 +71,7 @@ export default function PrepareForSigningModal({
 
   const pageContainerRef = useRef<HTMLDivElement | null>(null)
 
-  const isLocked = contractStatus === contractStatuses.inSignature
+  const isLocked = contractStatus === contractStatuses.pendingExternal
   const canEdit = !isLocked && !isSending
 
   useEffect(() => {
@@ -118,6 +125,88 @@ export default function PrepareForSigningModal({
   }, [contractId, isOpen])
 
   const activeRecipientEmail = selectedRecipientEmail || recipients[0]?.email || ''
+
+  const preflightChecks = useMemo<PreflightCheck[]>(() => {
+    const normalizedRecipients = recipients
+      .map((recipient) => ({
+        ...recipient,
+        email: recipient.email.trim().toLowerCase(),
+        name: recipient.name.trim(),
+      }))
+      .filter((recipient) => recipient.email)
+
+    const uniqueRoutingOrders = new Set(normalizedRecipients.map((recipient) => recipient.routingOrder))
+    const hasValidRoutingOrder =
+      normalizedRecipients.length > 0 &&
+      uniqueRoutingOrders.size === normalizedRecipients.length &&
+      normalizedRecipients.every((recipient) => recipient.routingOrder >= 1)
+
+    const missingSignatureEmails = normalizedRecipients
+      .filter(
+        (recipient) =>
+          !fields.some(
+            (field) =>
+              field.fieldType === 'SIGNATURE' && field.assignedSignerEmail.trim().toLowerCase() === recipient.email
+          )
+      )
+      .map((recipient) => recipient.email)
+
+    const invalidFields = fields.filter((field) => {
+      const hasAnchor = Boolean(field.anchorString?.trim())
+      const hasCoordinates =
+        typeof field.pageNumber === 'number' &&
+        typeof field.xPosition === 'number' &&
+        typeof field.yPosition === 'number'
+
+      return !hasAnchor && !hasCoordinates
+    })
+
+    return [
+      {
+        key: 'document',
+        label: 'Primary document available',
+        isReady: Boolean(pdfUrl),
+        detail: pdfUrl ? 'Ready' : 'No preview document available',
+      },
+      {
+        key: 'recipients',
+        label: 'Recipients added',
+        isReady: normalizedRecipients.length > 0,
+        detail:
+          normalizedRecipients.length > 0
+            ? `${normalizedRecipients.length} recipient(s)`
+            : 'Add at least one recipient',
+      },
+      {
+        key: 'signature_fields',
+        label: 'SIGNATURE fields assigned',
+        isReady: missingSignatureEmails.length === 0,
+        detail:
+          missingSignatureEmails.length === 0
+            ? 'All recipients have a SIGNATURE field'
+            : `Missing for: ${missingSignatureEmails.join(', ')}`,
+      },
+      {
+        key: 'routing_order',
+        label: 'Routing order valid',
+        isReady: hasValidRoutingOrder,
+        detail: hasValidRoutingOrder
+          ? 'Unique routing order per recipient'
+          : 'Each recipient needs a unique routing order',
+      },
+      {
+        key: 'field_positions',
+        label: 'Field placement complete',
+        isReady: invalidFields.length === 0,
+        detail:
+          invalidFields.length === 0
+            ? 'All fields have anchor or coordinates'
+            : `${invalidFields.length} field(s) missing anchor/page/x/y`,
+      },
+    ]
+  }, [fields, pdfUrl, recipients])
+
+  const blockingPreflightChecks = preflightChecks.filter((check) => !check.isReady)
 
   const fieldsForCurrentPage = useMemo(
     () => fields.filter((field) => (field.pageNumber ?? 1) === currentPage),
@@ -504,9 +593,23 @@ export default function PrepareForSigningModal({
         </div>
 
         {step === 3 ? (
-          <div className={styles.reviewBox}>
-            <div>Recipients: {recipients.length}</div>
-            <div>Placed Fields: {fields.length}</div>
+          <div className={styles.reviewBoxWrap}>
+            <div className={styles.reviewBox}>
+              <div>Recipients: {recipients.length}</div>
+              <div>Placed Fields: {fields.length}</div>
+            </div>
+            <div className={styles.preflightBox}>
+              <div className={styles.preflightTitle}>Execution Readiness</div>
+              {preflightChecks.map((check) => (
+                <div key={check.key} className={styles.preflightRow}>
+                  <span className={check.isReady ? styles.preflightReady : styles.preflightBlocked}>
+                    {check.isReady ? '✓' : '✕'}
+                  </span>
+                  <span className={styles.preflightLabel}>{check.label}</span>
+                  <span className={styles.preflightDetail}>{check.detail}</span>
+                </div>
+              ))}
+            </div>
           </div>
         ) : null}
 
@@ -528,7 +631,7 @@ export default function PrepareForSigningModal({
             type="button"
             className={styles.primaryButton}
             onClick={() => void handleReviewSend()}
-            disabled={!canEdit || isSending}
+            disabled={!canEdit || isSending || blockingPreflightChecks.length > 0}
           >
             {isSending ? 'Sending…' : 'Review & Send'}
           </button>

@@ -775,11 +775,11 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
 
       const contractIds = Array.from(new Set(approverRows.map((row) => row.contract_id)))
 
-      const { data: legalPendingContracts, error: contractError } = await supabase
+      const { data: underReviewContracts, error: contractError } = await supabase
         .from('contracts')
         .select('id')
         .eq('tenant_id', tenantId)
-        .eq('status', 'LEGAL_PENDING')
+        .eq('status', 'UNDER_REVIEW')
         .in('id', contractIds)
 
       if (contractError) {
@@ -792,12 +792,12 @@ class SupabaseEmployeeRepository implements EmployeeRepository {
         return false
       }
 
-      const legalPendingContractIds = new Set((legalPendingContracts ?? []).map((row) => row.id))
-      if (legalPendingContractIds.size === 0) {
+      const underReviewContractIds = new Set((underReviewContracts ?? []).map((row) => row.id))
+      if (underReviewContractIds.size === 0) {
         return false
       }
 
-      const actionableApproverRows = approverRows.filter((row) => legalPendingContractIds.has(row.contract_id))
+      const actionableApproverRows = approverRows.filter((row) => underReviewContractIds.has(row.contract_id))
       if (actionableApproverRows.length === 0) {
         return false
       }
