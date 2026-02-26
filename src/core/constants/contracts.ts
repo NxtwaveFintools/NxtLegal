@@ -204,7 +204,7 @@ export const contractStatusLabels: Record<ContractStatus, string> = {
   ON_HOLD: 'On Hold',
   COMPLETED: 'Completed',
   EXECUTED: 'Executed',
-  VOID: 'Void Documents',
+  VOID: 'Voided',
   REJECTED: 'Rejected',
 }
 
@@ -234,7 +234,7 @@ export const contractRepositoryStatusLabels: Record<ContractRepositoryStatus, st
   PENDING_WITH_EXTERNAL_STAKEHOLDERS: 'Pending with External Stakeholders',
   PENDING_WITH_INTERNAL_STAKEHOLDERS: 'Pending with Internal Stakeholders',
   ON_HOLD: 'On Hold',
-  VOID: 'Void Documents',
+  VOID: 'Voided',
   REJECTED: 'Rejected',
   COMPLETED: 'Completed',
   EXECUTED: 'Executed',

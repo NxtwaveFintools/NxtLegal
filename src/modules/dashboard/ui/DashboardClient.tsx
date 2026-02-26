@@ -645,6 +645,48 @@ export default function DashboardClient({ session }: DashboardClientProps) {
               </div>
             ) : (
               <div className={styles.contractList}>
+                <div className={styles.paginationRow}>
+                  <button
+                    type="button"
+                    className={styles.paginationButton}
+                    onClick={() => {
+                      if (pageIndex === 0) {
+                        return
+                      }
+
+                      const previousPageIndex = pageIndex - 1
+                      void loadContractsForFilter(activeFilter, {
+                        cursor: pageCursors[previousPageIndex],
+                        pageIndex: previousPageIndex,
+                        isPageChange: true,
+                      })
+                    }}
+                    disabled={pageIndex === 0 || isLoadingPageChange}
+                  >
+                    ← Previous
+                  </button>
+                  <span className={styles.pageIndicator}>Page {pageIndex + 1}</span>
+                  <button
+                    type="button"
+                    className={styles.paginationButton}
+                    onClick={() => {
+                      if (!contractsCursor) {
+                        return
+                      }
+
+                      const nextPageIndex = pageIndex + 1
+                      void loadContractsForFilter(activeFilter, {
+                        cursor: contractsCursor,
+                        pageIndex: nextPageIndex,
+                        isPageChange: true,
+                      })
+                    }}
+                    disabled={!contractsCursor || isLoadingPageChange}
+                  >
+                    Next →
+                  </button>
+                </div>
+
                 {contracts.map((contract) => (
                   <div key={contract.id} className={styles.contractItem}>
                     <div>
@@ -724,47 +766,6 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                     </div>
                   </div>
                 ))}
-                <div className={styles.paginationRow}>
-                  <button
-                    type="button"
-                    className={styles.paginationButton}
-                    onClick={() => {
-                      if (pageIndex === 0) {
-                        return
-                      }
-
-                      const previousPageIndex = pageIndex - 1
-                      void loadContractsForFilter(activeFilter, {
-                        cursor: pageCursors[previousPageIndex],
-                        pageIndex: previousPageIndex,
-                        isPageChange: true,
-                      })
-                    }}
-                    disabled={pageIndex === 0 || isLoadingPageChange}
-                  >
-                    ← Previous
-                  </button>
-                  <span className={styles.pageIndicator}>Page {pageIndex + 1}</span>
-                  <button
-                    type="button"
-                    className={styles.paginationButton}
-                    onClick={() => {
-                      if (!contractsCursor) {
-                        return
-                      }
-
-                      const nextPageIndex = pageIndex + 1
-                      void loadContractsForFilter(activeFilter, {
-                        cursor: contractsCursor,
-                        pageIndex: nextPageIndex,
-                        isPageChange: true,
-                      })
-                    }}
-                    disabled={!contractsCursor || isLoadingPageChange}
-                  >
-                    Next →
-                  </button>
-                </div>
               </div>
             )}
           </div>
