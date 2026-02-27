@@ -14,9 +14,126 @@ const mockContractView = {
   signatories: [],
 }
 
+const createContractView = () => structuredClone(mockContractView)
+const createLogger = () => ({
+  info: jest.fn(),
+  warn: jest.fn(),
+  error: jest.fn(),
+})
+
 describe('ContractSignatoryService', () => {
   beforeEach(() => {
     jest.restoreAllMocks()
+  })
+
+  it('sends Brevo email with embedded link for internal recipient', async () => {
+    const contractQueryService = {
+      getContractDetail: jest.fn().mockResolvedValue(createContractView()),
+      addSignatory: jest.fn().mockResolvedValue({
+        ...createContractView(),
+        signatories: [{ id: 'sig-1' }],
+      }),
+      countPendingSignatoriesByContract: jest.fn().mockResolvedValue(0),
+      getSigningPreparationDraft: jest.fn().mockResolvedValue(null),
+      getContractDocumentsBySystem: jest.fn().mockResolvedValue([]),
+      recordContractNotificationDelivery: jest.fn().mockResolvedValue(undefined),
+      addSignatoryWebhookAuditEvent: jest.fn().mockResolvedValue(undefined),
+      markSignatoryAsSigned: jest.fn().mockResolvedValue(undefined),
+      moveContractToInSignature: jest.fn().mockResolvedValue(undefined),
+      deleteSigningPreparationDraft: jest.fn().mockResolvedValue(undefined),
+      resolveEnvelopeContext: jest.fn(),
+      getEnvelopeNotificationProfile: jest
+        .fn()
+        .mockResolvedValue({ contractTitle: 'Master Service Agreement', recipientEmails: [] }),
+    } as unknown as ContractQueryService
+
+    const contractDocumentDownloadService = {
+      createSignedDownloadUrl: jest.fn().mockResolvedValue({
+        signedUrl: 'https://signed-url',
+        fileName: 'msa.pdf',
+      }),
+    } as unknown as ContractDocumentDownloadService
+
+    const contractRepository = {
+      createDocument: jest.fn(),
+    } as unknown as ContractRepository
+
+    const contractStorageRepository = {
+      upload: jest.fn(),
+    } as unknown as ContractStorageRepository
+
+    const fetchMock = jest.fn().mockResolvedValue({
+      ok: true,
+      arrayBuffer: async () => new TextEncoder().encode('pdf'),
+      headers: {
+        get: () => 'application/pdf',
+      },
+    })
+    const originalFetch = global.fetch
+    global.fetch = fetchMock as unknown as typeof fetch
+
+    const signatureProvider = {
+      createSigningEnvelope: jest.fn().mockResolvedValue({
+        envelopeId: 'env-1',
+        recipients: [
+          {
+            email: 'founder@nxtwave.co.in',
+            recipientId: '1',
+            clientUserId: '1',
+            signingUrl: '',
+          },
+        ],
+      }),
+      downloadCompletedEnvelopeDocuments: jest.fn(),
+    } as unknown as SignatureProvider
+
+    const signatoryMailer = {
+      sendTemplateEmail: jest.fn().mockResolvedValue({ providerMessageId: 'msg-1' }),
+    }
+
+    const service = new ContractSignatoryService(
+      contractQueryService,
+      contractDocumentDownloadService,
+      contractRepository,
+      contractStorageRepository,
+      signatureProvider,
+      signatoryMailer as unknown as ContractSignatoryService['signatoryMailer'],
+      {
+        signatoryLinkTemplateId: 101,
+        signingCompletedTemplateId: 102,
+      },
+      'https://app.example.com',
+      createLogger()
+    )
+
+    await service.assignSignatory({
+      tenantId: 'tenant-1',
+      contractId: 'contract-1',
+      actorEmployeeId: 'legal-1',
+      actorRole: 'LEGAL_TEAM',
+      actorEmail: 'legal@nxtwave.co.in',
+      recipients: [
+        {
+          signatoryEmail: 'founder@nxtwave.co.in',
+          recipientType: 'INTERNAL',
+          routingOrder: 1,
+          fields: [],
+        },
+      ],
+    })
+
+    global.fetch = originalFetch
+
+    expect(signatoryMailer.sendTemplateEmail).toHaveBeenCalledTimes(1)
+    expect(signatoryMailer.sendTemplateEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipientEmail: 'founder@nxtwave.co.in',
+        templateId: 101,
+        templateParams: expect.objectContaining({
+          signing_url: expect.stringContaining('/api/contracts/signatories/docusign/redirect?token='),
+        }),
+      })
+    )
   })
 
   it('assigns signatory by creating envelope, sending email, and persisting signatory', async () => {
@@ -113,15 +230,8 @@ describe('ContractSignatoryService', () => {
       documentId: 'document-primary-1',
     })
     expect(signatureProvider.createSigningEnvelope).toHaveBeenCalled()
-    expect(signatoryMailer.sendTemplateEmail).toHaveBeenCalled()
-    expect(signatoryMailer.sendTemplateEmail).toHaveBeenCalledWith(
-      expect.objectContaining({
-        templateParams: expect.objectContaining({
-          signing_url: expect.stringContaining('/api/contracts/signatories/docusign/redirect?token='),
-        }),
-      })
-    )
-    expect(contractQueryService.recordContractNotificationDelivery).toHaveBeenCalled()
+    expect(signatoryMailer.sendTemplateEmail).not.toHaveBeenCalled()
+    expect(contractQueryService.recordContractNotificationDelivery).not.toHaveBeenCalled()
     expect(contractQueryService.addSignatory).toHaveBeenCalledWith({
       tenantId: 'tenant-1',
       contractId: 'contract-1',

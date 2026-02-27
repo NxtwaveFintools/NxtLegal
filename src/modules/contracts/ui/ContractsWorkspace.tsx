@@ -61,6 +61,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const [ownerEmail, setOwnerEmail] = useState('')
   const [collaboratorEmail, setCollaboratorEmail] = useState('')
   const [activityMessageText, setActivityMessageText] = useState('')
+  const [isGeneratingLinkFor, setIsGeneratingLinkFor] = useState<string | null>(null)
   const [activeTab, setActiveTab] = useState<TabId>('overview')
   const [isActivityComposerOpen, setIsActivityComposerOpen] = useState(false)
   const [isSubmittingActivity, setIsSubmittingActivity] = useState(false)
@@ -546,6 +547,32 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
     setApproverEmail('')
     applyContractView(response.data)
+  }
+
+  const handleGenerateSigningLink = async (recipientEmail: string) => {
+    if (!selectedContractId) {
+      return
+    }
+    setIsGeneratingLinkFor(recipientEmail)
+    try {
+      const response = await fetch(
+        `/api/contracts/${selectedContractId}/signatories/link?email=${encodeURIComponent(recipientEmail)}`,
+        { method: 'GET' }
+      )
+      const json = await response.json()
+      if (!response.ok || !json?.ok || !json.data?.signing_url) {
+        throw new Error(json?.error?.message ?? 'Failed to generate signing link')
+      }
+      await navigator.clipboard.writeText(json.data.signing_url)
+      setToast({ type: 'success', message: 'Signing link copied to clipboard' })
+    } catch (error) {
+      setToast({
+        type: 'error',
+        message: error instanceof Error ? error.message : 'Failed to generate signing link',
+      })
+    } finally {
+      setIsGeneratingLinkFor(null)
+    }
   }
 
   const handleSetOwner = async () => {
@@ -1263,6 +1290,18 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                                   {signatory.signatoryEmail} · {signatory.recipientType} · Step {signatory.routingOrder}
                                 </div>
                                 <div className={styles.eventMeta}>{signatory.status}</div>
+                                <div className={styles.inlineForm}>
+                                  <button
+                                    type="button"
+                                    className={styles.buttonGhost}
+                                    disabled={isMutating || isGeneratingLinkFor === signatory.signatoryEmail}
+                                    onClick={() => void handleGenerateSigningLink(signatory.signatoryEmail)}
+                                  >
+                                    {isGeneratingLinkFor === signatory.signatoryEmail
+                                      ? 'Generating…'
+                                      : 'Copy Signing Link'}
+                                  </button>
+                                </div>
                               </div>
                             ))}
                           </div>

@@ -248,30 +248,33 @@ export class ContractSignatoryService {
     }
 
     for (const recipient of normalizedRecipients) {
+      if (recipient.recipientType !== contractSignatoryRecipientTypes.internal) {
+        continue
+      }
       const envelopeRecipient = envelopeRecipientByEmail.get(recipient.signatoryEmail)
       if (!envelopeRecipient) {
         throw new ExternalServiceError('DOCUSIGN', `Missing recipient view URL for ${recipient.signatoryEmail}`)
       }
 
-      if (recipient.recipientType === contractSignatoryRecipientTypes.external) {
-        await this.dispatchTemplateNotificationWithRetry({
-          tenantId: params.tenantId,
-          contractId: params.contractId,
-          envelopeId: envelope.envelopeId,
-          recipientEmail: recipient.signatoryEmail,
-          templateId: this.notificationTemplates.signatoryLinkTemplateId,
-          notificationType: contractNotificationTypes.signatoryLink,
-          templateParams: {
-            contract_title: contractView.contract.title,
-            signing_url: await this.buildSignatoryRedirectLink({
-              envelopeId: envelope.envelopeId,
-              recipientEmail: recipient.signatoryEmail,
-              recipientId: envelopeRecipient.recipientId,
-            }),
-          },
-          strictFailure: true,
-        })
-      }
+      const signingUrl = await this.buildSignatoryRedirectLink({
+        envelopeId: envelope.envelopeId,
+        recipientEmail: recipient.signatoryEmail,
+        recipientId: envelopeRecipient.recipientId,
+      })
+
+      await this.dispatchTemplateNotificationWithRetry({
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        envelopeId: envelope.envelopeId,
+        recipientEmail: recipient.signatoryEmail,
+        templateId: this.notificationTemplates.signatoryLinkTemplateId,
+        notificationType: contractNotificationTypes.signatoryLink,
+        templateParams: {
+          contract_title: contractView.contract.title,
+          signing_url: signingUrl,
+        },
+        strictFailure: true,
+      })
     }
 
     this.logger.info('Contract signatory assigned', {

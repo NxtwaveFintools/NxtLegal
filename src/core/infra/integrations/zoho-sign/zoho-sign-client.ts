@@ -163,7 +163,7 @@ export class ZohoSignClient {
           recipient_name: recipient.name || recipient.email,
           recipient_email: recipient.email,
           signing_order: recipient.routingOrder,
-          is_embedded: true,
+          is_embedded: recipient.recipientType === 'INTERNAL',
         })),
         expiration_days: 30,
       },
