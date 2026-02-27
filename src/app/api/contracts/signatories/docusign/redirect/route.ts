@@ -42,6 +42,13 @@ export async function GET(request: NextRequest) {
       })
     }
 
+    if (context.recipientType !== 'INTERNAL') {
+      return NextResponse.json(
+        errorResponse('SIGNATORY_LINK_FORBIDDEN', 'External recipients must use the emailed signing link'),
+        { status: 403 }
+      )
+    }
+
     // Internal recipients must be signed in as the intended account.
     if (context.recipientType === 'INTERNAL') {
       const session = await getSession()

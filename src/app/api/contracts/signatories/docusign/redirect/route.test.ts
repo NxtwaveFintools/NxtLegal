@@ -57,8 +57,7 @@ describe('Signatory redirect route', () => {
     expect(body.error.code).toBe('SIGNATORY_LINK_INVALID')
   })
 
-  it('redirects to fresh Zoho embedded URL for valid external token without app session', async () => {
-    mockGetSession.mockResolvedValueOnce(null)
+  it('redirects to fresh Zoho embedded URL for valid internal token with session', async () => {
     ;(verifySignatoryLinkToken as jest.Mock).mockResolvedValueOnce({
       envelopeId: 'req-1',
       recipientEmail: 'signer@nxtwave.co.in',
@@ -72,7 +71,7 @@ describe('Signatory redirect route', () => {
       signatoryEmail: 'signer@nxtwave.co.in',
       signatoryStatus: 'PENDING',
       contractStatus: 'PENDING_WITH_EXTERNAL_STAKEHOLDERS',
-      recipientType: 'EXTERNAL',
+      recipientType: 'INTERNAL',
       routingOrder: 1,
     })
 
@@ -140,31 +139,31 @@ describe('Signatory redirect route', () => {
     expect(body.error.code).toBe('SIGNATORY_LINK_FORBIDDEN')
   })
 
-  it('allows redirect when signatory is already signed', async () => {
+  it('returns forbidden for external recipients', async () => {
     mockGetSession.mockResolvedValueOnce(null)
     ;(verifySignatoryLinkToken as jest.Mock).mockResolvedValueOnce({
       envelopeId: 'req-1',
-      recipientEmail: 'signer@nxtwave.co.in',
+      recipientEmail: 'external@example.com',
       recipientId: 'action-1',
       tokenId: 'token-4',
     })
     mockContractQueryService.resolveEnvelopeContext.mockResolvedValueOnce({
       tenantId: 'tenant-1',
       contractId: 'contract-1',
-      signatoryEmail: 'signer@nxtwave.co.in',
-      signatoryStatus: 'SIGNED',
+      signatoryEmail: 'external@example.com',
+      signatoryStatus: 'PENDING',
       contractStatus: 'PENDING_WITH_EXTERNAL_STAKEHOLDERS',
       recipientType: 'EXTERNAL',
       routingOrder: 1,
     })
-    mockCreateEmbeddedSigningUrl.mockResolvedValueOnce('https://sign.zoho.in/embed/sign-url')
 
     const response = await GET({
       nextUrl: new URL('https://app.example.com/api/contracts/signatories/docusign/redirect?token=abc'),
     } as unknown as Parameters<typeof GET>[0])
 
-    expect(response.status).toBe(302)
-    expect(response.headers.get('location')).toBe('https://sign.zoho.in/embed/sign-url')
+    const body = await response.json()
+    expect(response.status).toBe(403)
+    expect(body.error.code).toBe('SIGNATORY_LINK_FORBIDDEN')
   })
 
   it('returns unauthorized when internal signer session is not accepted', async () => {

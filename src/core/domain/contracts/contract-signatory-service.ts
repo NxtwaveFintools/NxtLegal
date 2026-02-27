@@ -224,7 +224,10 @@ export class ContractSignatoryService {
     for (const recipient of normalizedRecipients) {
       const envelopeRecipient = envelopeRecipientByEmail.get(recipient.signatoryEmail)
       if (!envelopeRecipient) {
-        continue
+        throw new ExternalServiceError(
+          'DOCUSIGN',
+          `Zoho Sign response missing recipient mapping for ${recipient.signatoryEmail}`
+        )
       }
 
       updatedView = await this.contractQueryService.addSignatory({

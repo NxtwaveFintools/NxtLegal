@@ -549,8 +549,13 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     applyContractView(response.data)
   }
 
-  const handleGenerateSigningLink = async (recipientEmail: string) => {
+  const handleGenerateSigningLink = async (recipientEmail: string, recipientType: string) => {
     if (!selectedContractId) {
+      return
+    }
+
+    if (recipientType !== 'INTERNAL') {
+      setError('Signing link can only be generated for internal recipients')
       return
     }
     setIsGeneratingLinkFor(recipientEmail)
@@ -564,12 +569,9 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
         throw new Error(json?.error?.message ?? 'Failed to generate signing link')
       }
       await navigator.clipboard.writeText(json.data.signing_url)
-      setToast({ type: 'success', message: 'Signing link copied to clipboard' })
+      setError(null)
     } catch (error) {
-      setToast({
-        type: 'error',
-        message: error instanceof Error ? error.message : 'Failed to generate signing link',
-      })
+      setError(error instanceof Error ? error.message : 'Failed to generate signing link')
     } finally {
       setIsGeneratingLinkFor(null)
     }
@@ -1295,7 +1297,9 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                                     type="button"
                                     className={styles.buttonGhost}
                                     disabled={isMutating || isGeneratingLinkFor === signatory.signatoryEmail}
-                                    onClick={() => void handleGenerateSigningLink(signatory.signatoryEmail)}
+                                    onClick={() =>
+                                      void handleGenerateSigningLink(signatory.signatoryEmail, signatory.recipientType)
+                                    }
                                   >
                                     {isGeneratingLinkFor === signatory.signatoryEmail
                                       ? 'Generating…'
