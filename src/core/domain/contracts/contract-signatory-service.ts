@@ -406,7 +406,7 @@ export class ContractSignatoryService {
     }
   }
 
-  async handleDocusignSignedWebhook(params: {
+  async handleZohoSignWebhook(params: {
     envelopeId: string
     recipientEmail?: string
     status: string
@@ -522,6 +522,18 @@ export class ContractSignatoryService {
         })
       }
     }
+  }
+
+  async handleDocusignSignedWebhook(params: {
+    envelopeId: string
+    recipientEmail?: string
+    status: string
+    signedAt?: string
+    eventId?: string
+    signerIp?: string
+    payload: Record<string, unknown>
+  }): Promise<void> {
+    await this.handleZohoSignWebhook(params)
   }
 
   private async sendCompletionNotifications(params: {
