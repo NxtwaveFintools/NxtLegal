@@ -1,6 +1,7 @@
 'use client'
 
 import type { KeyboardEvent } from 'react'
+import { contractCounterpartyValues } from '@/core/constants/contracts'
 import { formatFileSize } from '@/lib/format-file-size'
 import styles from '../third-party-upload.module.css'
 
@@ -17,6 +18,7 @@ type AdditionalDataStepProps = {
   onContractTypeChange: (value: string) => void
   onCounterpartyNameChange: (index: number, value: string) => void
   onAddCounterparty: () => void
+  onRemoveCounterparty: (index: number) => void
   signatoryName: string
   signatoryDesignation: string
   signatoryEmail: string
@@ -50,6 +52,7 @@ export default function AdditionalDataStep({
   onContractTypeChange,
   onCounterpartyNameChange,
   onAddCounterparty,
+  onRemoveCounterparty,
   signatoryName,
   signatoryDesignation,
   signatoryEmail,
@@ -72,12 +75,26 @@ export default function AdditionalDataStep({
   onSupportingFilesSelected,
   onSupportingFileRemoved,
 }: AdditionalDataStepProps) {
+  const isCounterpartyNa = (value: string) => value.trim().toUpperCase() === contractCounterpartyValues.notApplicable
+
+  const canAddCounterparty = (index: number) => {
+    if (index !== counterparties.length - 1) {
+      return false
+    }
+
+    return !isCounterpartyNa(counterparties[index]?.counterpartyName ?? '')
+  }
+
   const handleCounterpartyNameKeyDown = (event: KeyboardEvent<HTMLInputElement>, counterpartyIndex: number) => {
     if (event.key !== 'Enter') {
       return
     }
 
     if (counterpartyIndex !== counterparties.length - 1) {
+      return
+    }
+
+    if (!canAddCounterparty(counterpartyIndex)) {
       return
     }
 
@@ -247,7 +264,7 @@ export default function AdditionalDataStep({
 
           {counterparties.map((counterparty, counterpartyIndex) => {
             const requiresSupportingDocs =
-              counterparty.counterpartyName.trim() !== '' && counterparty.counterpartyName.trim().toUpperCase() !== 'NA'
+              counterparty.counterpartyName.trim() !== '' && !isCounterpartyNa(counterparty.counterpartyName)
 
             return (
               <div key={`counterparty-${counterpartyIndex}`} className={styles.counterpartyCard}>
@@ -255,11 +272,23 @@ export default function AdditionalDataStep({
                   <label className={styles.label} htmlFor={`counterparty-name-${counterpartyIndex}`}>
                     Counterparty Name* {counterparties.length > 1 ? `(${counterpartyIndex + 1})` : ''}
                   </label>
-                  {counterpartyIndex === counterparties.length - 1 ? (
-                    <button type="button" className={styles.counterpartyAddButton} onClick={onAddCounterparty}>
-                      +
-                    </button>
-                  ) : null}
+                  <div className={styles.counterpartyActions}>
+                    {counterpartyIndex > 0 ? (
+                      <button
+                        type="button"
+                        className={styles.counterpartyRemoveButton}
+                        onClick={() => onRemoveCounterparty(counterpartyIndex)}
+                        aria-label={`Remove counterparty ${counterpartyIndex + 1}`}
+                      >
+                        −
+                      </button>
+                    ) : null}
+                    {canAddCounterparty(counterpartyIndex) ? (
+                      <button type="button" className={styles.counterpartyAddButton} onClick={onAddCounterparty}>
+                        +
+                      </button>
+                    ) : null}
+                  </div>
                 </div>
                 <input
                   id={`counterparty-name-${counterpartyIndex}`}

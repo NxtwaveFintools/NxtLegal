@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { type ColumnDef, type SortingState, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table'
 import { toast } from 'sonner'
@@ -49,6 +49,23 @@ const timestampFormatter = new Intl.DateTimeFormat('en-GB', {
   minute: '2-digit',
   hour12: true,
 })
+
+const legalDateFormatter = new Intl.DateTimeFormat('en-GB', {
+  day: '2-digit',
+  month: '2-digit',
+  year: 'numeric',
+})
+
+const resolveFileExtension = (fileName: string): string => {
+  const normalizedFileName = fileName.trim().toLowerCase()
+  const lastDotIndex = normalizedFileName.lastIndexOf('.')
+
+  if (lastDotIndex <= 0 || lastDotIndex === normalizedFileName.length - 1) {
+    return ''
+  }
+
+  return normalizedFileName.slice(lastDotIndex + 1)
+}
 
 const sortableColumnMap: Record<string, RepositorySortBy> = {
   title: 'title',
@@ -199,6 +216,19 @@ function formatOverdueLabel(record: ContractRecord): string | null {
   return `Overdue by ${overdueDays} day${overdueDays === 1 ? '' : 's'}`
 }
 
+function formatLegalDate(value?: string | null): string {
+  if (!value) {
+    return '-'
+  }
+
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    return '-'
+  }
+
+  return legalDateFormatter.format(parsed).replace(/\//g, '-')
+}
+
 function resolveAssignedToDisplay(record: ContractRecord): {
   visibleAssignees: string
   hiddenCount: number
@@ -286,8 +316,73 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
   const [openAssignmentDropdownContractId, setOpenAssignmentDropdownContractId] = useState<string | null>(null)
   const [assignmentSavingByContractId, setAssignmentSavingByContractId] = useState<Record<string, boolean>>({})
   const [assignmentErrorByContractId, setAssignmentErrorByContractId] = useState<Record<string, string>>({})
+  const tableWrapRef = useRef<HTMLElement | null>(null)
+  const tableAutoScrollFrameRef = useRef<number | null>(null)
+  const tableAutoScrollVelocityRef = useRef(0)
   const savedViews = useMemo(() => resolveSavedViews(session.role), [session.role])
   const [activeSavedViewId, setActiveSavedViewId] = useState<string>('custom')
+
+  const stopTableAutoScroll = useCallback(() => {
+    tableAutoScrollVelocityRef.current = 0
+    if (tableAutoScrollFrameRef.current !== null) {
+      window.cancelAnimationFrame(tableAutoScrollFrameRef.current)
+      tableAutoScrollFrameRef.current = null
+    }
+  }, [])
+
+  const runTableAutoScroll = useCallback(() => {
+    const tableWrap = tableWrapRef.current
+    if (!tableWrap) {
+      stopTableAutoScroll()
+      return
+    }
+
+    const velocity = tableAutoScrollVelocityRef.current
+    if (Math.abs(velocity) < 0.1) {
+      stopTableAutoScroll()
+      return
+    }
+
+    tableWrap.scrollLeft += velocity
+    tableAutoScrollFrameRef.current = window.requestAnimationFrame(runTableAutoScroll)
+  }, [stopTableAutoScroll])
+
+  const handleTableWrapMouseMove = useCallback(
+    (event: ReactMouseEvent<HTMLElement>) => {
+      const tableWrap = event.currentTarget
+      if (tableWrap.scrollWidth <= tableWrap.clientWidth) {
+        stopTableAutoScroll()
+        return
+      }
+
+      const bounds = tableWrap.getBoundingClientRect()
+      const edgeThreshold = Math.min(96, bounds.width * 0.2)
+      const maxSpeed = 14
+
+      let velocity = 0
+      const distanceFromLeftEdge = event.clientX - bounds.left
+      const distanceFromRightEdge = bounds.right - event.clientX
+
+      if (distanceFromLeftEdge <= edgeThreshold) {
+        const ratio = (edgeThreshold - distanceFromLeftEdge) / edgeThreshold
+        velocity = -Math.max(1, maxSpeed * ratio)
+      } else if (distanceFromRightEdge <= edgeThreshold) {
+        const ratio = (edgeThreshold - distanceFromRightEdge) / edgeThreshold
+        velocity = Math.max(1, maxSpeed * ratio)
+      }
+
+      tableAutoScrollVelocityRef.current = velocity
+
+      if (velocity !== 0 && tableAutoScrollFrameRef.current === null) {
+        tableAutoScrollFrameRef.current = window.requestAnimationFrame(runTableAutoScroll)
+      }
+
+      if (velocity === 0) {
+        stopTableAutoScroll()
+      }
+    },
+    [runTableAutoScroll, stopTableAutoScroll]
+  )
 
   const activeCursor = cursorHistory[cursorHistory.length - 1]
 
@@ -466,6 +561,8 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [activePreview, closePreview])
 
+  useEffect(() => () => stopTableAutoScroll(), [stopTableAutoScroll])
+
   const handleOpenCurrentDocument = useCallback(async (contract: ContractRecord) => {
     const response = await contractsClient.download(contract.id, {
       documentId: contract.currentDocumentId ?? undefined,
@@ -477,14 +574,33 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     }
 
     const resolvedFileName = (response.data.fileName ?? contract.fileName?.trim()) || contract.title
-    const resolvedMimeType = contract.fileMimeType ?? ''
+    const resolvedMimeType = (contract.fileMimeType ?? '').trim().toLowerCase()
+    const resolvedExtension = resolveFileExtension(resolvedFileName)
     const isDocx =
       resolvedMimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
-      resolvedFileName.toLowerCase().endsWith('.docx')
+      resolvedExtension === 'docx'
+    const isSpreadsheet =
+      resolvedExtension === 'xls' ||
+      resolvedExtension === 'xlsx' ||
+      resolvedMimeType.includes('spreadsheetml') ||
+      resolvedMimeType.includes('ms-excel')
+    const isTextPreview =
+      resolvedExtension === 'csv' ||
+      resolvedExtension === 'tsv' ||
+      resolvedExtension === 'txt' ||
+      resolvedMimeType.startsWith('text/') ||
+      resolvedMimeType.includes('csv')
+    const isPresentation =
+      resolvedExtension === 'ppt' ||
+      resolvedExtension === 'pptx' ||
+      resolvedMimeType.includes('ms-powerpoint') ||
+      resolvedMimeType.includes('presentationml')
+    const isLegacyDoc = resolvedExtension === 'doc' || resolvedMimeType.includes('application/msword')
+    const renderAsHtml = isDocx || isLegacyDoc || isPresentation || isSpreadsheet || isTextPreview
 
     const previewUrl = contractsClient.previewUrl(contract.id, {
       documentId: contract.currentDocumentId ?? undefined,
-      renderAs: isDocx ? 'html' : 'binary',
+      renderAs: renderAsHtml ? 'html' : 'binary',
     })
 
     setActivePreview({
@@ -769,6 +885,45 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
           )
         },
       },
+      ...(isLegalTeamRole
+        ? [
+            {
+              accessorKey: 'legalEffectiveDate',
+              header: () => <span className={styles.legalMetadataHeader}>Effective Date</span>,
+              cell: ({ row }: { row: { original: ContractRecord } }) => (
+                <span className={styles.legalMetadataValue}>{formatLegalDate(row.original.legalEffectiveDate)}</span>
+              ),
+            },
+            {
+              accessorKey: 'legalTerminationDate',
+              header: () => <span className={styles.legalMetadataHeader}>Termination Date</span>,
+              cell: ({ row }: { row: { original: ContractRecord } }) => (
+                <span className={styles.legalMetadataValue}>{formatLegalDate(row.original.legalTerminationDate)}</span>
+              ),
+            },
+            {
+              accessorKey: 'legalNoticePeriod',
+              header: () => <span className={styles.legalMetadataHeader}>Notice Period</span>,
+              cell: ({ row }: { row: { original: ContractRecord } }) => {
+                const value = row.original.legalNoticePeriod?.trim()
+                return <span className={styles.legalMetadataValue}>{value && value.length > 0 ? value : '-'}</span>
+              },
+            },
+            {
+              accessorKey: 'legalAutoRenewal',
+              header: () => <span className={styles.legalMetadataHeader}>Auto-renewal</span>,
+              cell: ({ row }: { row: { original: ContractRecord } }) => (
+                <span className={styles.legalMetadataValue}>
+                  {row.original.legalAutoRenewal === true
+                    ? 'Yes'
+                    : row.original.legalAutoRenewal === false
+                      ? 'No'
+                      : '-'}
+                </span>
+              ),
+            },
+          ]
+        : []),
     ],
     [
       assignmentErrorByContractId,
@@ -1037,7 +1192,12 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
           </button>
         </section>
 
-        <section className={styles.tableWrap}>
+        <section
+          ref={tableWrapRef}
+          className={styles.tableWrap}
+          onMouseMove={handleTableWrapMouseMove}
+          onMouseLeave={stopTableAutoScroll}
+        >
           {isLoading ? (
             <div>
               {[1, 2, 3, 4, 5].map((i) => (
@@ -1081,7 +1241,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
               <tbody>
                 {table.getRowModel().rows.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className={styles.empty}>
+                    <td colSpan={columns.length} className={styles.empty}>
                       No contracts found.
                     </td>
                   </tr>

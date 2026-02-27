@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto'
 import {
+  contractCounterpartyValues,
   contractDocumentMimeTypes,
   contractDocumentUploadRules,
   contractUploadModes,
@@ -277,6 +278,11 @@ export class ContractUploadService {
         contractId,
         error: String(error),
       })
+
+      throw new DatabaseError('Failed to persist contract metadata', error as Error, {
+        tenantId: input.tenantId,
+        contractId,
+      })
     }
 
     return contract
@@ -524,7 +530,8 @@ export class ContractUploadService {
         throw new BusinessRuleError('COUNTERPARTY_NAME_TOO_LONG', 'Counterparty name exceeds maximum length')
       }
 
-      const requiresSupportingDocs = counterparty.counterpartyName.toUpperCase() !== 'NA'
+      const requiresSupportingDocs =
+        counterparty.counterpartyName.toUpperCase() !== contractCounterpartyValues.notApplicable
       if (requiresSupportingDocs && counterparty.supportingFiles.length === 0) {
         throw new BusinessRuleError(
           'COUNTERPARTY_SUPPORTING_REQUIRED',

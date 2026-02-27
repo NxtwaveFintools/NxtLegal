@@ -8,6 +8,7 @@ type ReviewStepProps = {
   counterparties: Array<{
     counterpartyName: string
     supportingCount: number
+    supportingFileNames: string[]
   }>
   departmentName: string
   signatoryName: string
@@ -51,9 +52,19 @@ export default function ReviewStep({
         <span>{counterparties.length || 0}</span>
       </div>
       {counterparties.map((counterparty, index) => (
-        <div className={styles.summaryRow} key={`${counterparty.counterpartyName}-${index}`}>
-          <span>{`Counterparty ${index + 1}`}</span>
-          <span>{`${counterparty.counterpartyName || 'Not set'} (${counterparty.supportingCount} docs)`}</span>
+        <div key={`${counterparty.counterpartyName}-${index}`}>
+          <div className={styles.summaryRow}>
+            <span>{`Counterparty ${index + 1}`}</span>
+            <span>{`${counterparty.counterpartyName || 'Not set'} (${counterparty.supportingCount} docs)`}</span>
+          </div>
+          <div className={styles.summaryRow}>
+            <span>{`Counterparty ${index + 1} Supporting Docs`}</span>
+            <span>
+              {counterparty.supportingFileNames.length > 0
+                ? counterparty.supportingFileNames.join(', ')
+                : 'Not provided'}
+            </span>
+          </div>
         </div>
       ))}
       <div className={styles.summaryRow}>

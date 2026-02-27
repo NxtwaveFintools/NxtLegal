@@ -2,6 +2,7 @@
 
 import { useMemo, useRef, useState } from 'react'
 import { contractsClient, type ContractDocument } from '@/core/client/contracts-client'
+import { contractDocumentKinds } from '@/core/constants/contracts'
 import Spinner from '@/components/ui/Spinner'
 import { toast } from 'sonner'
 import workspaceStyles from '@/modules/contracts/ui/contracts-workspace.module.css'
@@ -213,7 +214,7 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
 
   const primaryDocuments = useMemo(() => {
     return documents
-      .filter((document) => document.documentKind === 'PRIMARY')
+      .filter((document) => document.documentKind === contractDocumentKinds.primary)
       .sort((a, b) => {
         const aVersion = typeof a.versionNumber === 'number' ? a.versionNumber : 0
         const bVersion = typeof b.versionNumber === 'number' ? b.versionNumber : 0
@@ -230,10 +231,40 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
   const completionArtifacts = useMemo(() => {
     return documents
       .filter(
-        (document) => document.documentKind === 'EXECUTED_CONTRACT' || document.documentKind === 'AUDIT_CERTIFICATE'
+        (document) =>
+          document.documentKind === contractDocumentKinds.executedContract ||
+          document.documentKind === contractDocumentKinds.auditCertificate
       )
       .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
       .map(toExtendedDocument)
+  }, [documents])
+
+  const supportingDocumentsByCounterparty = useMemo(() => {
+    const supportingDocuments = documents
+      .filter((document) => document.documentKind === contractDocumentKinds.counterpartySupporting)
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .map(toExtendedDocument)
+
+    const groupedDocuments = new Map<string, { key: string; label: string; documents: ExtendedDocument[] }>()
+
+    for (const document of supportingDocuments) {
+      const label = document.counterpartyName?.trim() || 'Counterparty'
+      const key = document.counterpartyId?.trim() || label
+
+      const existingGroup = groupedDocuments.get(key)
+      if (existingGroup) {
+        existingGroup.documents.push(document)
+        continue
+      }
+
+      groupedDocuments.set(key, {
+        key,
+        label,
+        documents: [document],
+      })
+    }
+
+    return Array.from(groupedDocuments.values())
   }, [documents])
 
   const activeDocument = useMemo(() => {
@@ -360,6 +391,45 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
                 </div>
               )
             })}
+          </div>
+        </div>
+      ) : null}
+
+      {supportingDocumentsByCounterparty.length > 0 ? (
+        <div className={workspaceStyles.card}>
+          <div className={workspaceStyles.sectionTitle}>Counterparty Supporting Documents</div>
+          <div className={workspaceStyles.timeline}>
+            {supportingDocumentsByCounterparty.map((group) => (
+              <div key={group.key} className={workspaceStyles.event}>
+                <div className={workspaceStyles.eventActor}>{group.label}</div>
+                <div className={workspaceStyles.timeline}>
+                  {group.documents.map((document) => (
+                    <div key={document.id} className={workspaceStyles.documentRow}>
+                      <div className={workspaceStyles.documentMeta}>
+                        <div className={workspaceStyles.itemMeta}>{document.fileName}</div>
+                        <div className={workspaceStyles.itemMeta}>{formatDate(document.createdAt)}</div>
+                      </div>
+                      <div className={workspaceStyles.actions}>
+                        <button
+                          type="button"
+                          className={workspaceStyles.button}
+                          onClick={() => onPreviewDocument(document)}
+                        >
+                          Preview
+                        </button>
+                        <button
+                          type="button"
+                          className={`${workspaceStyles.button} ${workspaceStyles.buttonGhost}`}
+                          onClick={() => onDownloadDocument(document)}
+                        >
+                          Download
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       ) : null}

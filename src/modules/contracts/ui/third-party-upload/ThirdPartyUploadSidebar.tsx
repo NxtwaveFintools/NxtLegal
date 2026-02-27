@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { contractsClient, type ContractTypeOption, type DepartmentOption } from '@/core/client/contracts-client'
 import {
+  contractCounterpartyValues,
   contractUploadModes,
   contractWorkflowIdentities,
   contractWorkflowRoles,
@@ -25,7 +26,7 @@ type ThirdPartyUploadSidebarProps = {
   onUploaded?: () => Promise<void> | void
 }
 
-const COUNTERPARTIES = ['NA', 'Acme Corp', 'Orion Systems', 'Northwind Traders']
+const COUNTERPARTIES = [contractCounterpartyValues.notApplicable, 'Acme Corp', 'Orion Systems', 'Northwind Traders']
 const ORGANIZATION_ENTITY = 'NxtWave Disruptive Technologies Pvt Ltd'
 
 type CounterpartyEntry = {
@@ -209,7 +210,10 @@ export default function ThirdPartyUploadSidebar({
       }
 
       for (const counterparty of normalizedCounterparties) {
-        if (counterparty.counterpartyName.toUpperCase() !== 'NA' && counterparty.supportingFiles.length === 0) {
+        if (
+          counterparty.counterpartyName.toUpperCase() !== contractCounterpartyValues.notApplicable &&
+          counterparty.supportingFiles.length === 0
+        ) {
           toast.error(`Supporting documents are required for counterparty ${counterparty.counterpartyName}.`)
           return
         }
@@ -233,10 +237,17 @@ export default function ThirdPartyUploadSidebar({
       return
     }
 
-    const primaryCounterpartyName =
-      counterpartyEntries.find((entry) => entry.counterpartyName.trim().length > 0)?.counterpartyName.trim() ??
-      'Counterparty'
-    const generatedTitle = `${selectedContractTypeName || 'Contract'} - ${primaryCounterpartyName}`
+    const normalizedCounterparties = counterpartyEntries
+      .map((entry) => ({
+        counterpartyName: entry.counterpartyName.trim(),
+        supportingFiles: entry.supportingFiles,
+      }))
+      .filter((entry) => entry.counterpartyName.length > 0)
+
+    const primaryCounterpartyName = normalizedCounterparties[0]?.counterpartyName ?? 'Counterparty'
+    const generatedCounterpartySuffix =
+      normalizedCounterparties.map((entry) => entry.counterpartyName).join(', ') || primaryCounterpartyName
+    const generatedTitle = `${selectedContractTypeName || 'Contract'} - ${generatedCounterpartySuffix}`
 
     setUploadSuccess(null)
     setIsSubmitting(true)
@@ -251,12 +262,7 @@ export default function ThirdPartyUploadSidebar({
         title: generatedTitle,
         contractTypeId: contractType,
         counterpartyName: primaryCounterpartyName,
-        counterparties: counterpartyEntries
-          .map((entry) => ({
-            counterpartyName: entry.counterpartyName.trim(),
-            supportingFiles: entry.supportingFiles,
-          }))
-          .filter((entry) => entry.counterpartyName.length > 0),
+        counterparties: normalizedCounterparties,
         signatoryName: signatoryName.trim(),
         signatoryDesignation: signatoryDesignation.trim(),
         signatoryEmail: signatoryEmail.trim().toLowerCase(),
@@ -371,6 +377,16 @@ export default function ThirdPartyUploadSidebar({
           onAddCounterparty={() => {
             setCounterpartyEntries((current) => [...current, { counterpartyName: '', supportingFiles: [] }])
           }}
+          onRemoveCounterparty={(indexToRemove) => {
+            setCounterpartyEntries((current) => {
+              const next = current.filter((_, index) => index !== indexToRemove)
+              if (next.length === 0) {
+                return [{ counterpartyName: '', supportingFiles: [] }]
+              }
+
+              return next
+            })
+          }}
           signatoryName={signatoryName}
           signatoryDesignation={signatoryDesignation}
           signatoryEmail={signatoryEmail}
@@ -442,6 +458,7 @@ export default function ThirdPartyUploadSidebar({
             .map((entry) => ({
               counterpartyName: entry.counterpartyName.trim(),
               supportingCount: entry.supportingFiles.length,
+              supportingFileNames: entry.supportingFiles.map((file) => file.name),
             }))
             .filter((entry) => entry.counterpartyName.length > 0)}
           departmentName={selectedDepartmentName}

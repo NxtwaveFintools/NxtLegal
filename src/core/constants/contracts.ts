@@ -113,6 +113,10 @@ export const contractDocumentUploadRules = {
   replacementAllowedMimeTypes: [contractDocumentMimeTypes.docx, contractDocumentMimeTypes.pdf] as const,
 } as const
 
+export const contractCounterpartyValues = {
+  notApplicable: 'NA',
+} as const
+
 export const contractSignatoryStatuses = {
   pending: 'PENDING',
   signed: 'SIGNED',
@@ -321,6 +325,10 @@ export const contractRepositoryExportColumns = {
   contractAging: 'contract_aging',
   status: 'status',
   assignedTo: 'assigned_to',
+  effectiveDate: 'effective_date',
+  terminationDate: 'termination_date',
+  noticePeriod: 'notice_period',
+  autoRenewal: 'auto_renewal',
   tatBreached: 'tat_breached',
   overdueDays: 'overdue_days',
   contractTitle: 'contract_title',
@@ -339,6 +347,10 @@ export const contractRepositoryExportColumnLabels: Record<
   [contractRepositoryExportColumns.contractAging]: 'Contract Aging',
   [contractRepositoryExportColumns.status]: 'Status',
   [contractRepositoryExportColumns.assignedTo]: 'Assigned To',
+  [contractRepositoryExportColumns.effectiveDate]: 'Effective Date',
+  [contractRepositoryExportColumns.terminationDate]: 'Termination Date',
+  [contractRepositoryExportColumns.noticePeriod]: 'Notice Period',
+  [contractRepositoryExportColumns.autoRenewal]: 'Auto-renewal',
   [contractRepositoryExportColumns.tatBreached]: 'TAT Breached',
   [contractRepositoryExportColumns.overdueDays]: 'Overdue Days',
   [contractRepositoryExportColumns.contractTitle]: 'Contract',

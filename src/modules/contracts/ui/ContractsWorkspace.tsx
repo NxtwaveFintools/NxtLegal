@@ -30,6 +30,19 @@ const PrepareForSigningModal = dynamic(() => import('@/modules/contracts/ui/Prep
   ssr: false,
 })
 
+const htmlPreviewExtensions = new Set(['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'csv', 'tsv', 'txt'])
+
+const resolveFileExtension = (fileName: string): string => {
+  const normalizedName = fileName.trim().toLowerCase()
+  const lastDotIndex = normalizedName.lastIndexOf('.')
+
+  if (lastDotIndex <= 0 || lastDotIndex === normalizedName.length - 1) {
+    return ''
+  }
+
+  return normalizedName.slice(lastDotIndex + 1)
+}
+
 type ContractsWorkspaceProps = {
   session: {
     employeeId: string
@@ -324,40 +337,50 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       toast.loading(`Applying ${actionItem.label}...`, { id: loadingToastId })
 
       setActiveAction(actionItem.action)
-      const response = await contractsClient.action(selectedContractId, {
-        action: actionItem.action,
-        noteText: remark,
-      })
-      setActiveAction(null)
+      try {
+        let shouldTriggerCelebration = false
 
-      if (response.ok !== true) {
-        toast.error(response.error?.message ?? `Failed to apply ${actionItem.label}`, { id: loadingToastId })
-        return false
-      }
+        const response = await contractsClient.action(selectedContractId, {
+          action: actionItem.action,
+          noteText: remark,
+        })
 
-      if (response.data) {
-        applyContractView(response.data)
-
-        if ((response.data.contract.status ?? '').toUpperCase() === contractStatuses.completed) {
-          await triggerContractStatusConfetti()
-          pendingCompletedCelebrationContractIdRef.current = null
-        } else {
-          pendingCompletedCelebrationContractIdRef.current = selectedContractId
+        if (response.ok !== true) {
+          toast.error(response.error?.message ?? `Failed to apply ${actionItem.label}`, { id: loadingToastId })
+          return false
         }
+
+        if (response.data) {
+          const normalizedStatus = (response.data.contract.status ?? '').toUpperCase()
+          applyContractView(response.data)
+
+          if (normalizedStatus === contractStatuses.completed) {
+            shouldTriggerCelebration = true
+            pendingCompletedCelebrationContractIdRef.current = null
+          } else {
+            pendingCompletedCelebrationContractIdRef.current = selectedContractId
+          }
+        }
+
+        await loadContracts()
+        await loadContractContext(selectedContractId)
+        router.refresh()
+        toast.success(`${actionItem.label} completed successfully`, { id: loadingToastId })
+
+        if (shouldTriggerCelebration) {
+          window.setTimeout(() => {
+            triggerContractStatusConfetti()
+          }, 220)
+        }
+
+        return true
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : `Failed to apply ${actionItem.label}`
+        toast.error(errorMessage, { id: loadingToastId })
+        return false
+      } finally {
+        setActiveAction(null)
       }
-
-      await loadContracts()
-      await loadContractContext(selectedContractId)
-      router.refresh()
-      toast.success(`${actionItem.label} completed successfully`, { id: loadingToastId })
-
-      if ((response.data?.contract.status ?? '').toUpperCase() === contractStatuses.completed) {
-        window.setTimeout(() => {
-          triggerContractStatusConfetti()
-        }, 120)
-      }
-
-      return true
     },
     [loadContractContext, loadContracts, router, selectedContractId]
   )
@@ -541,14 +564,39 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
     const resolvedFileName =
       response.data.fileName ?? document?.displayName ?? selectedContract?.fileName ?? 'Contract document'
-    const resolvedMimeType = document?.fileMimeType ?? ''
+    const resolvedMimeType = (document?.fileMimeType ?? '').trim().toLowerCase()
+    const resolvedExtension = resolveFileExtension(resolvedFileName)
     const isDocx =
       resolvedMimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
-      resolvedFileName.toLowerCase().endsWith('.docx')
+      resolvedExtension === 'docx'
+    const isSpreadsheet =
+      resolvedExtension === 'xls' ||
+      resolvedExtension === 'xlsx' ||
+      resolvedMimeType.includes('spreadsheetml') ||
+      resolvedMimeType.includes('ms-excel')
+    const isTextPreview =
+      resolvedExtension === 'csv' ||
+      resolvedExtension === 'tsv' ||
+      resolvedExtension === 'txt' ||
+      resolvedMimeType.startsWith('text/') ||
+      resolvedMimeType.includes('csv')
+    const isPresentation =
+      resolvedExtension === 'ppt' ||
+      resolvedExtension === 'pptx' ||
+      resolvedMimeType.includes('ms-powerpoint') ||
+      resolvedMimeType.includes('presentationml')
+    const isLegacyDoc = resolvedExtension === 'doc' || resolvedMimeType.includes('application/msword')
+    const renderAsHtml =
+      isDocx ||
+      isLegacyDoc ||
+      isPresentation ||
+      isSpreadsheet ||
+      isTextPreview ||
+      htmlPreviewExtensions.has(resolvedExtension)
 
     const previewUrl = contractsClient.previewUrl(selectedContractId, {
       documentId: document?.id,
-      renderAs: isDocx ? 'html' : 'binary',
+      renderAs: renderAsHtml ? 'html' : 'binary',
     })
 
     setViewerUrl(previewUrl)
@@ -1615,14 +1663,12 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
               {viewerMimeType.startsWith('image/') ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={viewerUrl} alt={viewerFileName} className={styles.viewerFrame} />
-              ) : viewerMimeType.includes('pdf') ||
-                viewerFileName.toLowerCase().endsWith('.pdf') ||
-                viewerFileName.toLowerCase().endsWith('.docx') ? (
-                <iframe src={viewerUrl} title={viewerFileName} className={styles.viewerFrame} />
+              ) : viewerMimeType.startsWith('video/') ? (
+                <video src={viewerUrl} className={styles.viewerFrame} controls />
+              ) : viewerMimeType.startsWith('audio/') ? (
+                <audio src={viewerUrl} controls />
               ) : (
-                <div className={styles.placeholderRow}>
-                  Preview is not supported for this file type. Use Open in New Tab.
-                </div>
+                <iframe src={viewerUrl} title={viewerFileName} className={styles.viewerFrame} />
               )}
             </div>
             <div className={styles.viewerFooter}>

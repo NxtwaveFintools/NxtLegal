@@ -200,7 +200,8 @@
 }
 
 .table {
-  width: 100%;
+  width: max-content;
+  min-width: 100%;
   border-collapse: collapse;
 }
 
@@ -521,6 +522,20 @@
   font-weight: 600;
   color: var(--color-text-muted);
   background: var(--color-surface-muted);
+}
+
+.legalMetadataHeader {
+  display: inline-block;
+  text-align: center;
+  width: 100%;
+  min-width: 120px;
+}
+
+.legalMetadataValue {
+  display: block;
+  text-align: center;
+  width: 100%;
+  min-width: 120px;
 }
 
 .muted {

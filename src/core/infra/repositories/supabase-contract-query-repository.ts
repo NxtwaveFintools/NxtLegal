@@ -86,13 +86,13 @@ const bypassAllowedRoles = new Set(['LEGAL_TEAM', 'ADMIN'])
 const activityMessageAllowedRoles = new Set(['LEGAL_TEAM', 'ADMIN', 'HOD'])
 
 const contractsListSelectWithSlaMetrics =
-  'id, tenant_id, title, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, hod_approved_at, tat_deadline_at, tat_breached_at, request_created_at, department_id, aging_business_days, near_breach, is_tat_breached, void_reason, created_at, updated_at'
+  'id, tenant_id, title, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, hod_approved_at, tat_deadline_at, tat_breached_at, request_created_at, department_id, legal_effective_date, legal_termination_date, legal_notice_period, legal_auto_renewal, aging_business_days, near_breach, is_tat_breached, void_reason, created_at, updated_at'
 
 const contractsListSelectLegacy =
   'id, tenant_id, title, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, hod_approved_at, tat_deadline_at, tat_breached_at, request_created_at, department_id, void_reason, created_at, updated_at'
 
 const contractsListSelectFromContractsTable =
-  'id, tenant_id, title, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, hod_approved_at, tat_deadline_at, tat_breached_at, request_created_at, department_id, void_reason, created_at, updated_at'
+  'id, tenant_id, title, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, hod_approved_at, tat_deadline_at, tat_breached_at, request_created_at, department_id, legal_effective_date, legal_termination_date, legal_notice_period, legal_auto_renewal, void_reason, created_at, updated_at'
 
 type ContractEntity = {
   id: string
@@ -415,6 +415,25 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       created_at: string
       updated_at: string
     }>
+
+    if (rows.length > 0) {
+      const legalMetadataByContractId = await this.getContractLegalMetadataMap(
+        params.tenantId,
+        rows.map((row) => row.id)
+      )
+
+      for (const row of rows) {
+        const legalMetadata = legalMetadataByContractId.get(row.id)
+        if (!legalMetadata) {
+          continue
+        }
+
+        row.legal_effective_date = legalMetadata.legalEffectiveDate
+        row.legal_termination_date = legalMetadata.legalTerminationDate
+        row.legal_notice_period = legalMetadata.legalNoticePeriod
+        row.legal_auto_renewal = legalMetadata.legalAutoRenewal
+      }
+    }
 
     const additionalApproverContext = await this.getAdditionalApproverContractContextMap(
       params.tenantId,
@@ -799,12 +818,35 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       tat_breached_at: string | null
       request_created_at: string | null
       department_id: string | null
+      legal_effective_date?: string | null
+      legal_termination_date?: string | null
+      legal_notice_period?: string | null
+      legal_auto_renewal?: boolean | null
       aging_business_days: number | null
       near_breach: boolean
       is_tat_breached: boolean
       created_at: string
       updated_at: string
     }>
+
+    if (rows.length > 0) {
+      const legalMetadataByContractId = await this.getContractLegalMetadataMap(
+        params.tenantId,
+        rows.map((row) => row.id)
+      )
+
+      for (const row of rows) {
+        const legalMetadata = legalMetadataByContractId.get(row.id)
+        if (!legalMetadata) {
+          continue
+        }
+
+        row.legal_effective_date = legalMetadata.legalEffectiveDate
+        row.legal_termination_date = legalMetadata.legalTerminationDate
+        row.legal_notice_period = legalMetadata.legalNoticePeriod
+        row.legal_auto_renewal = legalMetadata.legalAutoRenewal
+      }
+    }
 
     const additionalApproverContext = await this.getAdditionalApproverContractContextMap(
       params.tenantId,
@@ -1024,6 +1066,22 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         ? params.columns
         : (Object.keys(contractRepositoryExportColumnLabels) as RepositoryExportColumn[])
 
+    const formatLegalDate = (value?: string | null): string => {
+      if (!value) {
+        return '-'
+      }
+
+      const parsed = new Date(value)
+      if (Number.isNaN(parsed.getTime())) {
+        return '-'
+      }
+
+      const day = String(parsed.getUTCDate()).padStart(2, '0')
+      const month = String(parsed.getUTCMonth() + 1).padStart(2, '0')
+      const year = parsed.getUTCFullYear()
+      return `${day}-${month}-${year}`
+    }
+
     return contracts.map((contract) => {
       const row = {} as RepositoryExportRow
 
@@ -1046,6 +1104,14 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
           row[column] = contract.repositoryStatusLabel ?? contract.displayStatusLabel ?? contract.status
         } else if (column === 'assigned_to') {
           row[column] = (contract.assignedToUsers ?? [contract.currentAssigneeEmail]).join('; ')
+        } else if (column === 'effective_date') {
+          row[column] = formatLegalDate(contract.legalEffectiveDate)
+        } else if (column === 'termination_date') {
+          row[column] = formatLegalDate(contract.legalTerminationDate)
+        } else if (column === 'notice_period') {
+          row[column] = contract.legalNoticePeriod?.trim() || '-'
+        } else if (column === 'auto_renewal') {
+          row[column] = contract.legalAutoRenewal === true ? 'Yes' : contract.legalAutoRenewal === false ? 'No' : '-'
         } else if (column === 'tat_breached') {
           row[column] = contract.isTatBreached ? 'Yes' : 'No'
         } else if (column === 'overdue_days') {
@@ -4990,6 +5056,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       tat_breached_at?: string | null
       request_created_at?: string | null
       department_id?: string | null
+      legal_effective_date?: string | null
+      legal_termination_date?: string | null
+      legal_notice_period?: string | null
+      legal_auto_renewal?: boolean | null
       void_reason?: string | null
       aging_business_days?: number | null
       near_breach?: boolean
@@ -5039,6 +5109,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       nearBreach: Boolean(row.near_breach),
       isTatBreached: Boolean(row.is_tat_breached),
       requestCreatedAt: row.request_created_at ?? null,
+      legalEffectiveDate: row.legal_effective_date ?? null,
+      legalTerminationDate: row.legal_termination_date ?? null,
+      legalNoticePeriod: row.legal_notice_period ?? null,
+      legalAutoRenewal: row.legal_auto_renewal ?? null,
       departmentId: row.department_id ?? null,
       departmentName: metadata?.departmentName ?? null,
       assignedToUsers: metadata?.assignedToUsers ?? [row.current_assignee_email],
@@ -5139,6 +5213,70 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     }
 
     return assignmentMap
+  }
+
+  private async getContractLegalMetadataMap(
+    tenantId: string,
+    contractIds: string[]
+  ): Promise<
+    Map<
+      string,
+      {
+        legalEffectiveDate: string | null
+        legalTerminationDate: string | null
+        legalNoticePeriod: string | null
+        legalAutoRenewal: boolean | null
+      }
+    >
+  > {
+    const legalMetadataMap = new Map<
+      string,
+      {
+        legalEffectiveDate: string | null
+        legalTerminationDate: string | null
+        legalNoticePeriod: string | null
+        legalAutoRenewal: boolean | null
+      }
+    >()
+
+    if (contractIds.length === 0) {
+      return legalMetadataMap
+    }
+
+    const supabase = createServiceSupabase()
+    const { data, error } = await supabase
+      .from('contracts')
+      .select('id, legal_effective_date, legal_termination_date, legal_notice_period, legal_auto_renewal')
+      .eq('tenant_id', tenantId)
+      .in('id', contractIds)
+      .is('deleted_at', null)
+
+    if (error) {
+      if (this.isMissingColumnError(error, 'contracts')) {
+        return legalMetadataMap
+      }
+
+      throw new DatabaseError('Failed to resolve legal metadata for repository contracts', new Error(error.message), {
+        code: error.code,
+      })
+    }
+
+    for (const row of (data ?? []) as Array<{
+      id: string
+      legal_effective_date: string | null
+      legal_termination_date: string | null
+      legal_notice_period: string | null
+      legal_auto_renewal: boolean | null
+    }>) {
+      legalMetadataMap.set(row.id, {
+        legalEffectiveDate: row.legal_effective_date ?? null,
+        legalTerminationDate: row.legal_termination_date ?? null,
+        legalNoticePeriod: row.legal_notice_period ?? null,
+        legalAutoRenewal: row.legal_auto_renewal ?? null,
+      })
+    }
+
+    return legalMetadataMap
   }
 
   private async collectRepositoryContractsForReporting(params: {
