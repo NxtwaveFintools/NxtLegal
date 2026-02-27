@@ -64,6 +64,57 @@ describe('supabaseContractQueryRepository action permissions', () => {
     })
   })
 
+  it('blocks mapped department HOD action for send-for-signing when actor is not current assignee', async () => {
+    const getByIdSpy = jest.spyOn(supabaseContractQueryRepository, 'getById')
+    const canActorAccessSpy = jest.spyOn(
+      supabaseContractQueryRepository as unknown as {
+        canActorAccessContract: (...args: unknown[]) => Promise<boolean>
+      },
+      'canActorAccessContract'
+    )
+
+    canActorAccessSpy.mockResolvedValue(true)
+
+    getByIdSpy.mockResolvedValue({
+      id: 'contract-1',
+      title: 'Contract A',
+      contractTypeId: 'type-1',
+      status: 'HOD_PENDING',
+      uploadMode: 'LEGAL_SEND_FOR_SIGNING',
+      uploadedByEmployeeId: 'legal-team-1',
+      uploadedByEmail: 'legalteam@nxtwave.co.in',
+      currentAssigneeEmployeeId: 'legal-hod-1',
+      currentAssigneeEmail: 'legalhod@nxtwave.co.in',
+      departmentId: 'finance-dept-1',
+      signatoryName: 'Sig Name',
+      signatoryDesignation: 'Manager',
+      signatoryEmail: 'sig@nxtwave.co.in',
+      backgroundOfRequest: 'Need review',
+      budgetApproved: true,
+      requestCreatedAt: new Date().toISOString(),
+      fileName: 'file.docx',
+      fileSizeBytes: 1024,
+      fileMimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      filePath: 'tenant/contract-1/file.docx',
+      rowVersion: 1,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+
+    await expect(
+      supabaseContractQueryRepository.applyAction({
+        tenantId: 'tenant-1',
+        contractId: 'contract-1',
+        action: 'hod.approve',
+        actorEmployeeId: 'finance-hod-1',
+        actorRole: 'HOD',
+        actorEmail: 'financehod@nxtwave.co.in',
+      })
+    ).rejects.toMatchObject<Partial<AuthorizationError>>({
+      code: 'CONTRACT_ACTION_FORBIDDEN',
+    })
+  })
+
   it('blocks signatory assignment for non-legal roles', async () => {
     await expect(
       supabaseContractQueryRepository.addSignatory({

@@ -49,6 +49,7 @@ type ContractRecord = {
   hodApprovedAt?: string | null
   departmentId?: string
   departmentName?: string
+  uploadMode?: ContractUploadMode
   departmentHodName?: string | null
   departmentHodEmail?: string | null
   assignedToUsers?: string[]

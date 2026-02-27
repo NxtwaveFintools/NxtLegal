@@ -160,6 +160,45 @@
   gap: 6px;
 }
 
+.auditTableWrap {
+  overflow-x: auto;
+}
+
+.auditTable {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: 12px;
+}
+
+.auditTable th,
+.auditTable td {
+  text-align: left;
+  padding: 10px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+  vertical-align: middle;
+}
+
+.auditTable th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--color-text);
+}
+
+.auditTable tbody tr {
+  cursor: pointer;
+}
+
+.auditTable tbody tr:hover {
+  background: var(--color-surface);
+}
+
+.auditRowSelected {
+  background: var(--color-surface);
+}
+
 .warning {
   color: var(--color-danger);
   font-weight: 600;

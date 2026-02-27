@@ -65,12 +65,22 @@ function buildSteps(params: {
   approvers: ContractDetailResponse['additionalApprovers']
 }): ApprovalStep[] {
   const steps: ApprovalStep[] = []
+  const isHodPending = params.contract.status === 'HOD_PENDING'
+  const hodApproverLabel = isHodPending
+    ? params.contract.currentAssigneeEmail?.trim() ||
+      params.contract.departmentHodName?.trim() ||
+      params.contract.departmentHodEmail ||
+      'HOD'
+    : params.contract.departmentHodName?.trim() ||
+      params.contract.departmentHodEmail ||
+      params.contract.currentAssigneeEmail?.trim() ||
+      'HOD'
 
   steps.push({
     id: `hod-${params.contract.id}`,
     stepNumber: 1,
     approverRole: 'HOD',
-    approverLabel: params.contract.departmentHodName?.trim() || params.contract.departmentHodEmail || 'HOD',
+    approverLabel: hodApproverLabel,
     status: resolveStepStatus({
       contractStatus: params.contract.status,
       role: 'HOD',

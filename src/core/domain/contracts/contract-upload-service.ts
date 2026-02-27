@@ -489,6 +489,8 @@ export class ContractUploadService {
   }
 
   private validateUploadInput(input: UploadContractInput): void {
+    const isLegalSendForSigning = input.uploadMode === contractUploadModes.legalSendForSigning
+
     if (!input.title.trim()) {
       throw new BusinessRuleError('CONTRACT_TITLE_REQUIRED', 'Contract title is required')
     }
@@ -514,20 +516,22 @@ export class ContractUploadService {
       throw new BusinessRuleError('SIGNATORY_NAME_REQUIRED', 'Signatory name is required')
     }
 
-    if (!input.signatoryDesignation.trim()) {
-      throw new BusinessRuleError('SIGNATORY_DESIGNATION_REQUIRED', 'Signatory designation is required')
-    }
+    if (!isLegalSendForSigning) {
+      if (!input.signatoryDesignation.trim()) {
+        throw new BusinessRuleError('SIGNATORY_DESIGNATION_REQUIRED', 'Signatory designation is required')
+      }
 
-    if (!input.signatoryEmail.trim()) {
-      throw new BusinessRuleError('SIGNATORY_EMAIL_REQUIRED', 'Signatory email is required')
-    }
+      if (!input.signatoryEmail.trim()) {
+        throw new BusinessRuleError('SIGNATORY_EMAIL_REQUIRED', 'Signatory email is required')
+      }
 
-    if (!/^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(input.signatoryEmail.trim())) {
-      throw new BusinessRuleError('SIGNATORY_EMAIL_INVALID', 'Signatory email format is invalid')
-    }
+      if (!/^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(input.signatoryEmail.trim())) {
+        throw new BusinessRuleError('SIGNATORY_EMAIL_INVALID', 'Signatory email format is invalid')
+      }
 
-    if (!input.backgroundOfRequest.trim()) {
-      throw new BusinessRuleError('BACKGROUND_OF_REQUEST_REQUIRED', 'Background of request is required')
+      if (!input.backgroundOfRequest.trim()) {
+        throw new BusinessRuleError('BACKGROUND_OF_REQUEST_REQUIRED', 'Background of request is required')
+      }
     }
 
     if (!input.departmentId.trim()) {
@@ -549,6 +553,7 @@ export class ContractUploadService {
       }
 
       const requiresSupportingDocs =
+        !isLegalSendForSigning &&
         counterparty.counterpartyName.toUpperCase() !== contractCounterpartyValues.notApplicable
       if (requiresSupportingDocs && counterparty.supportingFiles.length === 0) {
         throw new BusinessRuleError(

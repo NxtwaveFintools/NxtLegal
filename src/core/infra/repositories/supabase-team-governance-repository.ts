@@ -523,6 +523,29 @@ class SupabaseTeamGovernanceRepository implements ITeamGovernanceRepository {
       })
     }
 
+    const { error: ownerNameAuditError } = await this.supabase.from('audit_logs').insert([
+      {
+        tenant_id: params.tenantId,
+        user_id: params.adminUserId,
+        action: 'team.owner_names.updated',
+        actor_email: null,
+        actor_role: null,
+        resource_type: 'team',
+        resource_id: row.team_id,
+        metadata: {
+          poc_name: params.pocName,
+          hod_name: params.hodName,
+        },
+      },
+    ])
+
+    if (ownerNameAuditError) {
+      throw new DatabaseError('Failed to write department owner-names audit event', undefined, {
+        errorCode: ownerNameAuditError.code,
+        errorMessage: ownerNameAuditError.message,
+      })
+    }
+
     return {
       teamId: row.team_id,
       departmentName: row.department_name,

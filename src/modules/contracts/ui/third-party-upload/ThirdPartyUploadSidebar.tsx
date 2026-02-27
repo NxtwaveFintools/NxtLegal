@@ -7,7 +7,6 @@ import { contractsClient, type ContractTypeOption, type DepartmentOption } from 
 import {
   contractCounterpartyValues,
   contractUploadModes,
-  contractWorkflowIdentities,
   contractWorkflowRoles,
   type ContractUploadMode,
 } from '@/core/constants/contracts'
@@ -72,15 +71,9 @@ export default function ThirdPartyUploadSidebar({
   const showCounterpartyModal = counterpartyEntries.some(
     (entry) => entry.counterpartyName.trim() !== '' && !COUNTERPARTIES.includes(entry.counterpartyName.trim())
   )
-  const legalDepartment = departments.find(
-    (item) => item.name.trim().toLowerCase() === contractWorkflowIdentities.legalDepartmentName.toLowerCase()
-  )
-  const legalDepartmentId = legalDepartment?.id ?? ''
   const isLegalActor = actorRole === contractWorkflowRoles.legalTeam
-  const effectiveDepartmentId = isLegalSendForSigningMode ? departmentId || legalDepartmentId : departmentId
-  const selectedDepartmentName = isLegalSendForSigningMode
-    ? contractWorkflowIdentities.legalDepartmentName
-    : (departments.find((item) => item.id === departmentId)?.name ?? '')
+  const effectiveDepartmentId = departmentId
+  const selectedDepartmentName = departments.find((item) => item.id === departmentId)?.name ?? ''
   const selectedContractTypeName = contractTypes.find((item) => item.id === contractType)?.name ?? ''
 
   useEffect(() => {
@@ -169,22 +162,29 @@ export default function ThirdPartyUploadSidebar({
         }))
         .filter((entry) => entry.counterpartyName.length > 0)
 
-      if (
-        !contractType ||
-        normalizedCounterparties.length === 0 ||
-        !signatoryName.trim() ||
-        !signatoryDesignation.trim() ||
-        !signatoryEmail.trim() ||
-        !backgroundOfRequest.trim() ||
-        !effectiveDepartmentId
-      ) {
-        toast.error('Please complete the required fields before continuing.')
-        return
-      }
+      if (isLegalSendForSigningMode) {
+        if (!contractType || !signatoryName.trim() || !effectiveDepartmentId) {
+          toast.error('Please complete the required fields before continuing.')
+          return
+        }
+      } else {
+        if (
+          !contractType ||
+          normalizedCounterparties.length === 0 ||
+          !signatoryName.trim() ||
+          !signatoryDesignation.trim() ||
+          !signatoryEmail.trim() ||
+          !backgroundOfRequest.trim() ||
+          !effectiveDepartmentId
+        ) {
+          toast.error('Please complete the required fields before continuing.')
+          return
+        }
 
-      if (!/^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(signatoryEmail.trim())) {
-        toast.error('Please enter a valid signatory email address.')
-        return
+        if (!/^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(signatoryEmail.trim())) {
+          toast.error('Please enter a valid signatory email address.')
+          return
+        }
       }
 
       if (departments.length === 0) {
@@ -197,25 +197,17 @@ export default function ThirdPartyUploadSidebar({
           toast.error('Only Legal Team can use Send for Signing mode.')
           return
         }
-
-        if (!legalDepartmentId || effectiveDepartmentId !== legalDepartmentId) {
-          toast.error('Legal and Compliance department is required for this workflow.')
-          return
-        }
-
-        if (bypassHodApproval && !bypassReason.trim()) {
-          toast.error('Bypass reason is required when bypassing HOD approval.')
-          return
-        }
       }
 
-      for (const counterparty of normalizedCounterparties) {
-        if (
-          counterparty.counterpartyName.toUpperCase() !== contractCounterpartyValues.notApplicable &&
-          counterparty.supportingFiles.length === 0
-        ) {
-          toast.error(`Supporting documents are required for counterparty ${counterparty.counterpartyName}.`)
-          return
+      if (!isLegalSendForSigningMode) {
+        for (const counterparty of normalizedCounterparties) {
+          if (
+            counterparty.counterpartyName.toUpperCase() !== contractCounterpartyValues.notApplicable &&
+            counterparty.supportingFiles.length === 0
+          ) {
+            toast.error(`Supporting documents are required for counterparty ${counterparty.counterpartyName}.`)
+            return
+          }
         }
       }
     }
@@ -244,9 +236,20 @@ export default function ThirdPartyUploadSidebar({
       }))
       .filter((entry) => entry.counterpartyName.length > 0)
 
-    const primaryCounterpartyName = normalizedCounterparties[0]?.counterpartyName ?? 'Counterparty'
+    const effectiveCounterparties = isLegalSendForSigningMode
+      ? signatoryName.trim()
+        ? [
+            {
+              counterpartyName: signatoryName.trim(),
+              supportingFiles: [] as File[],
+            },
+          ]
+        : []
+      : normalizedCounterparties
+
+    const primaryCounterpartyName = effectiveCounterparties[0]?.counterpartyName ?? 'Counterparty'
     const generatedCounterpartySuffix =
-      normalizedCounterparties.map((entry) => entry.counterpartyName).join(', ') || primaryCounterpartyName
+      effectiveCounterparties.map((entry) => entry.counterpartyName).join(', ') || primaryCounterpartyName
     const generatedTitle = `${selectedContractTypeName || 'Contract'} - ${generatedCounterpartySuffix}`
 
     setUploadSuccess(null)
@@ -262,16 +265,16 @@ export default function ThirdPartyUploadSidebar({
         title: generatedTitle,
         contractTypeId: contractType,
         counterpartyName: primaryCounterpartyName,
-        counterparties: normalizedCounterparties,
+        counterparties: effectiveCounterparties,
         signatoryName: signatoryName.trim(),
-        signatoryDesignation: signatoryDesignation.trim(),
-        signatoryEmail: signatoryEmail.trim().toLowerCase(),
-        backgroundOfRequest: backgroundOfRequest.trim(),
+        signatoryDesignation: isLegalSendForSigningMode ? undefined : signatoryDesignation.trim(),
+        signatoryEmail: isLegalSendForSigningMode ? undefined : signatoryEmail.trim().toLowerCase(),
+        backgroundOfRequest: isLegalSendForSigningMode ? undefined : backgroundOfRequest.trim(),
         departmentId: effectiveDepartmentId,
-        budgetApproved,
+        budgetApproved: isLegalSendForSigningMode ? undefined : budgetApproved,
         uploadMode: mode,
-        bypassHodApproval: isLegalSendForSigningMode ? bypassHodApproval : false,
-        bypassReason: isLegalSendForSigningMode ? bypassReason.trim() : undefined,
+        bypassHodApproval: false,
+        bypassReason: undefined,
         file: mainFile,
         idempotencyKey,
       })
@@ -353,6 +356,7 @@ export default function ThirdPartyUploadSidebar({
     if (activeStep === 1) {
       return (
         <AdditionalDataStep
+          isSendForSigningFlow={isLegalSendForSigningMode}
           mainFileName={mainFile?.name || null}
           contractType={contractType}
           contractTypes={contractTypes}
@@ -393,8 +397,7 @@ export default function ThirdPartyUploadSidebar({
           backgroundOfRequest={backgroundOfRequest}
           departmentId={effectiveDepartmentId}
           departments={departments}
-          isDepartmentLocked={isLegalSendForSigningMode}
-          lockedDepartmentName={contractWorkflowIdentities.legalDepartmentName}
+          isDepartmentLocked={false}
           budgetApproved={budgetApproved}
           bypassHodApproval={bypassHodApproval}
           bypassReason={bypassReason}
@@ -452,23 +455,36 @@ export default function ThirdPartyUploadSidebar({
     if (activeStep === 2) {
       return (
         <ReviewStep
+          isSendForSigningFlow={isLegalSendForSigningMode}
           mainFileName={mainFile?.name || null}
           contractType={selectedContractTypeName}
-          counterparties={counterpartyEntries
-            .map((entry) => ({
-              counterpartyName: entry.counterpartyName.trim(),
-              supportingCount: entry.supportingFiles.length,
-              supportingFileNames: entry.supportingFiles.map((file) => file.name),
-            }))
-            .filter((entry) => entry.counterpartyName.length > 0)}
+          counterparties={
+            isLegalSendForSigningMode
+              ? signatoryName.trim()
+                ? [
+                    {
+                      counterpartyName: signatoryName.trim(),
+                      supportingCount: 0,
+                      supportingFileNames: [],
+                    },
+                  ]
+                : []
+              : counterpartyEntries
+                  .map((entry) => ({
+                    counterpartyName: entry.counterpartyName.trim(),
+                    supportingCount: entry.supportingFiles.length,
+                    supportingFileNames: entry.supportingFiles.map((file) => file.name),
+                  }))
+                  .filter((entry) => entry.counterpartyName.length > 0)
+          }
           departmentName={selectedDepartmentName}
           signatoryName={signatoryName}
           signatoryDesignation={signatoryDesignation}
           signatoryEmail={signatoryEmail}
           backgroundOfRequest={backgroundOfRequest}
           budgetApproved={budgetApproved}
-          bypassHodApproval={isLegalSendForSigningMode ? bypassHodApproval : false}
-          bypassReason={isLegalSendForSigningMode ? bypassReason.trim() : undefined}
+          bypassHodApproval={false}
+          bypassReason={undefined}
           organizationEntity={ORGANIZATION_ENTITY}
         />
       )

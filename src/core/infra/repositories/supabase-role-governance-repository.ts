@@ -148,6 +148,33 @@ class SupabaseRoleGovernanceRepository implements IRoleGovernanceRepository {
         errorMessage: updateError.message,
       })
     }
+
+    const { error: auditError } = await this.supabase.from('audit_logs').insert([
+      {
+        tenant_id: params.tenantId,
+        user_id: params.targetUserId,
+        action: 'admin.user.legacy_role_synced',
+        actor_email: null,
+        actor_role: null,
+        resource_type: 'user',
+        resource_id: params.targetUserId,
+        metadata: {
+          previous_legacy_role: currentLegacyRole || null,
+          next_legacy_role: nextLegacyRole,
+          operation: params.operation,
+          role_key: params.roleKey,
+          changed: params.changed,
+          token_version_bumped: shouldBumpTokenVersion,
+        },
+      },
+    ])
+
+    if (auditError) {
+      throw new DatabaseError('Failed to audit legacy role synchronization', undefined, {
+        errorCode: auditError.code,
+        errorMessage: auditError.message,
+      })
+    }
   }
 
   async changeUserRole(params: ChangeUserRoleParams): Promise<ChangeUserRoleResult> {

@@ -198,6 +198,7 @@ describe('ContractUploadService signing source regression', () => {
         uploadedByEmployeeId: 'poc-1',
         uploadedByEmail: 'poc@nxtwave.co.in',
         uploadedByRole: 'POC',
+        uploadMode: contractUploadModes.default,
         title: 'MSA',
         contractTypeId: 'type-1',
         signatoryName: 'Signer',
@@ -485,5 +486,119 @@ describe('ContractUploadService legal send-for-signing validations', () => {
         bypassReason: 'Urgent legal override for immediate execution',
       })
     )
+  })
+
+  it('allows blank designation, email, and background in legal send-for-signing mode', async () => {
+    const contractRepository = {
+      createWithAudit: jest.fn().mockResolvedValue({
+        id: 'contract-1',
+        tenantId: 'tenant-1',
+        title: 'NDA',
+        contractTypeId: 'contract-type-1',
+        signatoryName: 'Vendor Signatory',
+        signatoryDesignation: '',
+        signatoryEmail: '',
+        backgroundOfRequest: '',
+        departmentId: 'department-1',
+        budgetApproved: false,
+        requestCreatedAt: new Date().toISOString(),
+        uploadedByEmployeeId: 'employee-1',
+        uploadedByEmail: 'legal@nxtwave.co.in',
+        currentAssigneeEmployeeId: 'employee-1',
+        currentAssigneeEmail: 'legal@nxtwave.co.in',
+        status: 'COMPLETED',
+        filePath: 'tenant-1/contract-1/agreement.pdf',
+        fileName: 'agreement.pdf',
+        fileSizeBytes: 1024,
+        fileMimeType: 'application/pdf',
+      }),
+      createCounterparties: jest.fn().mockResolvedValue([
+        {
+          id: 'counterparty-1',
+          tenantId: 'tenant-1',
+          contractId: 'contract-1',
+          counterpartyName: 'NA',
+          sequenceOrder: 1,
+        },
+      ]),
+      setCounterpartyName: jest.fn().mockResolvedValue(undefined),
+      createDocument: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const contractStorageRepository = {
+      upload: jest.fn().mockResolvedValue(undefined),
+      remove: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const service = new ContractUploadService(contractRepository as never, contractStorageRepository as never, logger)
+
+    await expect(
+      service.uploadContract(
+        buildUploadInput({
+          signatoryDesignation: '   ',
+          signatoryEmail: '   ',
+          backgroundOfRequest: '   ',
+          budgetApproved: false,
+        }) as never
+      )
+    ).resolves.toBeTruthy()
+
+    expect(contractRepository.createWithAudit).toHaveBeenCalled()
+  })
+
+  it('allows send-for-signing without supporting documents for non-NA counterparty', async () => {
+    const contractRepository = {
+      createWithAudit: jest.fn().mockResolvedValue({
+        id: 'contract-1',
+        tenantId: 'tenant-1',
+        title: 'NDA',
+        contractTypeId: 'contract-type-1',
+        signatoryName: 'Vendor Signatory',
+        signatoryDesignation: 'Director',
+        signatoryEmail: 'vendor@example.com',
+        backgroundOfRequest: 'Need contract execution',
+        departmentId: 'department-1',
+        budgetApproved: true,
+        requestCreatedAt: new Date().toISOString(),
+        uploadedByEmployeeId: 'employee-1',
+        uploadedByEmail: 'legal@nxtwave.co.in',
+        currentAssigneeEmployeeId: 'employee-1',
+        currentAssigneeEmail: 'legal@nxtwave.co.in',
+        status: 'COMPLETED',
+        filePath: 'tenant-1/contract-1/agreement.pdf',
+        fileName: 'agreement.pdf',
+        fileSizeBytes: 1024,
+        fileMimeType: 'application/pdf',
+      }),
+      createCounterparties: jest.fn().mockResolvedValue([
+        {
+          id: 'counterparty-1',
+          tenantId: 'tenant-1',
+          contractId: 'contract-1',
+          counterpartyName: 'Acme Corp',
+          sequenceOrder: 1,
+        },
+      ]),
+      setCounterpartyName: jest.fn().mockResolvedValue(undefined),
+      createDocument: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const contractStorageRepository = {
+      upload: jest.fn().mockResolvedValue(undefined),
+      remove: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const service = new ContractUploadService(contractRepository as never, contractStorageRepository as never, logger)
+
+    await expect(
+      service.uploadContract(
+        buildUploadInput({
+          counterpartyName: 'Acme Corp',
+          supportingFiles: [],
+        }) as never
+      )
+    ).resolves.toBeTruthy()
+
+    expect(contractRepository.createWithAudit).toHaveBeenCalled()
   })
 })

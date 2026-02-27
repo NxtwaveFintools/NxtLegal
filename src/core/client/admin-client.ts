@@ -135,6 +135,13 @@ export type AdminAuditLogItem = {
   id: string
   userId: string
   action: string
+  eventType: string | null
+  actorEmail: string | null
+  actorRole: string | null
+  targetEmail: string | null
+  noteText: string | null
+  actorName: string | null
+  actorResolvedEmail: string | null
   resourceType: string
   resourceId: string
   changes: Record<string, unknown> | null

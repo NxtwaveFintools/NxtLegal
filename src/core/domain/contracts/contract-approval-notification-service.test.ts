@@ -11,9 +11,9 @@ const createContractView = (): ContractDetailView => ({
     uploadedByEmployeeId: 'poc-1',
     uploadedByEmail: 'poc@nxtwave.co.in',
     currentAssigneeEmployeeId: 'hod-1',
-    currentAssigneeEmail: 'hod@nxtwave.co.in',
+    currentAssigneeEmail: 'legalhod@nxtwave.co.in',
     departmentId: 'dept-1',
-    departmentHodEmail: 'hod@nxtwave.co.in',
+    departmentHodEmail: 'financehod@nxtwave.co.in',
     signatoryName: 'Signer',
     signatoryDesignation: 'Manager',
     signatoryEmail: 'signer@nxtwave.co.in',
@@ -83,10 +83,39 @@ describe('ContractApprovalNotificationService', () => {
 
     expect(mailSender.sendTemplateEmail).toHaveBeenCalledWith(
       expect.objectContaining({
+        recipientEmail: 'legalhod@nxtwave.co.in',
         templateParams: expect.objectContaining({
           'contact.LINK': 'https://nxtlegal.example.com/contracts/contract-1',
           'contact.CONTRACT_TITLE': 'MSA Contract',
         }),
+      })
+    )
+  })
+
+  it('uses current assignee email for HOD reminders when metadata department HOD differs', async () => {
+    const contractQueryService = {
+      getContractDetail: jest.fn().mockResolvedValue(createContractView()),
+      getLatestNotificationDelivery: jest.fn().mockResolvedValue(null),
+      recordContractNotificationDelivery: jest.fn().mockResolvedValue(undefined),
+    } as unknown as ContractQueryService
+
+    const mailSender = {
+      sendTemplateEmail: jest.fn().mockResolvedValue({ providerMessageId: 'msg-4' }),
+    }
+
+    const service = new ContractApprovalNotificationService(contractQueryService, mailSender, templates, logger)
+
+    const result = await service.remindPendingApprover({
+      tenantId: 'tenant-1',
+      contractId: 'contract-1',
+      actorEmployeeId: 'actor-1',
+      actorRole: 'LEGAL_TEAM',
+    })
+
+    expect(result.recipientEmail).toBe('legalhod@nxtwave.co.in')
+    expect(mailSender.sendTemplateEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipientEmail: 'legalhod@nxtwave.co.in',
       })
     )
   })

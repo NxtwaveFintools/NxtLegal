@@ -102,7 +102,10 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
         contractId,
         actorEmployeeId: session.employeeId,
         actorRole: session.role,
-        recipientEmails: [contractView.contract.uploadedByEmail, contractView.contract.departmentHodEmail ?? ''],
+        recipientEmails: [
+          contractView.contract.uploadedByEmail,
+          contractView.contract.currentAssigneeEmail || contractView.contract.departmentHodEmail || '',
+        ],
         trigger: payload.action === 'legal.reject' ? 'LEGAL_REJECTION' : 'HOD_REJECTED',
       })
     }

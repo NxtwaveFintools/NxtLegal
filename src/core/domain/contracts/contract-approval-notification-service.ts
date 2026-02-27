@@ -59,7 +59,9 @@ export class ContractApprovalNotificationService {
       role: params.actorRole,
     })
 
-    const recipientEmail = contractView.contract.departmentHodEmail?.trim().toLowerCase()
+    const recipientEmail =
+      contractView.contract.currentAssigneeEmail?.trim().toLowerCase() ||
+      contractView.contract.departmentHodEmail?.trim().toLowerCase()
     if (!recipientEmail) {
       this.logger.warn('Skipping HOD notification; department HOD email is missing', {
         tenantId: params.tenantId,
@@ -141,7 +143,10 @@ export class ContractApprovalNotificationService {
     let recipientRole: 'HOD' | 'ADDITIONAL' = 'HOD'
 
     if (contractView.contract.status === contractStatuses.hodPending) {
-      const hodEmail = contractView.contract.departmentHodEmail?.trim().toLowerCase() ?? ''
+      const hodEmail =
+        contractView.contract.currentAssigneeEmail?.trim().toLowerCase() ||
+        contractView.contract.departmentHodEmail?.trim().toLowerCase() ||
+        ''
       if (!hodEmail) {
         throw new BusinessRuleError('HOD_EMAIL_MISSING', 'Department HOD email is missing for this contract')
       }

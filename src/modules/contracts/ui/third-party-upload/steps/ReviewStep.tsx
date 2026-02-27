@@ -3,6 +3,7 @@
 import styles from '../third-party-upload.module.css'
 
 type ReviewStepProps = {
+  isSendForSigningFlow?: boolean
   mainFileName: string | null
   contractType: string
   counterparties: Array<{
@@ -22,6 +23,7 @@ type ReviewStepProps = {
 }
 
 export default function ReviewStep({
+  isSendForSigningFlow = false,
   mainFileName,
   contractType,
   counterparties,
@@ -48,59 +50,67 @@ export default function ReviewStep({
         <span>{contractType || 'Not set'}</span>
       </div>
       <div className={styles.summaryRow}>
-        <span>Counterparties</span>
-        <span>{counterparties.length || 0}</span>
+        <span>{isSendForSigningFlow ? 'Counterparty Name' : 'Counterparties'}</span>
+        <span>
+          {isSendForSigningFlow ? counterparties[0]?.counterpartyName || 'Not set' : counterparties.length || 0}
+        </span>
       </div>
-      {counterparties.map((counterparty, index) => (
-        <div key={`${counterparty.counterpartyName}-${index}`}>
-          <div className={styles.summaryRow}>
-            <span>{`Counterparty ${index + 1}`}</span>
-            <span>{`${counterparty.counterpartyName || 'Not set'} (${counterparty.supportingCount} docs)`}</span>
-          </div>
-          <div className={styles.summaryRow}>
-            <span>{`Counterparty ${index + 1} Supporting Docs`}</span>
-            <span>
-              {counterparty.supportingFileNames.length > 0
-                ? counterparty.supportingFileNames.join(', ')
-                : 'Not provided'}
-            </span>
-          </div>
-        </div>
-      ))}
+      {!isSendForSigningFlow
+        ? counterparties.map((counterparty, index) => (
+            <div key={`${counterparty.counterpartyName}-${index}`}>
+              <div className={styles.summaryRow}>
+                <span>{`Counterparty ${index + 1}`}</span>
+                <span>{`${counterparty.counterpartyName || 'Not set'} (${counterparty.supportingCount} docs)`}</span>
+              </div>
+              <div className={styles.summaryRow}>
+                <span>{`Counterparty ${index + 1} Supporting Docs`}</span>
+                <span>
+                  {counterparty.supportingFileNames.length > 0
+                    ? counterparty.supportingFileNames.join(', ')
+                    : 'Not provided'}
+                </span>
+              </div>
+            </div>
+          ))
+        : null}
       <div className={styles.summaryRow}>
         <span>Department</span>
         <span>{departmentName || 'Not set'}</span>
       </div>
       <div className={styles.summaryRow}>
-        <span>Counterparty Signatory Name</span>
+        <span>{isSendForSigningFlow ? 'Counterparty Name' : 'Counterparty Signatory Name'}</span>
         <span>{signatoryName || 'Not set'}</span>
       </div>
-      <div className={styles.summaryRow}>
-        <span>Counterparty Signatory Designation</span>
-        <span>{signatoryDesignation || 'Not set'}</span>
-      </div>
-      <div className={styles.summaryRow}>
-        <span>Counterparty Signatory Email</span>
-        <span>{signatoryEmail || 'Not set'}</span>
-      </div>
-      <div className={styles.summaryRow}>
-        <span>Budget Approved</span>
-        <span>{budgetApproved ? 'Yes' : 'No'}</span>
-      </div>
-      <div className={styles.summaryRow}>
-        <span>Bypass HOD Approval</span>
-        <span>{bypassHodApproval ? 'Yes' : 'No'}</span>
-      </div>
-      {bypassHodApproval ? (
-        <div className={styles.summaryRow}>
-          <span>Bypass Reason</span>
-          <span>{bypassReason || 'Not set'}</span>
-        </div>
+      {!isSendForSigningFlow ? (
+        <>
+          <div className={styles.summaryRow}>
+            <span>Counterparty Signatory Designation</span>
+            <span>{signatoryDesignation || 'Not set'}</span>
+          </div>
+          <div className={styles.summaryRow}>
+            <span>Counterparty Signatory Email</span>
+            <span>{signatoryEmail || 'Not set'}</span>
+          </div>
+          <div className={styles.summaryRow}>
+            <span>Budget Approved</span>
+            <span>{budgetApproved ? 'Yes' : 'No'}</span>
+          </div>
+          <div className={styles.summaryRow}>
+            <span>Bypass HOD Approval</span>
+            <span>{bypassHodApproval ? 'Yes' : 'No'}</span>
+          </div>
+          {bypassHodApproval ? (
+            <div className={styles.summaryRow}>
+              <span>Bypass Reason</span>
+              <span>{bypassReason || 'Not set'}</span>
+            </div>
+          ) : null}
+          <div className={styles.summaryRow}>
+            <span>Background</span>
+            <span>{backgroundOfRequest || 'Not set'}</span>
+          </div>
+        </>
       ) : null}
-      <div className={styles.summaryRow}>
-        <span>Background</span>
-        <span>{backgroundOfRequest || 'Not set'}</span>
-      </div>
       <div className={styles.summaryRow}>
         <span>Organization Entity</span>
         <span>{organizationEntity}</span>

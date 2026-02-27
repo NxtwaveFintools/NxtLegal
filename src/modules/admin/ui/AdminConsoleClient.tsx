@@ -33,6 +33,24 @@ type AdminConsoleClientProps = {
 
 const emailPattern = /^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$/
 
+type AuditFilterState = {
+  query: string
+  action: string
+  resourceType: string
+  userId: string
+  from: string
+  to: string
+}
+
+const createEmptyAuditFilters = (): AuditFilterState => ({
+  query: '',
+  action: '',
+  resourceType: '',
+  userId: '',
+  from: '',
+  to: '',
+})
+
 export default function AdminConsoleClient({ session }: AdminConsoleClientProps) {
   const normalizedRole = (session.role ?? '').toUpperCase()
   const [departments, setDepartments] = useState<AdminDepartmentOption[]>([])
@@ -73,14 +91,9 @@ export default function AdminConsoleClient({ session }: AdminConsoleClientProps)
   const [auditLogsTotal, setAuditLogsTotal] = useState<number>(0)
   const [isLoadingAuditLogs, setIsLoadingAuditLogs] = useState(false)
   const [isUploadOpen, setIsUploadOpen] = useState(false)
-  const [auditFilters, setAuditFilters] = useState({
-    query: '',
-    action: '',
-    resourceType: '',
-    userId: '',
-    from: '',
-    to: '',
-  })
+  const [isExportingAuditLogs, setIsExportingAuditLogs] = useState(false)
+  const [auditDraftFilters, setAuditDraftFilters] = useState<AuditFilterState>(createEmptyAuditFilters)
+  const [auditAppliedFilters, setAuditAppliedFilters] = useState<AuditFilterState>(createEmptyAuditFilters)
 
   useEffect(() => {
     const loadData = async () => {
@@ -148,17 +161,19 @@ export default function AdminConsoleClient({ session }: AdminConsoleClientProps)
   }, [systemConfiguration])
 
   const loadAuditLogs = useCallback(
-    async (cursor?: string) => {
+    async (params?: { cursor?: string; filters?: AuditFilterState }) => {
       setIsLoadingAuditLogs(true)
       try {
+        const effectiveFilters = params?.filters ?? auditAppliedFilters
+
         const response = await adminClient.auditLogs({
-          query: auditFilters.query || undefined,
-          action: auditFilters.action || undefined,
-          resourceType: auditFilters.resourceType || undefined,
-          userId: auditFilters.userId || undefined,
-          from: auditFilters.from || undefined,
-          to: auditFilters.to || undefined,
-          cursor,
+          query: effectiveFilters.query || undefined,
+          action: effectiveFilters.action || undefined,
+          resourceType: effectiveFilters.resourceType || undefined,
+          userId: effectiveFilters.userId || undefined,
+          from: effectiveFilters.from || undefined,
+          to: effectiveFilters.to || undefined,
+          cursor: params?.cursor,
           limit: auditLogsLimit,
         })
 
@@ -180,7 +195,7 @@ export default function AdminConsoleClient({ session }: AdminConsoleClientProps)
         setIsLoadingAuditLogs(false)
       }
     },
-    [auditFilters, auditLogsLimit]
+    [auditAppliedFilters, auditLogsLimit]
   )
 
   useEffect(() => {
@@ -464,18 +479,31 @@ export default function AdminConsoleClient({ session }: AdminConsoleClientProps)
     }
   }
 
-  const handleExportAuditLogsCsv = () => {
+  const handleExportAuditLogsCsv = async () => {
+    if (isExportingAuditLogs) {
+      return
+    }
+
+    setIsExportingAuditLogs(true)
+
     const exportUrl = adminClient.buildAuditExportUrl({
-      query: auditFilters.query || undefined,
-      action: auditFilters.action || undefined,
-      resourceType: auditFilters.resourceType || undefined,
-      userId: auditFilters.userId || undefined,
-      from: auditFilters.from || undefined,
-      to: auditFilters.to || undefined,
-      limit: 1000,
+      query: auditAppliedFilters.query || undefined,
+      action: auditAppliedFilters.action || undefined,
+      resourceType: auditAppliedFilters.resourceType || undefined,
+      userId: auditAppliedFilters.userId || undefined,
+      from: auditAppliedFilters.from || undefined,
+      to: auditAppliedFilters.to || undefined,
+      limit: 5000,
     })
 
-    window.open(exportUrl, '_blank', 'noopener,noreferrer')
+    try {
+      window.open(exportUrl, '_blank', 'noopener,noreferrer')
+      toast.success('Audit logs export started')
+    } catch {
+      toast.error('Failed to start audit logs export')
+    } finally {
+      setIsExportingAuditLogs(false)
+    }
   }
 
   const openCreateTeamWizard = () => {
@@ -716,33 +744,38 @@ export default function AdminConsoleClient({ session }: AdminConsoleClientProps)
                   logs={auditLogs}
                   selectedLogId={auditLogsSelectedId}
                   isLoading={isLoadingAuditLogs}
+                  isExporting={isExportingAuditLogs}
                   cursor={auditLogsCursor}
                   total={auditLogsTotal}
                   limit={auditLogsLimit}
-                  filters={auditFilters}
+                  filters={auditDraftFilters}
                   onFilterChange={(key, value) => {
-                    setAuditFilters((current) => ({
+                    setAuditDraftFilters((current) => ({
                       ...current,
                       [key]: value,
                     }))
                   }}
                   onApplyFilters={() => {
                     setAuditLogsCursor(null)
-                    void loadAuditLogs()
+                    const nextFilters = { ...auditDraftFilters }
+                    setAuditAppliedFilters(nextFilters)
+                    void loadAuditLogs({ filters: nextFilters })
                   }}
                   onNextPage={() => {
                     if (!auditLogsCursor) {
                       return
                     }
 
-                    void loadAuditLogs(auditLogsCursor)
+                    void loadAuditLogs({ cursor: auditLogsCursor })
                   }}
                   onResetPaging={() => {
                     setAuditLogsCursor(null)
-                    void loadAuditLogs()
+                    void loadAuditLogs({ filters: auditAppliedFilters })
                   }}
                   onSelectLog={setAuditLogsSelectedId}
-                  onExportCsv={handleExportAuditLogsCsv}
+                  onExportCsv={() => {
+                    void handleExportAuditLogsCsv()
+                  }}
                 />
               </div>
             </div>

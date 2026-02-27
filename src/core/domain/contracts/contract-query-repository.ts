@@ -1,4 +1,5 @@
 import type {
+  ContractUploadMode,
   ContractRepositoryStatus,
   ContractNotificationChannel,
   ContractNotificationStatus,
@@ -39,6 +40,7 @@ export type ContractListItem = {
   requestCreatedAt?: string | null
   departmentId?: string | null
   departmentName?: string | null
+  uploadMode?: ContractUploadMode
   assignedToUsers?: string[]
   legalEffectiveDate?: string | null
   legalTerminationDate?: string | null

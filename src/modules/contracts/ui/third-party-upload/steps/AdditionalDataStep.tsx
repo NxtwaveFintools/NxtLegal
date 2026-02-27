@@ -6,6 +6,7 @@ import { formatFileSize } from '@/lib/format-file-size'
 import styles from '../third-party-upload.module.css'
 
 type AdditionalDataStepProps = {
+  isSendForSigningFlow?: boolean
   mainFileName: string | null
   contractType: string
   contractTypes: Array<{ id: string; name: string }>
@@ -43,6 +44,7 @@ type AdditionalDataStepProps = {
 }
 
 export default function AdditionalDataStep({
+  isSendForSigningFlow = false,
   mainFileName,
   contractType,
   contractTypes,
@@ -159,199 +161,209 @@ export default function AdditionalDataStep({
           </div>
 
           {onBypassHodApprovalChange ? (
-            <>
-              <div className={styles.fieldGroup}>
-                <label className={styles.label} htmlFor="bypass-hod-approval">
-                  Bypass HOD Approval
-                </label>
-                <select
-                  id="bypass-hod-approval"
-                  className={styles.select}
-                  value={bypassHodApproval ? 'true' : 'false'}
-                  onChange={(event) => onBypassHodApprovalChange(event.target.value === 'true')}
-                >
-                  <option value="false">No</option>
-                  <option value="true">Yes</option>
-                </select>
-              </div>
-
-              {bypassHodApproval && onBypassReasonChange ? (
+            !isSendForSigningFlow ? (
+              <>
                 <div className={styles.fieldGroup}>
-                  <label className={styles.label} htmlFor="bypass-reason">
-                    Bypass Reason*
+                  <label className={styles.label} htmlFor="bypass-hod-approval">
+                    Bypass HOD Approval
                   </label>
-                  <textarea
-                    id="bypass-reason"
-                    className={styles.input}
-                    value={bypassReason}
-                    onChange={(event) => onBypassReasonChange(event.target.value)}
-                    placeholder="Enter mandatory bypass justification"
-                    rows={3}
-                  />
+                  <select
+                    id="bypass-hod-approval"
+                    className={styles.select}
+                    value={bypassHodApproval ? 'true' : 'false'}
+                    onChange={(event) => onBypassHodApprovalChange(event.target.value === 'true')}
+                  >
+                    <option value="false">No</option>
+                    <option value="true">Yes</option>
+                  </select>
                 </div>
-              ) : null}
-            </>
+
+                {bypassHodApproval && onBypassReasonChange ? (
+                  <div className={styles.fieldGroup}>
+                    <label className={styles.label} htmlFor="bypass-reason">
+                      Bypass Reason*
+                    </label>
+                    <textarea
+                      id="bypass-reason"
+                      className={styles.input}
+                      value={bypassReason}
+                      onChange={(event) => onBypassReasonChange(event.target.value)}
+                      placeholder="Enter mandatory bypass justification"
+                      rows={3}
+                    />
+                  </div>
+                ) : null}
+              </>
+            ) : null
           ) : null}
 
           <div className={styles.fieldGroup}>
             <label className={styles.label} htmlFor="signatory-name">
-              Counterparty Signatory Name*
+              {isSendForSigningFlow ? 'Counterparty Name*' : 'Counterparty Signatory Name*'}
             </label>
             <input
               id="signatory-name"
               className={styles.input}
               value={signatoryName}
               onChange={(event) => onSignatoryNameChange(event.target.value)}
-              placeholder="Enter signatory name"
+              placeholder={isSendForSigningFlow ? 'Enter counterparty name' : 'Enter signatory name'}
             />
           </div>
 
-          <div className={styles.fieldGroup}>
-            <label className={styles.label} htmlFor="signatory-designation">
-              Counterparty Signatory Designation*
-            </label>
-            <input
-              id="signatory-designation"
-              className={styles.input}
-              value={signatoryDesignation}
-              onChange={(event) => onSignatoryDesignationChange(event.target.value)}
-              placeholder="Enter designation"
-            />
-          </div>
-
-          <div className={styles.fieldGroup}>
-            <label className={styles.label} htmlFor="signatory-email">
-              Counterparty Signatory Email*
-            </label>
-            <input
-              id="signatory-email"
-              className={styles.input}
-              type="email"
-              value={signatoryEmail}
-              onChange={(event) => onSignatoryEmailChange(event.target.value)}
-              placeholder="name@company.com"
-            />
-          </div>
-
-          <div className={styles.fieldGroup}>
-            <label className={styles.label} htmlFor="background-of-request">
-              Background of Request*
-            </label>
-            <textarea
-              id="background-of-request"
-              className={styles.input}
-              value={backgroundOfRequest}
-              onChange={(event) => onBackgroundOfRequestChange(event.target.value)}
-              placeholder="Describe the request context"
-              rows={4}
-            />
-          </div>
-
-          <div className={styles.fieldGroup}>
-            <label className={styles.label} htmlFor="budget-approved">
-              Budget Approved*
-            </label>
-            <select
-              id="budget-approved"
-              className={styles.select}
-              value={budgetApproved ? 'true' : 'false'}
-              onChange={(event) => onBudgetApprovedChange(event.target.value === 'true')}
-            >
-              <option value="false">No</option>
-              <option value="true">Yes</option>
-            </select>
-          </div>
-
-          {counterparties.map((counterparty, counterpartyIndex) => {
-            const requiresSupportingDocs =
-              counterparty.counterpartyName.trim() !== '' && !isCounterpartyNa(counterparty.counterpartyName)
-
-            return (
-              <div key={`counterparty-${counterpartyIndex}`} className={styles.counterpartyCard}>
-                <div className={styles.counterpartyHeader}>
-                  <label className={styles.label} htmlFor={`counterparty-name-${counterpartyIndex}`}>
-                    Counterparty Name* {counterparties.length > 1 ? `(${counterpartyIndex + 1})` : ''}
-                  </label>
-                  <div className={styles.counterpartyActions}>
-                    {counterpartyIndex > 0 ? (
-                      <button
-                        type="button"
-                        className={styles.counterpartyRemoveButton}
-                        onClick={() => onRemoveCounterparty(counterpartyIndex)}
-                        aria-label={`Remove counterparty ${counterpartyIndex + 1}`}
-                      >
-                        −
-                      </button>
-                    ) : null}
-                    {canAddCounterparty(counterpartyIndex) ? (
-                      <button type="button" className={styles.counterpartyAddButton} onClick={onAddCounterparty}>
-                        +
-                      </button>
-                    ) : null}
-                  </div>
-                </div>
+          {!isSendForSigningFlow ? (
+            <>
+              <div className={styles.fieldGroup}>
+                <label className={styles.label} htmlFor="signatory-designation">
+                  Counterparty Signatory Designation*
+                </label>
                 <input
-                  id={`counterparty-name-${counterpartyIndex}`}
+                  id="signatory-designation"
                   className={styles.input}
-                  list="counterparty-options"
-                  placeholder="Select or type counterparty"
-                  value={counterparty.counterpartyName}
-                  onChange={(event) => onCounterpartyNameChange(counterpartyIndex, event.target.value)}
-                  onKeyDown={(event) => handleCounterpartyNameKeyDown(event, counterpartyIndex)}
+                  value={signatoryDesignation}
+                  onChange={(event) => onSignatoryDesignationChange(event.target.value)}
+                  placeholder="Enter designation"
                 />
-                {requiresSupportingDocs && (
-                  <div className={styles.fieldGroup}>
-                    <label className={styles.label} htmlFor={`supporting-docs-${counterpartyIndex}`}>
-                      Supporting Document*
-                    </label>
-                    <div className={styles.dropzone}>
-                      <span>Add supporting documents</span>
-                      <label className={styles.dropzoneButton} htmlFor={`supporting-docs-${counterpartyIndex}`}>
-                        Add files
+              </div>
+
+              <div className={styles.fieldGroup}>
+                <label className={styles.label} htmlFor="signatory-email">
+                  Counterparty Signatory Email*
+                </label>
+                <input
+                  id="signatory-email"
+                  className={styles.input}
+                  type="email"
+                  value={signatoryEmail}
+                  onChange={(event) => onSignatoryEmailChange(event.target.value)}
+                  placeholder="name@company.com"
+                />
+              </div>
+
+              <div className={styles.fieldGroup}>
+                <label className={styles.label} htmlFor="background-of-request">
+                  Background of Request*
+                </label>
+                <textarea
+                  id="background-of-request"
+                  className={styles.input}
+                  value={backgroundOfRequest}
+                  onChange={(event) => onBackgroundOfRequestChange(event.target.value)}
+                  placeholder="Describe the request context"
+                  rows={4}
+                />
+              </div>
+
+              <div className={styles.fieldGroup}>
+                <label className={styles.label} htmlFor="budget-approved">
+                  Budget Approved*
+                </label>
+                <select
+                  id="budget-approved"
+                  className={styles.select}
+                  value={budgetApproved ? 'true' : 'false'}
+                  onChange={(event) => onBudgetApprovedChange(event.target.value === 'true')}
+                >
+                  <option value="false">No</option>
+                  <option value="true">Yes</option>
+                </select>
+              </div>
+            </>
+          ) : null}
+
+          {!isSendForSigningFlow
+            ? counterparties.map((counterparty, counterpartyIndex) => {
+                const requiresSupportingDocs =
+                  counterparty.counterpartyName.trim() !== '' && !isCounterpartyNa(counterparty.counterpartyName)
+
+                return (
+                  <div key={`counterparty-${counterpartyIndex}`} className={styles.counterpartyCard}>
+                    <div className={styles.counterpartyHeader}>
+                      <label className={styles.label} htmlFor={`counterparty-name-${counterpartyIndex}`}>
+                        Counterparty Name* {counterparties.length > 1 ? `(${counterpartyIndex + 1})` : ''}
                       </label>
-                      <input
-                        id={`supporting-docs-${counterpartyIndex}`}
-                        className={styles.hiddenInput}
-                        type="file"
-                        multiple
-                        onChange={(event) => {
-                          const files = Array.from(event.target.files || [])
-                          if (files.length) {
-                            onSupportingFilesSelected(counterpartyIndex, files)
-                          }
-                        }}
-                      />
-                    </div>
-                    <div className={styles.supportingList}>
-                      {counterparty.supportingFiles.map((file, fileIndex) => (
-                        <div key={`${file.name}-${counterpartyIndex}-${fileIndex}`} className={styles.fileCard}>
-                          <div className={styles.fileMeta}>
-                            <span className={styles.fileName}>{file.name}</span>
-                            <span className={styles.fileSize}>{formatFileSize(file.size)}</span>
-                          </div>
+                      <div className={styles.counterpartyActions}>
+                        {counterpartyIndex > 0 ? (
                           <button
                             type="button"
-                            className={styles.removeButton}
-                            onClick={() => onSupportingFileRemoved(counterpartyIndex, fileIndex)}
+                            className={styles.counterpartyRemoveButton}
+                            onClick={() => onRemoveCounterparty(counterpartyIndex)}
+                            aria-label={`Remove counterparty ${counterpartyIndex + 1}`}
                           >
-                            Remove
+                            −
                           </button>
-                        </div>
-                      ))}
+                        ) : null}
+                        {canAddCounterparty(counterpartyIndex) ? (
+                          <button type="button" className={styles.counterpartyAddButton} onClick={onAddCounterparty}>
+                            +
+                          </button>
+                        ) : null}
+                      </div>
                     </div>
+                    <input
+                      id={`counterparty-name-${counterpartyIndex}`}
+                      className={styles.input}
+                      list="counterparty-options"
+                      placeholder="Select or type counterparty"
+                      value={counterparty.counterpartyName}
+                      onChange={(event) => onCounterpartyNameChange(counterpartyIndex, event.target.value)}
+                      onKeyDown={(event) => handleCounterpartyNameKeyDown(event, counterpartyIndex)}
+                    />
+                    {requiresSupportingDocs && (
+                      <div className={styles.fieldGroup}>
+                        <label className={styles.label} htmlFor={`supporting-docs-${counterpartyIndex}`}>
+                          Supporting Document*
+                        </label>
+                        <div className={styles.dropzone}>
+                          <span>Add supporting documents</span>
+                          <label className={styles.dropzoneButton} htmlFor={`supporting-docs-${counterpartyIndex}`}>
+                            Add files
+                          </label>
+                          <input
+                            id={`supporting-docs-${counterpartyIndex}`}
+                            className={styles.hiddenInput}
+                            type="file"
+                            multiple
+                            onChange={(event) => {
+                              const files = Array.from(event.target.files || [])
+                              if (files.length) {
+                                onSupportingFilesSelected(counterpartyIndex, files)
+                              }
+                            }}
+                          />
+                        </div>
+                        <div className={styles.supportingList}>
+                          {counterparty.supportingFiles.map((file, fileIndex) => (
+                            <div key={`${file.name}-${counterpartyIndex}-${fileIndex}`} className={styles.fileCard}>
+                              <div className={styles.fileMeta}>
+                                <span className={styles.fileName}>{file.name}</span>
+                                <span className={styles.fileSize}>{formatFileSize(file.size)}</span>
+                              </div>
+                              <button
+                                type="button"
+                                className={styles.removeButton}
+                                onClick={() => onSupportingFileRemoved(counterpartyIndex, fileIndex)}
+                              >
+                                Remove
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
-            )
-          })}
+                )
+              })
+            : null}
 
-          <datalist id="counterparty-options">
-            {counterpartyOptions.map((option) => (
-              <option key={option} value={option} />
-            ))}
-          </datalist>
+          {!isSendForSigningFlow ? (
+            <datalist id="counterparty-options">
+              {counterpartyOptions.map((option) => (
+                <option key={option} value={option} />
+              ))}
+            </datalist>
+          ) : null}
 
-          {showCounterpartyModal && <div className={styles.inlineModal} />}
+          {!isSendForSigningFlow && showCounterpartyModal ? <div className={styles.inlineModal} /> : null}
 
           <div className={styles.fieldGroup}>
             <label className={styles.label} htmlFor="org-entity">
