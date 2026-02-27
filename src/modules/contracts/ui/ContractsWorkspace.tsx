@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 import {
@@ -86,8 +86,6 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const [viewerExternalUrl, setViewerExternalUrl] = useState<string | null>(null)
   const [viewerMimeType, setViewerMimeType] = useState<string>('')
   const [viewerFileName, setViewerFileName] = useState<string>('')
-  const [error, setError] = useState<string | null>(null)
-
   // Pagination state
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [hasMore, setHasMore] = useState(false)
@@ -100,7 +98,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     const response = await contractsClient.list({ cursor, limit: PAGE_SIZE })
 
     if (!response.ok || !response.data) {
-      setError(response.error?.message ?? 'Failed to load contracts')
+      toast.error(response.error?.message ?? 'Failed to load contracts')
       if (!cursor) {
         setContracts([])
       }
@@ -113,7 +111,6 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     setNextCursor(pagination.cursor)
     setHasMore(pagination.cursor !== null)
     setTotalContracts(pagination.total)
-    setError(null)
 
     if (!cursor) {
       setSelectedContractId((current) => {
@@ -148,7 +145,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     ])
 
     if (!detailResponse.ok || !detailResponse.data?.contract) {
-      setError(detailResponse.error?.message ?? 'Failed to load contract detail')
+      toast.error(detailResponse.error?.message ?? 'Failed to load contract detail')
       setSelectedContract(null)
       setTimeline([])
       setCounterparties([])
@@ -198,7 +195,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       }
 
       if (!detailResponse.ok || !detailResponse.data?.contract) {
-        setError(detailResponse.error?.message ?? 'Failed to load contract detail')
+        toast.error(detailResponse.error?.message ?? 'Failed to load contract detail')
         setSelectedContract(null)
         setTimeline([])
         setCounterparties([])
@@ -274,9 +271,6 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       setActiveAction(null)
 
       if (response.ok !== true) {
-        if (response.error?.code) {
-          setError(response.error.message ?? 'Failed to apply contract action')
-        }
         toast.error(response.error?.message ?? `Failed to apply ${actionItem.label}`, { id: loadingToastId })
         return false
       }
@@ -301,14 +295,12 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
     if (actionItem.action.includes('approve')) {
       setConfirmActionItem(actionItem)
-      setError(null)
       return
     }
 
     if (actionItem.requiresRemark) {
       setRemarkActionItem(actionItem)
       setRemarkDraft('')
-      setError(null)
       return
     }
 
@@ -357,7 +349,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
     const remark = remarkDraft.trim()
     if (!remark) {
-      setError('Remarks are required for this action')
+      toast.error('Remarks are required for this action')
       return
     }
 
@@ -437,7 +429,6 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       }
 
       setConfirmActionItem(actionItem)
-      setError(null)
       setSelectedLegalAction('')
     },
     [legalStatusActions]
@@ -453,7 +444,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     })
 
     if (!response.ok || !response.data?.signedUrl) {
-      setError(response.error?.message ?? 'Failed to generate download link')
+      toast.error(response.error?.message ?? 'Failed to generate download link')
       return
     }
 
@@ -470,7 +461,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     })
 
     if (!response.ok || !response.data?.signedUrl) {
-      setError(response.error?.message ?? 'Failed to generate document view link')
+      toast.error(response.error?.message ?? 'Failed to generate document view link')
       return
     }
 
@@ -525,7 +516,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     setIsMutating(false)
 
     if (!response.ok || !response.data) {
-      setError(response.error?.message ?? 'Failed to add note')
+      toast.error(response.error?.message ?? 'Failed to add note')
       return
     }
 
@@ -536,8 +527,12 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   }
 
   const handleAddApprover = async () => {
-    if (!selectedContractId || !approverEmail.trim()) {
-      return
+    if (!selectedContractId) {
+      throw new Error('No contract selected')
+    }
+
+    if (!approverEmail.trim()) {
+      throw new Error('Approver email is required')
     }
 
     setIsMutating(true)
@@ -547,8 +542,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     setIsMutating(false)
 
     if (!response.ok || !response.data) {
-      setError(response.error?.message ?? 'Failed to add additional approver')
-      return
+      throw new Error(response.error?.message ?? 'Failed to add additional approver')
     }
 
     setApproverEmail('')
@@ -557,7 +551,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
   const handleRemindApprover = async (approverEmailToRemind?: string) => {
     if (!selectedContractId) {
-      return
+      throw new Error('No contract selected')
     }
 
     setIsMutating(true)
@@ -567,14 +561,13 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     setIsMutating(false)
 
     if (!response.ok) {
-      setError(response.error?.message ?? 'Failed to send reminder')
-      return
+      throw new Error(response.error?.message ?? 'Failed to send reminder')
     }
   }
 
   const handleBypassApprover = async (approverId: string, reason: string) => {
     if (!selectedContractId) {
-      return
+      throw new Error('No contract selected')
     }
 
     setIsMutating(true)
@@ -586,7 +579,6 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     setIsMutating(false)
 
     if (!response.ok || !response.data) {
-      setError(response.error?.message ?? 'Failed to bypass approval')
       throw new Error(response.error?.message ?? 'Failed to bypass approval')
     }
 
@@ -610,7 +602,6 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     setIsAddingCollaborator(false)
 
     if (!response.ok || !response.data) {
-      setError(response.error?.message ?? 'Failed to add legal collaborator')
       toast.error(response.error?.message ?? 'Failed to add legal collaborator')
       return
     }
@@ -633,7 +624,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     setIsMutating(false)
 
     if (!response.ok || !response.data) {
-      setError(response.error?.message ?? 'Failed to remove legal collaborator')
+      toast.error(response.error?.message ?? 'Failed to remove legal collaborator')
       return
     }
 
@@ -652,7 +643,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     setIsSubmittingActivity(false)
 
     if (!response.ok || !response.data) {
-      setError(response.error?.message ?? 'Failed to post activity message')
+      toast.error(response.error?.message ?? 'Failed to post activity message')
       return
     }
 
@@ -662,6 +653,21 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     await loadContractContext(selectedContractId)
     await loadContracts()
     syncContractReadState(selectedContractId, false)
+  }
+
+  const handleAddCollaboratorSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    void handleAddCollaborator()
+  }
+
+  const handleAddNoteSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    void handleAddNote()
+  }
+
+  const handleRemarkDialogSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    void submitRemarkDialog()
   }
 
   const noteEvents = useMemo(() => timeline.filter((event) => isContractNoteEvent(event)), [timeline])
@@ -1188,7 +1194,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                     {canManageLegalWorkSharing && (
                       <div className={styles.card}>
                         <div className={styles.sectionTitle}>Legal Work Sharing</div>
-                        <div className={styles.inlineForm}>
+                        <form className={styles.inlineForm} onSubmit={handleAddCollaboratorSubmit}>
                           <input
                             type="email"
                             className={styles.input}
@@ -1196,18 +1202,13 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                             value={collaboratorEmail}
                             onChange={(event) => setCollaboratorEmail(event.target.value)}
                           />
-                          <button
-                            type="button"
-                            className={styles.button}
-                            disabled={isMutating || isAddingCollaborator}
-                            onClick={() => void handleAddCollaborator()}
-                          >
+                          <button type="submit" className={styles.button} disabled={isMutating || isAddingCollaborator}>
                             <span className={styles.buttonContent}>
                               {isAddingCollaborator ? <Spinner size={14} /> : null}
                               {isAddingCollaborator ? 'Adding Collaborator…' : 'Add Collaborator'}
                             </span>
                           </button>
-                        </div>
+                        </form>
                         <div className={styles.timeline}>
                           {legalCollaborators.length === 0 ? (
                             <div className={styles.eventMeta}>No collaborators assigned.</div>
@@ -1359,7 +1360,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                   <div className={styles.tabSection}>
                     <div className={styles.card}>
                       <div className={styles.sectionTitle}>Notes</div>
-                      <div className={styles.inlineForm}>
+                      <form className={styles.inlineForm} onSubmit={handleAddNoteSubmit}>
                         <input
                           type="text"
                           className={styles.input}
@@ -1367,15 +1368,10 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                           value={noteText}
                           onChange={(event) => setNoteText(event.target.value)}
                         />
-                        <button
-                          type="button"
-                          className={styles.button}
-                          disabled={isMutating}
-                          onClick={() => void handleAddNote()}
-                        >
+                        <button type="submit" className={styles.button} disabled={isMutating}>
                           Add Note
                         </button>
-                      </div>
+                      </form>
                       <div className={styles.timeline}>
                         {noteEvents.map((event) => (
                           <div key={event.id} className={styles.event}>
@@ -1423,8 +1419,6 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
             </div>
           </div>
         )}
-
-        {error && <div className={styles.error}>{error}</div>}
       </section>
 
       {isViewerOpen && viewerUrl ? (
@@ -1476,7 +1470,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
       {remarkActionItem ? (
         <div className={styles.actionRemarkOverlay} role="dialog" aria-modal="true" aria-label="Provide action remarks">
-          <div className={styles.actionRemarkModal}>
+          <form className={styles.actionRemarkModal} onSubmit={handleRemarkDialogSubmit}>
             <div className={styles.sectionTitle}>Remarks Required</div>
             <div className={styles.eventMeta}>Provide remarks for: {remarkActionItem.label}</div>
             <textarea
@@ -1497,11 +1491,8 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                 Cancel
               </button>
               <button
-                type="button"
+                type="submit"
                 className={`${styles.button} ${styles.buttonPrimary}`}
-                onClick={() => {
-                  void submitRemarkDialog()
-                }}
                 disabled={Boolean(activeAction)}
               >
                 {activeAction === remarkActionItem.action ? (
@@ -1514,7 +1505,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                 )}
               </button>
             </div>
-          </div>
+          </form>
         </div>
       ) : null}
 

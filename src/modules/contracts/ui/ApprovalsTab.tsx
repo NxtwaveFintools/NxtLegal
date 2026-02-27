@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type FormEvent } from 'react'
 import type { ContractDetailResponse } from '@/core/client/contracts-client'
 import Spinner from '@/components/ui/Spinner'
 import { toast } from 'sonner'
@@ -139,8 +139,9 @@ export default function ApprovalsTab({
     try {
       await onRemindApprover()
       toast.success('Reminder sent successfully')
-    } catch {
-      toast.error('Failed to send reminder')
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred'
+      toast.error(errorMessage)
     } finally {
       setIsSubmittingCurrentReminder(false)
     }
@@ -156,8 +157,9 @@ export default function ApprovalsTab({
     try {
       await onRemindApprover(step.approverRole === 'ADDITIONAL' ? step.approverLabel : undefined)
       toast.success('Approver reminder sent')
-    } catch {
-      toast.error('Failed to send approver reminder')
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred'
+      toast.error(errorMessage)
     } finally {
       setRemindingStepId(null)
     }
@@ -168,16 +170,27 @@ export default function ApprovalsTab({
       return
     }
 
+    if (!approverEmail.trim()) {
+      toast.error('Approver email is required')
+      return
+    }
+
     setIsSubmittingAddApprover(true)
 
     try {
       await onAddApprover()
       toast.success('Approver added successfully')
-    } catch {
-      toast.error('Failed to add approver')
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred'
+      toast.error(errorMessage)
     } finally {
       setIsSubmittingAddApprover(false)
     }
+  }
+
+  const handleAddApprovalSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    void handleAddApproval()
   }
 
   const closeBypassDialog = () => {
@@ -207,11 +220,17 @@ export default function ApprovalsTab({
       toast.success('Approval bypassed successfully')
       setBypassStep(null)
       setBypassReason('')
-    } catch {
-      toast.error('Failed to bypass approval')
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred'
+      toast.error(errorMessage)
     } finally {
       setIsSubmittingBypass(false)
     }
+  }
+
+  const handleBypassSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    void submitBypass()
   }
 
   return (
@@ -325,7 +344,7 @@ export default function ApprovalsTab({
       {canManageApprovals ? (
         <div className={styles.card}>
           <div className={styles.sectionTitle}>Add Approval</div>
-          <div className={styles.inlineForm}>
+          <form className={styles.inlineForm} onSubmit={handleAddApprovalSubmit}>
             <input
               type="email"
               className={styles.input}
@@ -334,27 +353,24 @@ export default function ApprovalsTab({
               onChange={(event) => onApproverEmailChange(event.target.value)}
             />
             <button
-              type="button"
+              type="submit"
               className={`${styles.button} ${styles.buttonPrimary}`}
               disabled={
                 isMutating || isSubmittingAddApprover || isSubmittingCurrentReminder || Boolean(remindingStepId)
               }
-              onClick={() => {
-                void handleAddApproval()
-              }}
             >
               <span className={styles.buttonContent}>
                 {isSubmittingAddApprover ? <Spinner size={14} /> : null}
                 {isSubmittingAddApprover ? 'Adding…' : '+ Add Approval'}
               </span>
             </button>
-          </div>
+          </form>
         </div>
       ) : null}
 
       {bypassStep ? (
         <div className={styles.actionRemarkOverlay} role="dialog" aria-modal="true" aria-label="Bypass approval reason">
-          <div className={styles.actionRemarkModal}>
+          <form className={styles.actionRemarkModal} onSubmit={handleBypassSubmit}>
             <div className={styles.sectionTitle}>Bypass Approval</div>
             <div className={styles.eventMeta}>Approver: {bypassStep.approverLabel}</div>
             <textarea
@@ -370,11 +386,8 @@ export default function ApprovalsTab({
                 Cancel
               </button>
               <button
-                type="button"
+                type="submit"
                 className={`${styles.button} ${styles.buttonDanger}`}
-                onClick={() => {
-                  void submitBypass()
-                }}
                 disabled={isSubmittingBypass || isMutating}
               >
                 <span className={styles.buttonContent}>
@@ -383,7 +396,7 @@ export default function ApprovalsTab({
                 </span>
               </button>
             </div>
-          </div>
+          </form>
         </div>
       ) : null}
     </div>

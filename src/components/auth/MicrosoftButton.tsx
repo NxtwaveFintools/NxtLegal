@@ -18,8 +18,10 @@ export default function MicrosoftButton() {
     try {
       await startMicrosoftOAuth()
       toast.success('Redirecting to Microsoft sign-in')
-    } catch {
-      toast.error('Failed to start Microsoft sign-in')
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred'
+      toast.error(errorMessage)
+    } finally {
       setIsSubmitting(false)
     }
   }

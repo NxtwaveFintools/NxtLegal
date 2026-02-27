@@ -1,6 +1,6 @@
 'use client'
 
-import type { ReactNode } from 'react'
+import type { FormEvent, ReactNode } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
@@ -148,7 +148,6 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   const [contracts, setContracts] = useState<ContractRecord[]>([])
   const [isLoadingContracts, setIsLoadingContracts] = useState(true)
   const [isLoadingPageChange, setIsLoadingPageChange] = useState(false)
-  const [contractsError, setContractsError] = useState<string | null>(null)
   const [contractsCursor, setContractsCursor] = useState<string | null>(null)
   const [pageIndex, setPageIndex] = useState(0)
   const [pageCursors, setPageCursors] = useState<Array<string | undefined>>([undefined])
@@ -205,54 +204,64 @@ export default function DashboardClient({ session }: DashboardClientProps) {
         setIsLoadingContracts(true)
       }
 
-      const response = await contractsClient.dashboardContracts({
-        filter,
-        cursor: options?.cursor,
-        limit: limits.dashboardContractsPageSize,
-        includeExtras: true,
-      })
+      try {
+        const response = await contractsClient.dashboardContracts({
+          filter,
+          cursor: options?.cursor,
+          limit: limits.dashboardContractsPageSize,
+          includeExtras: true,
+        })
 
-      if (requestId !== latestContractsRequestIdRef.current) {
-        return
-      }
-
-      if (!response.ok || !response.data) {
-        if (!options?.isPageChange) {
-          setContracts([])
-          setActiveFilterTotal(0)
+        if (requestId !== latestContractsRequestIdRef.current) {
+          return
         }
-        setContractsError(response.error?.message ?? 'Failed to load contracts')
-        if (!options?.isPageChange) {
-          setContractsCursor(null)
+
+        if (!response.ok || !response.data) {
+          if (!options?.isPageChange) {
+            setContracts([])
+            setActiveFilterTotal(0)
+            setContractsCursor(null)
+            setPageIndex(0)
+            setPageCursors([undefined])
+          }
+
+          toast.error(response.error?.message ?? 'Failed to load contracts')
+          return
+        }
+
+        const responseData = response.data
+
+        setContracts(responseData.contracts)
+        setActionableAdditionalApprovals(responseData.additionalApproverSections?.actionableContracts ?? [])
+        setContractsCursor(responseData.pagination.cursor)
+        setActiveFilterTotal(responseData.pagination.total)
+        if (typeof options?.pageIndex === 'number') {
+          const nextPageIndex = options.pageIndex
+          setPageIndex(nextPageIndex)
+          setPageCursors((previousCursors) => {
+            const nextCursors = previousCursors.slice(0, nextPageIndex + 1)
+            nextCursors[nextPageIndex] = options.cursor
+            return nextCursors
+          })
+        } else {
           setPageIndex(0)
           setPageCursors([undefined])
         }
+      } catch (error) {
+        if (requestId !== latestContractsRequestIdRef.current) {
+          return
+        }
+
+        const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred'
+        toast.error(errorMessage)
+      } finally {
+        if (requestId !== latestContractsRequestIdRef.current) {
+          return
+        }
+
         setIsLoadingContracts(false)
         setIsLoadingPageChange(false)
-        return
       }
-
-      const responseData = response.data
-
-      setContracts(responseData.contracts)
-      setActionableAdditionalApprovals(responseData.additionalApproverSections?.actionableContracts ?? [])
-      setContractsCursor(responseData.pagination.cursor)
-      setActiveFilterTotal(responseData.pagination.total)
-      if (typeof options?.pageIndex === 'number') {
-        const nextPageIndex = options.pageIndex
-        setPageIndex(nextPageIndex)
-        setPageCursors((previousCursors) => {
-          const nextCursors = previousCursors.slice(0, nextPageIndex + 1)
-          nextCursors[nextPageIndex] = options.cursor
-          return nextCursors
-        })
-      } else {
-        setPageIndex(0)
-        setPageCursors([undefined])
-      }
-      setContractsError(null)
-      setIsLoadingContracts(false)
-      setIsLoadingPageChange(false)
     },
     []
   )
@@ -380,31 +389,37 @@ export default function DashboardClient({ session }: DashboardClientProps) {
 
       const resolvedNoteText = noteText?.trim()
       if (action === 'hod.reject' && !resolvedNoteText) {
-        setContractsError('Rejection reason is required.')
+        toast.error('Rejection reason is required.')
         return false
       }
 
       setMutatingContractId(contractId)
-      const response = await contractsClient.action(contractId, {
-        action,
-        noteText: action === 'hod.reject' ? resolvedNoteText : undefined,
-      })
 
-      if (!response.ok) {
-        setContractsError(response.error?.message ?? 'Failed to complete contract action')
-        toast.error(response.error?.message ?? 'Failed to complete contract action')
-        setMutatingContractId(null)
+      try {
+        const response = await contractsClient.action(contractId, {
+          action,
+          noteText: action === 'hod.reject' ? resolvedNoteText : undefined,
+        })
+
+        if (!response.ok) {
+          toast.error(response.error?.message ?? 'Failed to complete contract action')
+          return false
+        }
+
+        await Promise.all([
+          loadPendingApprovals(),
+          loadFilterCounts(),
+          loadContractsForFilter(activeFilter, { cursor: pageCursors[pageIndex], pageIndex, isPageChange: true }),
+        ])
+        toast.success(action === 'hod.approve' ? 'Contract approved successfully' : 'Contract rejected successfully')
+        return true
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred'
+        toast.error(errorMessage)
         return false
+      } finally {
+        setMutatingContractId(null)
       }
-
-      await Promise.all([
-        loadPendingApprovals(),
-        loadFilterCounts(),
-        loadContractsForFilter(activeFilter, { cursor: pageCursors[pageIndex], pageIndex, isPageChange: true }),
-      ])
-      toast.success(action === 'hod.approve' ? 'Contract approved successfully' : 'Contract rejected successfully')
-      setMutatingContractId(null)
-      return true
     },
     [
       activeFilter,
@@ -420,12 +435,10 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   const openRejectDialog = useCallback((contractId: string) => {
     setRejectingContractId(contractId)
     setRejectReasonDraft('')
-    setContractsError(null)
   }, [])
 
   const openApproveDialog = useCallback((contractId: string) => {
     setApprovingContractId(contractId)
-    setContractsError(null)
   }, [])
 
   const closeApproveDialog = useCallback(() => {
@@ -463,7 +476,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
 
     const reason = rejectReasonDraft.trim()
     if (!reason) {
-      setContractsError('Rejection reason is required.')
+      toast.error('Rejection reason is required.')
       return
     }
 
@@ -473,6 +486,11 @@ export default function DashboardClient({ session }: DashboardClientProps) {
       setRejectReasonDraft('')
     }
   }, [handleRowAction, rejectReasonDraft, rejectingContractId])
+
+  const handleRejectDialogSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    void submitRejectDialog()
+  }
 
   const rejectingContractTitle = useMemo(() => {
     if (!rejectingContractId) {
@@ -645,20 +663,6 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                   </div>
                 ))}
               </div>
-            ) : contractsError ? (
-              <div className={styles.emptyBody}>
-                <div className={styles.emptyTitle}>⚠️</div>
-                <div className={styles.emptySubtitle}>{contractsError}</div>
-                <button
-                  type="button"
-                  className={styles.emptyAction}
-                  onClick={() => {
-                    void loadContractsForFilter(activeFilter)
-                  }}
-                >
-                  Retry
-                </button>
-              </div>
             ) : contracts.length === 0 ? (
               <div className={styles.emptyBody}>
                 <div className={styles.emptyTitle}>No contracts found</div>
@@ -810,7 +814,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
           aria-modal="true"
           aria-label="Provide rejection reason"
         >
-          <div className={styles.actionDialogModal}>
+          <form className={styles.actionDialogModal} onSubmit={handleRejectDialogSubmit}>
             <div className={styles.actionDialogTitle}>Reject Contract</div>
             <div className={styles.actionDialogSubtitle}>{rejectingContractTitle ?? 'Selected contract'}</div>
             <textarea
@@ -831,11 +835,8 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                 Cancel
               </button>
               <button
-                type="button"
+                type="submit"
                 className={`${styles.contractActionButton} ${styles.contractActionPrimary}`}
-                onClick={() => {
-                  void submitRejectDialog()
-                }}
                 disabled={Boolean(mutatingContractId)}
               >
                 <span className={styles.buttonContent}>
@@ -844,7 +845,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                 </span>
               </button>
             </div>
-          </div>
+          </form>
         </div>
       ) : null}
 

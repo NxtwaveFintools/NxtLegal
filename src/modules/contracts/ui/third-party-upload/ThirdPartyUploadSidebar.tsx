@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type KeyboardEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { contractsClient, type ContractTypeOption, type DepartmentOption } from '@/core/client/contracts-client'
@@ -47,7 +47,6 @@ export default function ThirdPartyUploadSidebar({
   const steps = useMemo(() => ['Choose Files', 'Additional Data', 'Review', 'Upload'], [])
   const [activeStep, setActiveStep] = useState(0)
   const [mainFile, setMainFile] = useState<File | null>(null)
-  const [mainFileError, setMainFileError] = useState<string | null>(null)
   const [isDragging, setIsDragging] = useState(false)
   const [contractType, setContractType] = useState('')
   const [counterpartyEntries, setCounterpartyEntries] = useState<CounterpartyEntry[]>([
@@ -63,9 +62,7 @@ export default function ThirdPartyUploadSidebar({
   const [contractTypesLoaded, setContractTypesLoaded] = useState(false)
   const [departments, setDepartments] = useState<DepartmentOption[]>([])
   const [departmentsLoaded, setDepartmentsLoaded] = useState(false)
-  const [stepError, setStepError] = useState<string | null>(null)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [uploadError, setUploadError] = useState<string | null>(null)
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null)
   const [uploadIdempotencyKey, setUploadIdempotencyKey] = useState<string | null>(null)
   const [bypassHodApproval, setBypassHodApproval] = useState(false)
@@ -122,7 +119,6 @@ export default function ThirdPartyUploadSidebar({
   const resetAll = () => {
     setActiveStep(0)
     setMainFile(null)
-    setMainFileError(null)
     setContractType('')
     setCounterpartyEntries([{ counterpartyName: '', supportingFiles: [] }])
     setSignatoryName('')
@@ -131,8 +127,6 @@ export default function ThirdPartyUploadSidebar({
     setBackgroundOfRequest('')
     setDepartmentId('')
     setBudgetApproved(false)
-    setStepError(null)
-    setUploadError(null)
     setUploadSuccess(null)
     setIsSubmitting(false)
     setUploadIdempotencyKey(null)
@@ -147,20 +141,17 @@ export default function ThirdPartyUploadSidebar({
 
     if (!isValidFile) {
       setMainFile(null)
-      setMainFileError(
-        isLegalSendForSigningMode ? 'Only PDF (.pdf) files allowed.' : 'Only Word (.docx) files allowed.'
-      )
+      toast.error(isLegalSendForSigningMode ? 'Only PDF (.pdf) files allowed.' : 'Only Word (.docx) files allowed.')
       return
     }
 
     setMainFile(file)
-    setMainFileError(null)
   }
 
   const handleNext = () => {
     if (activeStep === 0) {
       if (!mainFile) {
-        setMainFileError(
+        toast.error(
           isLegalSendForSigningMode
             ? 'Please upload a .pdf contract to continue.'
             : 'Please upload a .docx contract to continue.'
@@ -186,51 +177,49 @@ export default function ThirdPartyUploadSidebar({
         !backgroundOfRequest.trim() ||
         !effectiveDepartmentId
       ) {
-        setStepError('Please complete the required fields before continuing.')
+        toast.error('Please complete the required fields before continuing.')
         return
       }
 
       if (!/^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(signatoryEmail.trim())) {
-        setStepError('Please enter a valid signatory email address.')
+        toast.error('Please enter a valid signatory email address.')
         return
       }
 
       if (departments.length === 0) {
-        setStepError('No departments are configured for this tenant.')
+        toast.error('No departments are configured for this tenant.')
         return
       }
 
       if (isLegalSendForSigningMode) {
         if (!isLegalActor) {
-          setStepError('Only Legal Team can use Send for Signing mode.')
+          toast.error('Only Legal Team can use Send for Signing mode.')
           return
         }
 
         if (!legalDepartmentId || effectiveDepartmentId !== legalDepartmentId) {
-          setStepError('Legal and Compliance department is required for this workflow.')
+          toast.error('Legal and Compliance department is required for this workflow.')
           return
         }
 
         if (bypassHodApproval && !bypassReason.trim()) {
-          setStepError('Bypass reason is required when bypassing HOD approval.')
+          toast.error('Bypass reason is required when bypassing HOD approval.')
           return
         }
       }
 
       for (const counterparty of normalizedCounterparties) {
         if (counterparty.counterpartyName.toUpperCase() !== 'NA' && counterparty.supportingFiles.length === 0) {
-          setStepError(`Supporting documents are required for counterparty ${counterparty.counterpartyName}.`)
+          toast.error(`Supporting documents are required for counterparty ${counterparty.counterpartyName}.`)
           return
         }
       }
     }
 
-    setStepError(null)
     setActiveStep((current) => Math.min(current + 1, steps.length - 1))
   }
 
   const handleBack = () => {
-    setStepError(null)
     setActiveStep((current) => Math.max(current - 1, 0))
   }
 
@@ -240,7 +229,7 @@ export default function ThirdPartyUploadSidebar({
     }
 
     if (!mainFile) {
-      setUploadError('Please upload a contract file before submitting.')
+      toast.error('Please upload a contract file before submitting.')
       return
     }
 
@@ -249,7 +238,6 @@ export default function ThirdPartyUploadSidebar({
       'Counterparty'
     const generatedTitle = `${selectedContractTypeName || 'Contract'} - ${primaryCounterpartyName}`
 
-    setUploadError(null)
     setUploadSuccess(null)
     setIsSubmitting(true)
 
@@ -283,14 +271,11 @@ export default function ThirdPartyUploadSidebar({
       })
 
       if (!response.ok || !response.data?.contract) {
-        setIsSubmitting(false)
         const failureMessage = response.error?.message ?? 'Failed to upload contract'
-        setUploadError(failureMessage)
         toast.error(failureMessage)
         return
       }
 
-      setIsSubmitting(false)
       const successMessage = `Uploaded ${response.data.contract.title} successfully.`
       setUploadSuccess(successMessage)
       toast.success(successMessage)
@@ -304,12 +289,30 @@ export default function ThirdPartyUploadSidebar({
       resetAll()
       router.push('/dashboard')
       router.refresh()
-    } catch {
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred'
+      toast.error(errorMessage)
+    } finally {
       setIsSubmitting(false)
-      const failureMessage = 'Unexpected error while uploading contract. Please try again.'
-      setUploadError(failureMessage)
-      toast.error(failureMessage)
     }
+  }
+
+  const handleStepKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Enter' || event.defaultPrevented || activeStep >= steps.length - 1) {
+      return
+    }
+
+    const target = event.target
+    if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) {
+      return
+    }
+
+    if (target instanceof HTMLInputElement && (target.type === 'file' || target.type === 'checkbox')) {
+      return
+    }
+
+    event.preventDefault()
+    handleNext()
   }
 
   const stepContent = () => {
@@ -317,14 +320,12 @@ export default function ThirdPartyUploadSidebar({
       return (
         <ChooseFilesStep
           mainFile={mainFile}
-          errorMessage={mainFileError}
           isDragging={isDragging}
           acceptedFileTypes={acceptedFileTypes}
           acceptedExtensionsLabel={acceptedExtensionsLabel}
           onFileSelected={handleMainFile}
           onFileRemoved={() => {
             setMainFile(null)
-            setMainFileError(null)
           }}
           onDragOver={(event) => {
             event.preventDefault()
@@ -345,117 +346,90 @@ export default function ThirdPartyUploadSidebar({
 
     if (activeStep === 1) {
       return (
-        <>
-          {stepError && <div className={styles.errorText}>{stepError}</div>}
-          <AdditionalDataStep
-            mainFileName={mainFile?.name || null}
-            contractType={contractType}
-            contractTypes={contractTypes}
-            counterparties={counterpartyEntries}
-            counterpartyOptions={COUNTERPARTIES}
-            showCounterpartyModal={showCounterpartyModal}
-            onContractTypeChange={(value) => {
-              setContractType(value)
-              setStepError(null)
-            }}
-            onCounterpartyNameChange={(index, value) => {
-              setCounterpartyEntries((current) =>
-                current.map((entry, currentIndex) =>
-                  currentIndex === index
-                    ? {
-                        ...entry,
-                        counterpartyName: value,
-                      }
-                    : entry
-                )
-              )
-              setStepError(null)
-            }}
-            onAddCounterparty={() => {
-              setCounterpartyEntries((current) => [...current, { counterpartyName: '', supportingFiles: [] }])
-              setStepError(null)
-            }}
-            signatoryName={signatoryName}
-            signatoryDesignation={signatoryDesignation}
-            signatoryEmail={signatoryEmail}
-            backgroundOfRequest={backgroundOfRequest}
-            departmentId={effectiveDepartmentId}
-            departments={departments}
-            isDepartmentLocked={isLegalSendForSigningMode}
-            lockedDepartmentName={contractWorkflowIdentities.legalDepartmentName}
-            budgetApproved={budgetApproved}
-            bypassHodApproval={bypassHodApproval}
-            bypassReason={bypassReason}
-            onSignatoryNameChange={(value) => {
-              setSignatoryName(value)
-              setStepError(null)
-            }}
-            onSignatoryDesignationChange={(value) => {
-              setSignatoryDesignation(value)
-              setStepError(null)
-            }}
-            onSignatoryEmailChange={(value) => {
-              setSignatoryEmail(value)
-              setStepError(null)
-            }}
-            onBackgroundOfRequestChange={(value) => {
-              setBackgroundOfRequest(value)
-              setStepError(null)
-            }}
-            onDepartmentIdChange={(value) => {
-              setDepartmentId(value)
-              setStepError(null)
-            }}
-            onBudgetApprovedChange={(value) => {
-              setBudgetApproved(value)
-              setStepError(null)
-            }}
-            onBypassHodApprovalChange={
-              isLegalSendForSigningMode
-                ? (value) => {
-                    setBypassHodApproval(value)
-                    if (!value) {
-                      setBypassReason('')
+        <AdditionalDataStep
+          mainFileName={mainFile?.name || null}
+          contractType={contractType}
+          contractTypes={contractTypes}
+          counterparties={counterpartyEntries}
+          counterpartyOptions={COUNTERPARTIES}
+          showCounterpartyModal={showCounterpartyModal}
+          onContractTypeChange={(value) => {
+            setContractType(value)
+          }}
+          onCounterpartyNameChange={(index, value) => {
+            setCounterpartyEntries((current) =>
+              current.map((entry, currentIndex) =>
+                currentIndex === index
+                  ? {
+                      ...entry,
+                      counterpartyName: value,
                     }
-                    setStepError(null)
-                  }
-                : undefined
-            }
-            onBypassReasonChange={
-              isLegalSendForSigningMode
-                ? (value) => {
-                    setBypassReason(value)
-                    setStepError(null)
-                  }
-                : undefined
-            }
-            onSupportingFilesSelected={(counterpartyIndex, files) => {
-              setCounterpartyEntries((current) =>
-                current.map((entry, currentIndex) =>
-                  currentIndex === counterpartyIndex
-                    ? {
-                        ...entry,
-                        supportingFiles: [...entry.supportingFiles, ...files],
-                      }
-                    : entry
-                )
+                  : entry
               )
-              setStepError(null)
-            }}
-            onSupportingFileRemoved={(counterpartyIndex, fileIndex) =>
-              setCounterpartyEntries((current) =>
-                current.map((entry, currentIndex) =>
-                  currentIndex === counterpartyIndex
-                    ? {
-                        ...entry,
-                        supportingFiles: entry.supportingFiles.filter((_, index) => index !== fileIndex),
-                      }
-                    : entry
-                )
+            )
+          }}
+          onAddCounterparty={() => {
+            setCounterpartyEntries((current) => [...current, { counterpartyName: '', supportingFiles: [] }])
+          }}
+          signatoryName={signatoryName}
+          signatoryDesignation={signatoryDesignation}
+          signatoryEmail={signatoryEmail}
+          backgroundOfRequest={backgroundOfRequest}
+          departmentId={effectiveDepartmentId}
+          departments={departments}
+          isDepartmentLocked={isLegalSendForSigningMode}
+          lockedDepartmentName={contractWorkflowIdentities.legalDepartmentName}
+          budgetApproved={budgetApproved}
+          bypassHodApproval={bypassHodApproval}
+          bypassReason={bypassReason}
+          onSignatoryNameChange={setSignatoryName}
+          onSignatoryDesignationChange={setSignatoryDesignation}
+          onSignatoryEmailChange={setSignatoryEmail}
+          onBackgroundOfRequestChange={setBackgroundOfRequest}
+          onDepartmentIdChange={setDepartmentId}
+          onBudgetApprovedChange={setBudgetApproved}
+          onBypassHodApprovalChange={
+            isLegalSendForSigningMode
+              ? (value) => {
+                  setBypassHodApproval(value)
+                  if (!value) {
+                    setBypassReason('')
+                  }
+                }
+              : undefined
+          }
+          onBypassReasonChange={
+            isLegalSendForSigningMode
+              ? (value) => {
+                  setBypassReason(value)
+                }
+              : undefined
+          }
+          onSupportingFilesSelected={(counterpartyIndex, files) => {
+            setCounterpartyEntries((current) =>
+              current.map((entry, currentIndex) =>
+                currentIndex === counterpartyIndex
+                  ? {
+                      ...entry,
+                      supportingFiles: [...entry.supportingFiles, ...files],
+                    }
+                  : entry
               )
-            }
-          />
-        </>
+            )
+          }}
+          onSupportingFileRemoved={(counterpartyIndex, fileIndex) =>
+            setCounterpartyEntries((current) =>
+              current.map((entry, currentIndex) =>
+                currentIndex === counterpartyIndex
+                  ? {
+                      ...entry,
+                      supportingFiles: entry.supportingFiles.filter((_, index) => index !== fileIndex),
+                    }
+                  : entry
+              )
+            )
+          }
+        />
       )
     }
 
@@ -483,7 +457,7 @@ export default function ThirdPartyUploadSidebar({
       )
     }
 
-    return <UploadStep isSubmitting={isSubmitting} errorMessage={uploadError} successMessage={uploadSuccess} />
+    return <UploadStep isSubmitting={isSubmitting} successMessage={uploadSuccess} />
   }
 
   const footer = (
@@ -526,7 +500,7 @@ export default function ThirdPartyUploadSidebar({
       onClose={onClose}
       footer={footer}
     >
-      {stepContent()}
+      <div onKeyDown={handleStepKeyDown}>{stepContent()}</div>
     </WorkflowSidebar>
   )
 }

@@ -27,7 +27,10 @@
     ]
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.27.1",
     "@supabase/auth-helpers-nextjs": "^0.15.0",
+    "@supabase/mcp-server-supabase": "^0.6.3",
+    "@supabase/mcp-utils": "^0.3.2",
     "@supabase/ssr": "^0.8.0",
     "@supabase/supabase-js": "^2.95.3",
     "@tanstack/react-table": "^8.21.3",

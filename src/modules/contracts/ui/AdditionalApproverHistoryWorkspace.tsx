@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { toast } from 'sonner'
 import ProtectedAppShell from '@/modules/dashboard/ui/ProtectedAppShell'
 import {
   contractsClient,
@@ -36,7 +37,6 @@ const timestampFormatter = new Intl.DateTimeFormat('en-GB', {
 export default function AdditionalApproverHistoryWorkspace({ session }: AdditionalApproverHistoryWorkspaceProps) {
   const [historyItems, setHistoryItems] = useState<AdditionalApproverDecisionHistoryRecord[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [departments, setDepartments] = useState<DepartmentOption[]>([])
   const [selectedDepartmentId, setSelectedDepartmentId] = useState('')
   const [cursorHistory, setCursorHistory] = useState<Array<string | undefined>>([undefined])
@@ -59,7 +59,7 @@ export default function AdditionalApproverHistoryWorkspace({ session }: Addition
       setHistoryItems([])
       setNextCursor(null)
       setTotal(0)
-      setError(response.error?.message ?? 'Failed to load additional approver history')
+      toast.error(response.error?.message ?? 'Failed to load additional approver history')
       setIsLoading(false)
       return
     }
@@ -67,7 +67,6 @@ export default function AdditionalApproverHistoryWorkspace({ session }: Addition
     setHistoryItems(response.data.history)
     setNextCursor(response.data.pagination.cursor)
     setTotal(response.data.pagination.total)
-    setError(null)
     setIsLoading(false)
   }, [activeCursor, isAdminRole, selectedDepartmentId])
 
@@ -133,8 +132,6 @@ export default function AdditionalApproverHistoryWorkspace({ session }: Addition
         <section className={styles.historySection}>
           {isLoading ? (
             <div className={styles.loading}>Loading history...</div>
-          ) : error ? (
-            <div className={styles.error}>{error}</div>
           ) : historyItems.length === 0 ? (
             <div className={styles.empty}>No additional approver decision history found.</div>
           ) : (

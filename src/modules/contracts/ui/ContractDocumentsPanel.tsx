@@ -209,7 +209,6 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
   } = props
 
   const fileInputRef = useRef<HTMLInputElement | null>(null)
-  const [error, setError] = useState<string | null>(null)
   const [isReplacing, setIsReplacing] = useState(false)
 
   const primaryDocuments = useMemo(() => {
@@ -274,23 +273,26 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
         ? crypto.randomUUID()
         : `${Date.now()}-${Math.random().toString(16).slice(2)}`
 
-    const response = await contractsClient.replaceMainDocument({
-      contractId,
-      file,
-      idempotencyKey,
-    })
+    try {
+      const response = await contractsClient.replaceMainDocument({
+        contractId,
+        file,
+        idempotencyKey,
+      })
 
-    if (!response.ok) {
-      setError(response.error?.message ?? 'Failed to replace document')
-      toast.error(response.error?.message ?? 'Failed to replace document')
+      if (!response.ok) {
+        toast.error(response.error?.message ?? 'Failed to replace document')
+        return
+      }
+
+      await onRefreshDocuments()
+      toast.success('Document version uploaded successfully')
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred'
+      toast.error(errorMessage)
+    } finally {
       setIsReplacing(false)
-      return
     }
-
-    setError(null)
-    await onRefreshDocuments()
-    toast.success('Document version uploaded successfully')
-    setIsReplacing(false)
   }
 
   if (!activeDocument) {
@@ -369,8 +371,6 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
         style={{ display: 'none' }}
         onChange={(event) => void handleReplaceFilePicked(event)}
       />
-
-      {error ? <div className={workspaceStyles.error}>{error}</div> : null}
     </div>
   )
 }

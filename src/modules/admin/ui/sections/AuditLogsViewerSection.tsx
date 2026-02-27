@@ -1,3 +1,4 @@
+import type { FormEvent } from 'react'
 import Spinner from '@/components/ui/Spinner'
 import styles from '../admin-console.module.css'
 
@@ -52,75 +53,85 @@ export default function AuditLogsViewerSection({
 }: AuditLogsViewerSectionProps) {
   const selectedLog = logs.find((item) => item.id === selectedLogId) ?? null
 
+  const handleApplyFiltersSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    onApplyFilters()
+  }
+
   return (
     <div className={styles.panel}>
       <h2 className={styles.panelTitle}>Audit Logs Viewer</h2>
 
-      <label className={styles.field}>
-        <span className={styles.label}>Search</span>
-        <input
-          className={styles.input}
-          value={filters.query}
-          onChange={(event) => onFilterChange('query', event.target.value)}
-          placeholder="action, resource, or actor"
-        />
-      </label>
+      <form onSubmit={handleApplyFiltersSubmit}>
+        <label className={styles.field}>
+          <span className={styles.label}>Search</span>
+          <input
+            className={styles.input}
+            value={filters.query}
+            onChange={(event) => onFilterChange('query', event.target.value)}
+            placeholder="action, resource, or actor"
+          />
+        </label>
 
-      <label className={styles.field}>
-        <span className={styles.label}>Action</span>
-        <input
-          className={styles.input}
-          value={filters.action}
-          onChange={(event) => onFilterChange('action', event.target.value)}
-          placeholder="admin.system_configuration.updated"
-        />
-      </label>
+        <label className={styles.field}>
+          <span className={styles.label}>Action</span>
+          <input
+            className={styles.input}
+            value={filters.action}
+            onChange={(event) => onFilterChange('action', event.target.value)}
+            placeholder="admin.system_configuration.updated"
+          />
+        </label>
 
-      <label className={styles.field}>
-        <span className={styles.label}>Resource Type</span>
-        <input
-          className={styles.input}
-          value={filters.resourceType}
-          onChange={(event) => onFilterChange('resourceType', event.target.value)}
-          placeholder="system_configuration"
-        />
-      </label>
+        <label className={styles.field}>
+          <span className={styles.label}>Resource Type</span>
+          <input
+            className={styles.input}
+            value={filters.resourceType}
+            onChange={(event) => onFilterChange('resourceType', event.target.value)}
+            placeholder="system_configuration"
+          />
+        </label>
 
-      <label className={styles.field}>
-        <span className={styles.label}>Actor User ID</span>
-        <input
-          className={styles.input}
-          value={filters.userId}
-          onChange={(event) => onFilterChange('userId', event.target.value)}
-          placeholder="user id"
-        />
-      </label>
+        <label className={styles.field}>
+          <span className={styles.label}>Actor User ID</span>
+          <input
+            className={styles.input}
+            value={filters.userId}
+            onChange={(event) => onFilterChange('userId', event.target.value)}
+            placeholder="user id"
+          />
+        </label>
 
-      <label className={styles.field}>
-        <span className={styles.label}>From (ISO timestamp)</span>
-        <input
-          className={styles.input}
-          value={filters.from}
-          onChange={(event) => onFilterChange('from', event.target.value)}
-        />
-      </label>
+        <label className={styles.field}>
+          <span className={styles.label}>From (ISO timestamp)</span>
+          <input
+            className={styles.input}
+            value={filters.from}
+            onChange={(event) => onFilterChange('from', event.target.value)}
+          />
+        </label>
 
-      <label className={styles.field}>
-        <span className={styles.label}>To (ISO timestamp)</span>
-        <input
-          className={styles.input}
-          value={filters.to}
-          onChange={(event) => onFilterChange('to', event.target.value)}
-        />
-      </label>
+        <label className={styles.field}>
+          <span className={styles.label}>To (ISO timestamp)</span>
+          <input
+            className={styles.input}
+            value={filters.to}
+            onChange={(event) => onFilterChange('to', event.target.value)}
+          />
+        </label>
+
+        <div className={styles.actions}>
+          <button type="submit" className={styles.button} disabled={isLoading}>
+            <span className={styles.buttonContent}>
+              {isLoading ? <Spinner size={14} /> : null}
+              Apply Filters
+            </span>
+          </button>
+        </div>
+      </form>
 
       <div className={styles.actions}>
-        <button type="button" className={styles.button} onClick={onApplyFilters} disabled={isLoading}>
-          <span className={styles.buttonContent}>
-            {isLoading ? <Spinner size={14} /> : null}
-            Apply Filters
-          </span>
-        </button>
         <button type="button" className={styles.button} onClick={onResetPaging} disabled={isLoading}>
           <span className={styles.buttonContent}>
             {isLoading ? <Spinner size={14} /> : null}

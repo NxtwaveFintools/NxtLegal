@@ -1,5 +1,6 @@
 'use client'
 
+import type { KeyboardEvent } from 'react'
 import { formatFileSize } from '@/lib/format-file-size'
 import styles from '../third-party-upload.module.css'
 
@@ -71,6 +72,19 @@ export default function AdditionalDataStep({
   onSupportingFilesSelected,
   onSupportingFileRemoved,
 }: AdditionalDataStepProps) {
+  const handleCounterpartyNameKeyDown = (event: KeyboardEvent<HTMLInputElement>, counterpartyIndex: number) => {
+    if (event.key !== 'Enter') {
+      return
+    }
+
+    if (counterpartyIndex !== counterparties.length - 1) {
+      return
+    }
+
+    event.preventDefault()
+    onAddCounterparty()
+  }
+
   return (
     <div>
       <div className={styles.sectionTitle}>Additional Data</div>
@@ -254,6 +268,7 @@ export default function AdditionalDataStep({
                   placeholder="Select or type counterparty"
                   value={counterparty.counterpartyName}
                   onChange={(event) => onCounterpartyNameChange(counterpartyIndex, event.target.value)}
+                  onKeyDown={(event) => handleCounterpartyNameKeyDown(event, counterpartyIndex)}
                 />
                 {requiresSupportingDocs && (
                   <div className={styles.fieldGroup}>

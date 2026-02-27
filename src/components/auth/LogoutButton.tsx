@@ -30,8 +30,9 @@ export default function LogoutButton() {
       }
 
       toast.error(response.error?.message ?? 'Failed to log out')
-    } catch {
-      toast.error('Failed to log out')
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred'
+      toast.error(errorMessage)
     } finally {
       setIsSubmitting(false)
     }

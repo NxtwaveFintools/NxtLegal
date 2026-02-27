@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { type ColumnDef, type SortingState, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table'
+import { toast } from 'sonner'
 import ContractStatusBadge from '@/modules/contracts/ui/ContractStatusBadge'
 import ProtectedAppShell from '@/modules/dashboard/ui/ProtectedAppShell'
 import {
@@ -234,7 +235,6 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     normalizedRole === 'SUPER_ADMIN'
   const [contracts, setContracts] = useState<ContractRecord[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState<RepositoryStatusFilter | ''>('')
   const [dateBasis, setDateBasis] = useState<RepositoryDateBasis>('request_created_at')
@@ -257,7 +257,6 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     statusMetrics: Array<{ key: string; label: string; count: number }>
   } | null>(null)
   const [isReportLoading, setIsReportLoading] = useState(false)
-  const [reportError, setReportError] = useState<string | null>(null)
   const [selectedExportColumns, setSelectedExportColumns] = useState<RepositoryExportColumn[]>(defaultExportColumns)
   const [activeExportFormat, setActiveExportFormat] = useState<'csv' | 'excel' | null>(null)
   const [activePreview, setActivePreview] = useState<{
@@ -278,31 +277,35 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
   const loadContracts = useCallback(async () => {
     setIsLoading(true)
 
-    const response = await contractsClient.repositoryList({
-      cursor: activeCursor,
-      limit: 15,
-      search,
-      repositoryStatus: statusFilter || undefined,
-      sortBy,
-      sortDirection,
-      dateBasis,
-      datePreset: datePreset || undefined,
-      fromDate: datePreset === 'custom' && customFromDate ? customFromDate : undefined,
-      toDate: datePreset === 'custom' && customToDate ? customToDate : undefined,
-    })
+    try {
+      const response = await contractsClient.repositoryList({
+        cursor: activeCursor,
+        limit: 15,
+        search,
+        repositoryStatus: statusFilter || undefined,
+        sortBy,
+        sortDirection,
+        dateBasis,
+        datePreset: datePreset || undefined,
+        fromDate: datePreset === 'custom' && customFromDate ? customFromDate : undefined,
+        toDate: datePreset === 'custom' && customToDate ? customToDate : undefined,
+      })
 
-    if (!response.ok || !response.data) {
-      setContracts([])
-      setError(response.error?.message ?? 'Failed to load repository contracts')
-      setNextCursor(null)
+      if (!response.ok || !response.data) {
+        setContracts([])
+        setNextCursor(null)
+        toast.error(response.error?.message ?? 'Failed to load repository contracts')
+        return
+      }
+
+      setContracts(response.data.contracts)
+      setNextCursor(response.data.pagination.cursor)
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred'
+      toast.error(errorMessage)
+    } finally {
       setIsLoading(false)
-      return
     }
-
-    setContracts(response.data.contracts)
-    setNextCursor(response.data.pagination.cursor)
-    setError(null)
-    setIsLoading(false)
   }, [activeCursor, customFromDate, customToDate, dateBasis, datePreset, search, statusFilter, sortBy, sortDirection])
 
   useEffect(() => {
@@ -312,7 +315,6 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
   useEffect(() => {
     if (!canAccessRepositoryReporting) {
       setReportMetrics(null)
-      setReportError(null)
       return
     }
 
@@ -329,14 +331,13 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
       })
 
       if (!response.ok || !response.data) {
-        setReportError(response.error?.message ?? 'Failed to load repository report')
+        toast.error(response.error?.message ?? 'Failed to load repository report')
         setReportMetrics(null)
         setIsReportLoading(false)
         return
       }
 
       setReportMetrics(response.data.report)
-      setReportError(null)
       setIsReportLoading(false)
     }
 
@@ -421,37 +422,34 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [activePreview, closePreview])
 
-  const handleOpenCurrentDocument = useCallback(
-    async (contract: ContractRecord) => {
-      const response = await contractsClient.download(contract.id, {
-        documentId: contract.currentDocumentId ?? undefined,
-      })
+  const handleOpenCurrentDocument = useCallback(async (contract: ContractRecord) => {
+    const response = await contractsClient.download(contract.id, {
+      documentId: contract.currentDocumentId ?? undefined,
+    })
 
-      if (!response.ok || !response.data?.signedUrl) {
-        setError(response.error?.message ?? 'Failed to generate document view link')
-        return
-      }
+    if (!response.ok || !response.data?.signedUrl) {
+      toast.error(response.error?.message ?? 'Failed to generate document view link')
+      return
+    }
 
-      const resolvedFileName = (response.data.fileName ?? contract.fileName?.trim()) || contract.title
-      const resolvedMimeType = contract.fileMimeType ?? ''
-      const isDocx =
-        resolvedMimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
-        resolvedFileName.toLowerCase().endsWith('.docx')
+    const resolvedFileName = (response.data.fileName ?? contract.fileName?.trim()) || contract.title
+    const resolvedMimeType = contract.fileMimeType ?? ''
+    const isDocx =
+      resolvedMimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      resolvedFileName.toLowerCase().endsWith('.docx')
 
-      const previewUrl = contractsClient.previewUrl(contract.id, {
-        documentId: contract.currentDocumentId ?? undefined,
-        renderAs: isDocx ? 'html' : 'binary',
-      })
+    const previewUrl = contractsClient.previewUrl(contract.id, {
+      documentId: contract.currentDocumentId ?? undefined,
+      renderAs: isDocx ? 'html' : 'binary',
+    })
 
-      setActivePreview({
-        url: previewUrl,
-        fileName: resolvedFileName,
-        fileMimeType: resolvedMimeType,
-        externalUrl: response.data.signedUrl,
-      })
-    },
-    [setError]
-  )
+    setActivePreview({
+      url: previewUrl,
+      fileName: resolvedFileName,
+      fileMimeType: resolvedMimeType,
+      externalUrl: response.data.signedUrl,
+    })
+  }, [])
 
   const columns = useMemo<ColumnDef<ContractRecord>[]>(
     () => [
@@ -568,7 +566,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
         },
       },
     ],
-    []
+    [handleOpenCurrentDocument]
   )
 
   const toggleExportColumn = (column: RepositoryExportColumn) => {
@@ -597,7 +595,6 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     setActiveExportFormat(null)
   }
 
-  // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
     data: contracts,
     columns,
@@ -757,8 +754,6 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
 
             {isReportLoading ? (
               <div className={styles.empty}>Loading report...</div>
-            ) : reportError ? (
-              <div className={styles.empty}>{reportError}</div>
             ) : reportMetrics ? (
               <div className={styles.reportingGrid}>
                 <div className={styles.metricCard}>
@@ -839,8 +834,6 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
                 </div>
               ))}
             </div>
-          ) : error ? (
-            <div className={styles.empty}>{error}</div>
           ) : (
             <table className={styles.table}>
               <thead>

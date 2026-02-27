@@ -1,4 +1,5 @@
 import type { AdminDepartmentOption, AdminUserOption } from '@/core/client/admin-client'
+import type { FormEvent } from 'react'
 import Spinner from '@/components/ui/Spinner'
 import styles from '../admin-console.module.css'
 
@@ -51,6 +52,11 @@ export default function HodPocAssignmentControlSection({
   onReplacePrimaryRole,
   onAssignDepartmentRole,
 }: HodPocAssignmentControlSectionProps) {
+  const handleReplacePrimaryRoleSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    onReplacePrimaryRole()
+  }
+
   return (
     <div className={styles.panel}>
       <h2 className={styles.panelTitle}>HOD & POC Assignment Control</h2>
@@ -70,40 +76,42 @@ export default function HodPocAssignmentControlSection({
         </select>
       </label>
 
-      <label className={styles.field}>
-        <span className={styles.label}>Role To Replace</span>
-        <select
-          className={styles.select}
-          value={replaceRoleType}
-          onChange={(event) => onReplaceRoleTypeChange(event.target.value as 'POC' | 'HOD')}
-        >
-          <option value="POC">POC</option>
-          <option value="HOD">HOD</option>
-        </select>
-      </label>
+      <form onSubmit={handleReplacePrimaryRoleSubmit}>
+        <label className={styles.field}>
+          <span className={styles.label}>Role To Replace</span>
+          <select
+            className={styles.select}
+            value={replaceRoleType}
+            onChange={(event) => onReplaceRoleTypeChange(event.target.value as 'POC' | 'HOD')}
+          >
+            <option value="POC">POC</option>
+            <option value="HOD">HOD</option>
+          </select>
+        </label>
 
-      <label className={styles.field}>
-        <span className={styles.label}>New Microsoft Email</span>
-        <input
-          className={styles.input}
-          value={newRoleEmail}
-          onChange={(event) => onNewRoleEmailChange(event.target.value)}
-          placeholder="new.owner@yourdomain.com"
-        />
-      </label>
+        <label className={styles.field}>
+          <span className={styles.label}>New Microsoft Email</span>
+          <input
+            className={styles.input}
+            value={newRoleEmail}
+            onChange={(event) => onNewRoleEmailChange(event.target.value)}
+            placeholder="new.owner@yourdomain.com"
+          />
+        </label>
 
-      {!isReplacementDifferentFromOtherRole && normalizedNewRoleEmail ? (
-        <div className={styles.warning}>Replacement email cannot match the other primary role email.</div>
-      ) : null}
+        {!isReplacementDifferentFromOtherRole && normalizedNewRoleEmail ? (
+          <div className={styles.warning}>Replacement email cannot match the other primary role email.</div>
+        ) : null}
 
-      <div className={styles.actions}>
-        <button type="button" className={styles.button} onClick={onReplacePrimaryRole} disabled={!canReplace}>
-          <span className={styles.buttonContent}>
-            {isSubmittingReplace ? <Spinner size={14} /> : null}
-            {isSubmittingReplace ? 'Replacing...' : 'Replace Primary Role'}
-          </span>
-        </button>
-      </div>
+        <div className={styles.actions}>
+          <button type="submit" className={styles.button} disabled={!canReplace}>
+            <span className={styles.buttonContent}>
+              {isSubmittingReplace ? <Spinner size={14} /> : null}
+              {isSubmittingReplace ? 'Replacing...' : 'Replace Primary Role'}
+            </span>
+          </button>
+        </div>
+      </form>
 
       <label className={styles.field}>
         <span className={styles.label}>Select User</span>

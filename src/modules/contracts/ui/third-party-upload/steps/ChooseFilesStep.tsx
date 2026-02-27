@@ -6,7 +6,6 @@ import styles from '../third-party-upload.module.css'
 
 type ChooseFilesStepProps = {
   mainFile: File | null
-  errorMessage: string | null
   isDragging: boolean
   acceptedExtensionsLabel: string
   acceptedFileTypes: string
@@ -19,7 +18,6 @@ type ChooseFilesStepProps = {
 
 export default function ChooseFilesStep({
   mainFile,
-  errorMessage,
   isDragging,
   acceptedExtensionsLabel,
   acceptedFileTypes,
@@ -56,8 +54,6 @@ export default function ChooseFilesStep({
           }}
         />
       </div>
-
-      {errorMessage && <div className={styles.errorText}>{errorMessage}</div>}
 
       {mainFile && (
         <div className={styles.fileCard}>
