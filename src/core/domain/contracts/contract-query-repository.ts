@@ -40,6 +40,10 @@ export type ContractListItem = {
   departmentId?: string | null
   departmentName?: string | null
   assignedToUsers?: string[]
+  legalEffectiveDate?: string | null
+  legalTerminationDate?: string | null
+  legalNoticePeriod?: string | null
+  legalAutoRenewal?: boolean | null
   createdAt: string
   updatedAt: string
 }

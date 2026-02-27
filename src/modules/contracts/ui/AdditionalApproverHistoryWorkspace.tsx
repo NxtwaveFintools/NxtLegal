@@ -211,7 +211,7 @@ export default function AdditionalApproverHistoryWorkspace({ session }: Addition
         <ThirdPartyUploadSidebar
           isOpen={isUploadOpen}
           mode={contractUploadModes.default}
-          actorRole={session.role}
+          actorRole={session.role ?? undefined}
           onClose={() => setIsUploadOpen(false)}
           onUploaded={async () => {
             await loadHistory()

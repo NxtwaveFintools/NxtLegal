@@ -1084,7 +1084,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
       <ThirdPartyUploadSidebar
         isOpen={isUploadOpen}
         mode={uploadMode}
-        actorRole={session.role}
+        actorRole={session.role ?? undefined}
         onClose={() => {
           setIsUploadOpen(false)
           setUploadMode(contractUploadModes.default)

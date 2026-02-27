@@ -412,6 +412,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       aging_business_days: number | null
       near_breach: boolean
       is_tat_breached: boolean
+      legal_effective_date?: string | null
+      legal_termination_date?: string | null
+      legal_notice_period?: string | null
+      legal_auto_renewal?: boolean | null
       created_at: string
       updated_at: string
     }>
