@@ -117,7 +117,7 @@ describe('ContractSignatoryService', () => {
     expect(signatoryMailer.sendTemplateEmail).toHaveBeenCalledWith(
       expect.objectContaining({
         templateParams: expect.objectContaining({
-          signing_url: 'https://sign.zoho.in/sign/signer-link-1',
+          signing_url: expect.stringContaining('/api/contracts/signatories/docusign/redirect?token='),
         }),
       })
     )

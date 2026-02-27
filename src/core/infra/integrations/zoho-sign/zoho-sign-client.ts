@@ -215,8 +215,6 @@ export class ZohoSignClient {
         recipient_name: recipient.name || recipient.email,
         recipient_email: recipient.email,
         signing_order: recipient.routingOrder,
-        // Enforce recipient verification at Zoho to prevent forwarded-link misuse.
-        verify_recipient: true,
         fields: fieldsForRecipient.map((field, index) =>
           this.mapFieldToZohoField(field, params.documentId, actionId, index)
         ),
@@ -329,8 +327,8 @@ export class ZohoSignClient {
       field.fieldType
     )
     const pageNumber = Math.max(0, (field.pageNumber ?? 1) - 1)
-    const xCoord = this.normalizeZohoPointCoordinate(field.xPosition, 24)
-    const yCoord = this.normalizeZohoPointCoordinate(field.yPosition, 24)
+    const xCoord = this.normalizeZohoCoordinate(field.xPosition, 24)
+    const yCoord = this.normalizeZohoCoordinate(field.yPosition, 24)
 
     return {
       field_type_name: fieldTypeName,
@@ -348,12 +346,12 @@ export class ZohoSignClient {
     }
   }
 
-  private normalizeZohoPointCoordinate(value: number | null, fallback: number): number {
+  private normalizeZohoCoordinate(value: number | null, fallback: number): number {
     if (typeof value !== 'number' || Number.isNaN(value)) {
       return fallback
     }
 
-    // Send PDF-space coordinates (points) directly, keep safe integer bounds.
+    // Treat coordinates as PDF-space points; clamp to safe bounds.
     return Math.max(0, Math.min(2000, Math.round(value)))
   }
 

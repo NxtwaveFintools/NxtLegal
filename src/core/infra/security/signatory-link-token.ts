@@ -6,6 +6,7 @@ export type SignatoryLinkTokenPayload = {
   envelopeId: string
   recipientEmail: string
   recipientId: string
+  tokenId: string
 }
 
 const secret = process.env.JWT_SECRET_KEY ?? 'dev-signatory-link-secret'
@@ -22,13 +23,20 @@ const sign = (value: string): string => {
   return createHmac('sha256', secret).update(value, 'utf8').digest('base64url')
 }
 
-export const createSignatoryLinkToken = async (payload: SignatoryLinkTokenPayload): Promise<string> => {
-  const expiresAt = Date.now() + 30 * 24 * 60 * 60 * 1000
+export const createSignatoryLinkToken = async (
+  payload: Omit<SignatoryLinkTokenPayload, 'tokenId'>
+): Promise<string> => {
+  // Short validity (7d) to limit link forwarding impact.
+  const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000
+  const tokenId =
+    (globalThis.crypto?.randomUUID?.() ?? undefined) ||
+    `${Date.now()}-${Math.random().toString(16).slice(2)}-${Math.random().toString(16).slice(2)}`
   const encodedPayload = encodeBase64Url(
     JSON.stringify({
       envelopeId: payload.envelopeId,
       recipientEmail: payload.recipientEmail.trim().toLowerCase(),
       recipientId: payload.recipientId,
+      tokenId,
       exp: expiresAt,
     })
   )
@@ -50,7 +58,7 @@ export const verifySignatoryLinkToken = async (token: string): Promise<Signatory
   }
 
   const payload = JSON.parse(decodeBase64Url(encodedPayload)) as Partial<SignatoryLinkTokenPayload> & { exp?: number }
-  if (!payload.envelopeId || !payload.recipientEmail || !payload.recipientId || !payload.exp) {
+  if (!payload.envelopeId || !payload.recipientEmail || !payload.recipientId || !payload.tokenId || !payload.exp) {
     throw new Error('Invalid signatory link token payload')
   }
 
@@ -62,5 +70,6 @@ export const verifySignatoryLinkToken = async (token: string): Promise<Signatory
     envelopeId: payload.envelopeId,
     recipientEmail: payload.recipientEmail.trim().toLowerCase(),
     recipientId: payload.recipientId,
+    tokenId: payload.tokenId,
   }
 }

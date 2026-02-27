@@ -220,33 +220,6 @@ export class ContractSignatoryService {
       (envelope.recipients ?? []).map((recipient) => [recipient.email, recipient])
     )
 
-    for (const recipient of normalizedRecipients) {
-      const envelopeRecipient = envelopeRecipientByEmail.get(recipient.signatoryEmail)
-      if (!envelopeRecipient) {
-        throw new ExternalServiceError('DOCUSIGN', `Missing recipient view URL for ${recipient.signatoryEmail}`)
-      }
-
-      if (recipient.recipientType === contractSignatoryRecipientTypes.external) {
-        await this.dispatchTemplateNotificationWithRetry({
-          tenantId: params.tenantId,
-          contractId: params.contractId,
-          envelopeId: envelope.envelopeId,
-          recipientEmail: recipient.signatoryEmail,
-          templateId: this.notificationTemplates.signatoryLinkTemplateId,
-          notificationType: contractNotificationTypes.signatoryLink,
-          templateParams: {
-            contract_title: contractView.contract.title,
-            signing_url: await this.buildSignatoryRedirectLink({
-              envelopeId: envelope.envelopeId,
-              recipientEmail: recipient.signatoryEmail,
-              recipientId: envelopeRecipient.recipientId,
-            }),
-          },
-          strictFailure: true,
-        })
-      }
-    }
-
     let updatedView: ContractDetailView | null = null
     for (const recipient of normalizedRecipients) {
       const envelopeRecipient = envelopeRecipientByEmail.get(recipient.signatoryEmail)
@@ -272,6 +245,33 @@ export class ContractSignatoryService {
 
     if (!updatedView) {
       throw new BusinessRuleError('SIGNATORY_ASSIGNMENT_FAILED', 'No signatory recipient was persisted')
+    }
+
+    for (const recipient of normalizedRecipients) {
+      const envelopeRecipient = envelopeRecipientByEmail.get(recipient.signatoryEmail)
+      if (!envelopeRecipient) {
+        throw new ExternalServiceError('DOCUSIGN', `Missing recipient view URL for ${recipient.signatoryEmail}`)
+      }
+
+      if (recipient.recipientType === contractSignatoryRecipientTypes.external) {
+        await this.dispatchTemplateNotificationWithRetry({
+          tenantId: params.tenantId,
+          contractId: params.contractId,
+          envelopeId: envelope.envelopeId,
+          recipientEmail: recipient.signatoryEmail,
+          templateId: this.notificationTemplates.signatoryLinkTemplateId,
+          notificationType: contractNotificationTypes.signatoryLink,
+          templateParams: {
+            contract_title: contractView.contract.title,
+            signing_url: await this.buildSignatoryRedirectLink({
+              envelopeId: envelope.envelopeId,
+              recipientEmail: recipient.signatoryEmail,
+              recipientId: envelopeRecipient.recipientId,
+            }),
+          },
+          strictFailure: true,
+        })
+      }
     }
 
     this.logger.info('Contract signatory assigned', {

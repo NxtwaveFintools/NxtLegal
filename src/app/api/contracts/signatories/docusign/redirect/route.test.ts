@@ -63,6 +63,7 @@ describe('Signatory redirect route', () => {
       envelopeId: 'req-1',
       recipientEmail: 'signer@nxtwave.co.in',
       recipientId: 'action-1',
+      tokenId: 'token-1',
     })
 
     mockContractQueryService.resolveEnvelopeContext.mockResolvedValueOnce({
@@ -91,6 +92,7 @@ describe('Signatory redirect route', () => {
       envelopeId: 'req-1',
       recipientEmail: 'signer@nxtwave.co.in',
       recipientId: 'action-1',
+      tokenId: 'token-2',
     })
     mockContractQueryService.resolveEnvelopeContext.mockResolvedValueOnce({
       tenantId: 'tenant-1',
@@ -117,6 +119,7 @@ describe('Signatory redirect route', () => {
       envelopeId: 'req-1',
       recipientEmail: 'signer@nxtwave.co.in',
       recipientId: 'action-1',
+      tokenId: 'token-3',
     })
     mockContractQueryService.resolveEnvelopeContext.mockResolvedValueOnce({
       tenantId: 'tenant-1',
@@ -143,6 +146,7 @@ describe('Signatory redirect route', () => {
       envelopeId: 'req-1',
       recipientEmail: 'signer@nxtwave.co.in',
       recipientId: 'action-1',
+      tokenId: 'token-4',
     })
     mockContractQueryService.resolveEnvelopeContext.mockResolvedValueOnce({
       tenantId: 'tenant-1',
@@ -173,6 +177,7 @@ describe('Signatory redirect route', () => {
       envelopeId: 'req-1',
       recipientEmail: 'another-user@nxtwave.co.in',
       recipientId: 'action-1',
+      tokenId: 'token-5',
     })
     mockContractQueryService.resolveEnvelopeContext.mockResolvedValueOnce({
       tenantId: 'tenant-1',
