@@ -3,11 +3,28 @@ import { ZodError } from 'zod'
 import { withAuth } from '@/core/http/with-auth'
 import { errorResponse, okResponse } from '@/core/http/response'
 import { isAppError } from '@/core/http/errors'
-import { getContractApprovalNotificationService, getContractQueryService } from '@/core/registry/service-registry'
+import {
+  getContractApprovalNotificationService,
+  getContractQueryService,
+  getIdempotencyService,
+} from '@/core/registry/service-registry'
 import { contractActionCommandSchema, bypassApprovalActionName } from '@/core/domain/contracts/schemas'
 import { contractWorkflowRoles } from '@/core/constants/contracts'
+import { logger } from '@/core/infra/logging/logger'
+
+const dispatchNotificationInBackground = (notification: Promise<unknown>, event: string, contractId: string): void => {
+  void notification.catch((error) => {
+    logger.warn('Contract action notification dispatch failed', {
+      event,
+      contractId,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  })
+}
 
 const POSTHandler = withAuth(async (request: NextRequest, { session, params }) => {
+  let shouldReleaseClaim = false
+
   try {
     if (!session.tenantId) {
       return NextResponse.json(errorResponse('SESSION_INVALID', 'Session tenant is required'), { status: 401 })
@@ -22,6 +39,25 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
     }
 
     const payload = contractActionCommandSchema.parse(await request.json())
+
+    const idempotencyKey = request.headers.get('Idempotency-Key')?.trim()
+    if (idempotencyKey) {
+      const idempotencyService = getIdempotencyService()
+      const claimResult = await idempotencyService.claimOrGet(idempotencyKey, tenantId)
+
+      if (claimResult.status === 'cached') {
+        return NextResponse.json(claimResult.record.responseData, { status: claimResult.record.statusCode })
+      }
+
+      if (claimResult.status === 'in-progress') {
+        return NextResponse.json(
+          errorResponse('IDEMPOTENCY_IN_PROGRESS', 'A request with this Idempotency-Key is already in progress'),
+          { status: 409 }
+        )
+      }
+
+      shouldReleaseClaim = true
+    }
 
     const contractQueryService = getContractQueryService()
 
@@ -62,56 +98,91 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
     const contractApprovalNotificationService = getContractApprovalNotificationService()
 
     if (payload.action !== bypassApprovalActionName && payload.action === 'hod.approve') {
-      await contractApprovalNotificationService.notifyApprovalReceived({
-        tenantId,
-        contractId,
-        actorEmployeeId: session.employeeId,
-        actorRole: session.role,
-        event: 'HOD_APPROVED',
-        legalOwnerEmail: contractView.contract.currentAssigneeEmail,
-      })
+      dispatchNotificationInBackground(
+        contractApprovalNotificationService.notifyApprovalReceived({
+          tenantId,
+          contractId,
+          actorEmployeeId: session.employeeId,
+          actorRole: session.role,
+          event: 'HOD_APPROVED',
+          legalOwnerEmail: contractView.contract.currentAssigneeEmail,
+        }),
+        'HOD_APPROVED',
+        contractId
+      )
     }
 
     if (payload.action !== bypassApprovalActionName && payload.action === 'approver.approve') {
-      await contractApprovalNotificationService.notifyApprovalReceived({
-        tenantId,
-        contractId,
-        actorEmployeeId: session.employeeId,
-        actorRole: session.role,
-        event: 'ADDITIONAL_APPROVED',
-        legalOwnerEmail: contractView.contract.currentAssigneeEmail,
-      })
+      dispatchNotificationInBackground(
+        contractApprovalNotificationService.notifyApprovalReceived({
+          tenantId,
+          contractId,
+          actorEmployeeId: session.employeeId,
+          actorRole: session.role,
+          event: 'ADDITIONAL_APPROVED',
+          legalOwnerEmail: contractView.contract.currentAssigneeEmail,
+        }),
+        'ADDITIONAL_APPROVED',
+        contractId
+      )
     }
 
     if (payload.action !== bypassApprovalActionName && payload.action === 'legal.query.reroute') {
-      await contractApprovalNotificationService.notifyReturnedToHod({
-        tenantId,
-        contractId,
-        actorEmployeeId: session.employeeId,
-        actorRole: session.role,
-        hodEmail: contractView.contract.currentAssigneeEmail,
-      })
+      dispatchNotificationInBackground(
+        contractApprovalNotificationService.notifyReturnedToHod({
+          tenantId,
+          contractId,
+          actorEmployeeId: session.employeeId,
+          actorRole: session.role,
+          hodEmail: contractView.contract.currentAssigneeEmail,
+        }),
+        'REROUTED_TO_HOD',
+        contractId
+      )
     }
 
     if (
       payload.action !== bypassApprovalActionName &&
       (payload.action === 'legal.reject' || payload.action === 'hod.reject')
     ) {
-      await contractApprovalNotificationService.notifyContractRejected({
-        tenantId,
-        contractId,
-        actorEmployeeId: session.employeeId,
-        actorRole: session.role,
-        recipientEmails: [
-          contractView.contract.uploadedByEmail,
-          contractView.contract.currentAssigneeEmail || contractView.contract.departmentHodEmail || '',
-        ],
-        trigger: payload.action === 'legal.reject' ? 'LEGAL_REJECTION' : 'HOD_REJECTED',
-      })
+      dispatchNotificationInBackground(
+        contractApprovalNotificationService.notifyContractRejected({
+          tenantId,
+          contractId,
+          actorEmployeeId: session.employeeId,
+          actorRole: session.role,
+          recipientEmails: [
+            contractView.contract.uploadedByEmail,
+            contractView.contract.currentAssigneeEmail || contractView.contract.departmentHodEmail || '',
+          ],
+          trigger: payload.action === 'legal.reject' ? 'LEGAL_REJECTION' : 'HOD_REJECTED',
+        }),
+        payload.action === 'legal.reject' ? 'LEGAL_REJECTION' : 'HOD_REJECTED',
+        contractId
+      )
     }
 
-    return NextResponse.json(okResponse(contractView))
+    const responseData = okResponse(contractView)
+
+    if (idempotencyKey) {
+      const idempotencyService = getIdempotencyService()
+      await idempotencyService.store(idempotencyKey, tenantId, responseData, 200)
+      shouldReleaseClaim = false
+    }
+
+    return NextResponse.json(responseData)
   } catch (error) {
+    const tenantId = session.tenantId
+    const idempotencyKey = request.headers.get('Idempotency-Key')?.trim()
+    if (tenantId && idempotencyKey && shouldReleaseClaim) {
+      try {
+        const idempotencyService = getIdempotencyService()
+        await idempotencyService.releaseClaim(idempotencyKey, tenantId)
+      } catch {
+        // noop - keep original failure path
+      }
+    }
+
     if (error instanceof ZodError) {
       return NextResponse.json(errorResponse('VALIDATION_ERROR', 'Invalid contract action payload'), { status: 400 })
     }

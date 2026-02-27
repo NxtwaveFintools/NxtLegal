@@ -30,6 +30,7 @@ import type {
   RepositoryExportColumn,
   RepositoryReport,
   RepositoryExportRow,
+  RepositoryExportRowsChunk,
   RepositorySortBy,
   RepositorySortDirection,
   ContractTimelineEvent,
@@ -147,6 +148,24 @@ export class ContractQueryService {
     columns: RepositoryExportColumn[]
   }): Promise<RepositoryExportRow[]> {
     return this.contractRepository.listRepositoryExportRows(params)
+  }
+
+  async listRepositoryExportRowsChunk(params: {
+    tenantId: string
+    employeeId: string
+    role?: string
+    cursor?: string
+    limit: number
+    search?: string
+    status?: ContractStatus
+    repositoryStatus?: ContractRepositoryStatus
+    dateBasis?: RepositoryDateBasis
+    datePreset?: RepositoryDatePreset
+    fromDate?: string
+    toDate?: string
+    columns: RepositoryExportColumn[]
+  }): Promise<RepositoryExportRowsChunk> {
+    return this.contractRepository.listRepositoryExportRowsChunk(params)
   }
 
   async getContractDetail(params: {

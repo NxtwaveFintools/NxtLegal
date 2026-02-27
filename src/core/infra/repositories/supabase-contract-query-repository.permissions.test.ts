@@ -230,7 +230,18 @@ describe('supabaseContractQueryRepository action permissions', () => {
       },
       error: null,
     })
-    const from = jest.fn().mockReturnValue({ upsert, select, single })
+    const insert = jest.fn().mockResolvedValue({ error: null })
+    const from = jest.fn((table: string) => {
+      if (table === 'contract_signing_preparation_drafts') {
+        return { upsert, select, single }
+      }
+
+      if (table === 'audit_logs') {
+        return { insert }
+      }
+
+      return {}
+    })
 
     ;(createServiceSupabase as jest.Mock).mockReturnValue({ from })
 

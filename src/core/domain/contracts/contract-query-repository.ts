@@ -114,6 +114,11 @@ export type RepositoryReport = {
 
 export type RepositoryExportRow = Record<RepositoryExportColumn, string | number>
 
+export type RepositoryExportRowsChunk = {
+  items: RepositoryExportRow[]
+  nextCursor?: string
+}
+
 export type ContractDetail = ContractListItem & {
   contractTypeId: string
   contractTypeName?: string
@@ -387,6 +392,21 @@ export interface ContractQueryRepository {
     toDate?: string
     columns: RepositoryExportColumn[]
   }): Promise<RepositoryExportRow[]>
+  listRepositoryExportRowsChunk(params: {
+    tenantId: string
+    employeeId: string
+    role?: string
+    cursor?: string
+    limit: number
+    search?: string
+    status?: ContractStatus
+    repositoryStatus?: ContractRepositoryStatus
+    dateBasis?: RepositoryDateBasis
+    datePreset?: RepositoryDatePreset
+    fromDate?: string
+    toDate?: string
+    columns: RepositoryExportColumn[]
+  }): Promise<RepositoryExportRowsChunk>
   getById(tenantId: string, contractId: string): Promise<ContractDetail | null>
   getCounterparties(tenantId: string, contractId: string): Promise<ContractCounterparty[]>
   getDocuments(tenantId: string, contractId: string): Promise<ContractDocument[]>

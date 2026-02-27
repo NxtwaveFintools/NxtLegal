@@ -118,7 +118,7 @@ const GETHandler = withAuth(async (_request: NextRequest, { session }) => {
     if (teamIds.length > 0) {
       const { data: hodMembers, error: hodMembersError } = await supabase
         .from('team_role_mappings')
-        .select('team_id, email, role_type, created_at')
+        .select('team_id, email')
         .eq('tenant_id', session.tenantId)
         .eq('role_type', 'HOD')
         .eq('active_flag', true)
@@ -134,7 +134,7 @@ const GETHandler = withAuth(async (_request: NextRequest, { session }) => {
 
       const { data: users, error: usersError } = await supabase
         .from('users')
-        .select('id, full_name, email')
+        .select('full_name, email')
         .eq('tenant_id', session.tenantId)
         .eq('is_active', true)
         .is('deleted_at', null)
