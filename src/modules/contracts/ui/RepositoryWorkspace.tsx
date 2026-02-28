@@ -281,12 +281,21 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     normalizedRole === 'LEGAL_ADMIN' ||
     normalizedRole === 'ADMIN' ||
     normalizedRole === 'SUPER_ADMIN'
+  // savedViews must be declared here — before the filter useState calls — so
+  // their lazy initialisers can read savedViews[0] on the very first render.
+  // Previously this lived near activeSavedViewId and a post-mount useEffect
+  // applied the default view, which caused statusFilter to change after mount
+  // and triggered a duplicate loadContractsAndReport call on every page load.
+  const savedViews = useMemo(() => resolveSavedViews(session.role), [session.role])
+
   const [contracts, setContracts] = useState<ContractRecord[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState<RepositoryStatusFilter | ''>('')
-  const [dateBasis, setDateBasis] = useState<RepositoryDateBasis>('request_created_at')
-  const [datePreset, setDatePreset] = useState<RepositoryDatePreset | ''>('')
+  const [statusFilter, setStatusFilter] = useState<RepositoryStatusFilter | ''>(() => savedViews[0]?.statusFilter ?? '')
+  const [dateBasis, setDateBasis] = useState<RepositoryDateBasis>(
+    () => savedViews[0]?.dateBasis ?? 'request_created_at'
+  )
+  const [datePreset, setDatePreset] = useState<RepositoryDatePreset | ''>(() => savedViews[0]?.datePreset ?? '')
   const [customFromDate, setCustomFromDate] = useState('')
   const [customToDate, setCustomToDate] = useState('')
   const [sorting, setSorting] = useState<SortingState>([{ id: 'requestDate', desc: true }])
@@ -322,8 +331,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
   const tableWrapRef = useRef<HTMLElement | null>(null)
   const tableAutoScrollFrameRef = useRef<number | null>(null)
   const tableAutoScrollVelocityRef = useRef(0)
-  const savedViews = useMemo(() => resolveSavedViews(session.role), [session.role])
-  const [activeSavedViewId, setActiveSavedViewId] = useState<string>('custom')
+  const [activeSavedViewId, setActiveSavedViewId] = useState<string>(() => savedViews[0]?.id ?? 'custom')
 
   const stopTableAutoScroll = useCallback(() => {
     tableAutoScrollVelocityRef.current = 0
@@ -393,21 +401,27 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
   const sortBy = sortableColumnMap[activeSort?.id ?? 'requestDate'] ?? 'created_at'
   const sortDirection = activeSort?.desc ? 'desc' : 'asc'
 
-  const loadContracts = useCallback(async () => {
+  // Fires list and report as two *parallel* browser requests rather than a single
+  // combined server-side request.  The server's Promise.all approach caused internal
+  const loadContractsAndReport = useCallback(async () => {
     setIsLoading(true)
+    if (canAccessRepositoryReporting) {
+      setIsReportLoading(true)
+    }
 
     try {
       const response = await contractsClient.repositoryList({
         cursor: activeCursor,
         limit: 15,
-        search,
-        repositoryStatus: statusFilter || undefined,
         sortBy,
         sortDirection,
+        search,
+        repositoryStatus: statusFilter || undefined,
         dateBasis,
         datePreset: datePreset || undefined,
         fromDate: datePreset === 'custom' && customFromDate ? customFromDate : undefined,
         toDate: datePreset === 'custom' && customToDate ? customToDate : undefined,
+        includeReport: canAccessRepositoryReporting,
       })
 
       if (!response.ok || !response.data) {
@@ -419,49 +433,35 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
 
       setContracts(response.data.contracts)
       setNextCursor(response.data.pagination.cursor)
+
+      if (canAccessRepositoryReporting) {
+        setReportMetrics(response.data.report ?? null)
+      }
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred'
       toast.error(errorMessage)
     } finally {
       setIsLoading(false)
-    }
-  }, [activeCursor, customFromDate, customToDate, dateBasis, datePreset, search, statusFilter, sortBy, sortDirection])
-
-  useEffect(() => {
-    void loadContracts()
-  }, [loadContracts])
-
-  useEffect(() => {
-    if (!canAccessRepositoryReporting) {
-      setReportMetrics(null)
-      return
-    }
-
-    const loadReport = async () => {
-      setIsReportLoading(true)
-
-      const response = await contractsClient.repositoryReport({
-        search,
-        repositoryStatus: statusFilter || undefined,
-        dateBasis,
-        datePreset: datePreset || undefined,
-        fromDate: datePreset === 'custom' && customFromDate ? customFromDate : undefined,
-        toDate: datePreset === 'custom' && customToDate ? customToDate : undefined,
-      })
-
-      if (!response.ok || !response.data) {
-        toast.error(response.error?.message ?? 'Failed to load repository report')
-        setReportMetrics(null)
+      if (canAccessRepositoryReporting) {
         setIsReportLoading(false)
-        return
       }
-
-      setReportMetrics(response.data.report)
-      setIsReportLoading(false)
     }
+  }, [
+    canAccessRepositoryReporting,
+    activeCursor,
+    customFromDate,
+    customToDate,
+    dateBasis,
+    datePreset,
+    search,
+    statusFilter,
+    sortBy,
+    sortDirection,
+  ])
 
-    void loadReport()
-  }, [canAccessRepositoryReporting, customFromDate, customToDate, dateBasis, datePreset, search, statusFilter])
+  useEffect(() => {
+    void loadContractsAndReport()
+  }, [loadContractsAndReport])
 
   useEffect(() => {
     if (!isLegalTeamRole) {
@@ -489,21 +489,6 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
   useEffect(() => {
     setCursorHistory([undefined])
   }, [customFromDate, customToDate, dateBasis, datePreset, search, statusFilter, sortBy, sortDirection])
-
-  useEffect(() => {
-    if (savedViews.length === 0) {
-      return
-    }
-
-    const defaultView = savedViews[0]
-    setActiveSavedViewId(defaultView.id)
-    setStatusFilter(defaultView.statusFilter)
-    setDateBasis(defaultView.dateBasis)
-    setDatePreset(defaultView.datePreset)
-    setCustomFromDate('')
-    setCustomToDate('')
-    setSearch('')
-  }, [savedViews])
 
   const handleSavedViewChange = (viewId: string) => {
     if (viewId === 'custom') {
@@ -1328,7 +1313,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
           actorRole={session.role ?? undefined}
           onClose={() => setIsUploadOpen(false)}
           onUploaded={async () => {
-            await loadContracts()
+            await loadContractsAndReport()
             router.refresh()
           }}
         />

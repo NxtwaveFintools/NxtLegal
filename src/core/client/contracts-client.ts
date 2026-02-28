@@ -291,6 +291,15 @@ type DashboardContractsResponse = ContractListResponse & {
   }
 }
 
+type DashboardCountsResponse = {
+  counts: Partial<Record<DashboardContractsFilter, number>>
+}
+
+type RepositoryListResponse = ContractListResponse & {
+  /** Present only when includeReport=true was requested. */
+  report?: RepositoryReportResponse['report']
+}
+
 type AdditionalApproverDecisionHistoryRecord = {
   contractId: string
   contractTitle: string
@@ -345,6 +354,43 @@ async function parseApiResponse<T>(response: Response): Promise<ApiResponse<T>> 
   }
 }
 
+/**
+ * In-flight GET request deduplication map.
+ *
+ * Caches the *parsed JSON result* (not the raw Response) so that concurrent
+ * callers — e.g. from React Strict Mode's intentional double-mount — all
+ * receive the same deserialized object.  Storing the raw Response would cause
+ * a "body already consumed" error because a Response body stream can only be
+ * read once.  The entry is removed once the request settles so that a later,
+ * independent call always gets a fresh response.
+ */
+const inflightGetCache = new Map<string, Promise<ApiResponse<unknown>>>()
+
+function fetchGetJson<T>(url: string): Promise<ApiResponse<T>> {
+  const cached = inflightGetCache.get(url)
+  if (cached) return cached as Promise<ApiResponse<T>>
+
+  const promise: Promise<ApiResponse<unknown>> = fetch(url, {
+    method: 'GET',
+    credentials: 'include',
+    cache: 'no-store',
+  })
+    .then((res) => res.json() as Promise<ApiResponse<unknown>>)
+    .catch(() => ({
+      ok: false as const,
+      error: {
+        code: 'invalid_json_response',
+        message: 'Unexpected response from server',
+      },
+    }))
+    .finally(() => {
+      inflightGetCache.delete(url)
+    })
+
+  inflightGetCache.set(url, promise)
+  return promise as Promise<ApiResponse<T>>
+}
+
 function resolveContractPath(template: string, contractId: string): string {
   return template.replace(':contractId', contractId)
 }
@@ -376,33 +422,15 @@ function resolveProtectedContractPath(
 
 export const contractsClient = {
   async contractTypes(): Promise<ApiResponse<{ contractTypes: ContractTypeOption[] }>> {
-    const response = await fetch(routeRegistry.api.contracts.contractTypes, {
-      method: 'GET',
-      credentials: 'include',
-      cache: 'no-store',
-    })
-
-    return parseApiResponse<{ contractTypes: ContractTypeOption[] }>(response)
+    return fetchGetJson<{ contractTypes: ContractTypeOption[] }>(routeRegistry.api.contracts.contractTypes)
   },
 
   async departments(): Promise<ApiResponse<{ departments: DepartmentOption[] }>> {
-    const response = await fetch(routeRegistry.api.contracts.departments, {
-      method: 'GET',
-      credentials: 'include',
-      cache: 'no-store',
-    })
-
-    return parseApiResponse<{ departments: DepartmentOption[] }>(response)
+    return fetchGetJson<{ departments: DepartmentOption[] }>(routeRegistry.api.contracts.departments)
   },
 
   async legalTeamMembers(): Promise<ApiResponse<{ members: LegalTeamMemberOption[] }>> {
-    const response = await fetch(routeRegistry.api.contracts.legalTeamMembers, {
-      method: 'GET',
-      credentials: 'include',
-      cache: 'no-store',
-    })
-
-    return parseApiResponse<{ members: LegalTeamMemberOption[] }>(response)
+    return fetchGetJson<{ members: LegalTeamMemberOption[] }>(routeRegistry.api.contracts.legalTeamMembers)
   },
 
   async list(params?: { cursor?: string; limit?: number }): Promise<ApiResponse<ContractListResponse>> {
@@ -418,13 +446,7 @@ export const contractsClient = {
 
     const url =
       query.size > 0 ? `${routeRegistry.api.contracts.list}?${query.toString()}` : routeRegistry.api.contracts.list
-    const response = await fetch(url, {
-      method: 'GET',
-      credentials: 'include',
-      cache: 'no-store',
-    })
-
-    return parseApiResponse<ContractListResponse>(response)
+    return fetchGetJson<ContractListResponse>(url)
   },
 
   async pendingApprovals(params?: { limit?: number }): Promise<ApiResponse<ContractListResponse>> {
@@ -439,13 +461,7 @@ export const contractsClient = {
         ? `${routeRegistry.api.contracts.pendingApprovals}?${query.toString()}`
         : routeRegistry.api.contracts.pendingApprovals
 
-    const response = await fetch(url, {
-      method: 'GET',
-      credentials: 'include',
-      cache: 'no-store',
-    })
-
-    return parseApiResponse<ContractListResponse>(response)
+    return fetchGetJson<ContractListResponse>(url)
   },
 
   async dashboardContracts(params: {
@@ -474,13 +490,16 @@ export const contractsClient = {
       query.set('includeExtras', String(params.includeExtras))
     }
 
-    const response = await fetch(`${routeRegistry.api.contracts.dashboard}?${query.toString()}`, {
-      method: 'GET',
-      credentials: 'include',
-      cache: 'no-store',
-    })
+    return fetchGetJson<DashboardContractsResponse>(`${routeRegistry.api.contracts.dashboard}?${query.toString()}`)
+  },
 
-    return parseApiResponse<DashboardContractsResponse>(response)
+  async dashboardCounts(params: {
+    filters: DashboardContractsFilter[]
+  }): Promise<ApiResponse<DashboardCountsResponse>> {
+    const query = new URLSearchParams()
+    query.set('filters', params.filters.join(','))
+
+    return fetchGetJson<DashboardCountsResponse>(`${routeRegistry.api.contracts.dashboardCounts}?${query.toString()}`)
   },
 
   async additionalApproverHistory(params?: {
@@ -507,13 +526,7 @@ export const contractsClient = {
         ? `${routeRegistry.api.contracts.additionalApproverHistory}?${query.toString()}`
         : routeRegistry.api.contracts.additionalApproverHistory
 
-    const response = await fetch(url, {
-      method: 'GET',
-      credentials: 'include',
-      cache: 'no-store',
-    })
-
-    return parseApiResponse<AdditionalApproverHistoryResponse>(response)
+    return fetchGetJson<AdditionalApproverHistoryResponse>(url)
   },
 
   async repositoryList(params?: {
@@ -528,7 +541,9 @@ export const contractsClient = {
     datePreset?: RepositoryDatePreset
     fromDate?: string
     toDate?: string
-  }): Promise<ApiResponse<ContractListResponse>> {
+    /** When true, the response will include reporting aggregates; avoids a separate repositoryReport call. */
+    includeReport?: boolean
+  }): Promise<ApiResponse<RepositoryListResponse>> {
     const query = new URLSearchParams()
 
     if (params?.cursor) {
@@ -575,18 +590,16 @@ export const contractsClient = {
       query.set('toDate', params.toDate)
     }
 
+    if (params?.includeReport) {
+      query.set('includeReport', 'true')
+    }
+
     const url =
       query.size > 0
         ? `${routeRegistry.api.contracts.repository}?${query.toString()}`
         : routeRegistry.api.contracts.repository
 
-    const response = await fetch(url, {
-      method: 'GET',
-      credentials: 'include',
-      cache: 'no-store',
-    })
-
-    return parseApiResponse<ContractListResponse>(response)
+    return fetchGetJson<RepositoryListResponse>(url)
   },
 
   async repositoryReport(params?: {
@@ -633,13 +646,7 @@ export const contractsClient = {
         ? `${routeRegistry.api.contracts.repositoryReport}?${query.toString()}`
         : routeRegistry.api.contracts.repositoryReport
 
-    const response = await fetch(url, {
-      method: 'GET',
-      credentials: 'include',
-      cache: 'no-store',
-    })
-
-    return parseApiResponse<RepositoryReportResponse>(response)
+    return fetchGetJson<RepositoryReportResponse>(url)
   },
 
   repositoryExportUrl(params?: {
@@ -697,23 +704,13 @@ export const contractsClient = {
   },
 
   async detail(contractId: string): Promise<ApiResponse<ContractDetailResponse>> {
-    const response = await fetch(resolveContractPath(routeRegistry.api.contracts.detail, contractId), {
-      method: 'GET',
-      credentials: 'include',
-      cache: 'no-store',
-    })
-
-    return parseApiResponse<ContractDetailResponse>(response)
+    return fetchGetJson<ContractDetailResponse>(resolveContractPath(routeRegistry.api.contracts.detail, contractId))
   },
 
   async timeline(contractId: string): Promise<ApiResponse<{ events: ContractTimelineEvent[] }>> {
-    const response = await fetch(`${resolveContractPath(routeRegistry.api.contracts.timeline, contractId)}?limit=20`, {
-      method: 'GET',
-      credentials: 'include',
-      cache: 'no-store',
-    })
-
-    return parseApiResponse<{ events: ContractTimelineEvent[] }>(response)
+    return fetchGetJson<{ events: ContractTimelineEvent[] }>(
+      `${resolveContractPath(routeRegistry.api.contracts.timeline, contractId)}?limit=20`
+    )
   },
 
   async addActivityMessage(contractId: string, payload: { messageText: string }) {
@@ -1078,6 +1075,8 @@ export type {
   ContractDetailResponse,
   DashboardContractsFilter,
   DashboardContractsScope,
+  DashboardCountsResponse,
+  RepositoryListResponse,
   RepositorySortBy,
   RepositorySortDirection,
   RepositoryDateBasis,

@@ -6,15 +6,6 @@ import { errorResponse } from '@/core/http/response'
 import { authErrorCodes, authErrorMessages } from '@/core/constants/auth-errors'
 import { logger } from '@/core/infra/logging/logger'
 import type { SessionData } from '@/core/infra/session/jwt-session-store'
-import { supabaseEmployeeRepository } from '@/core/infra/repositories/supabase-employee-repository'
-
-const normalizeTokenVersion = (tokenVersion: number | undefined): number => {
-  if (typeof tokenVersion !== 'number' || Number.isNaN(tokenVersion) || tokenVersion < 0) {
-    return 0
-  }
-
-  return Math.trunc(tokenVersion)
-}
 
 type AuthenticatedHandler<T = unknown> = (
   request: NextRequest,
@@ -26,11 +17,22 @@ type RouteHandlerContext = {
 }
 
 /**
- * Higher-Order Function (Proxy Pattern) for protecting API routes
+ * Higher-Order Function (Proxy Pattern) for protecting API routes.
+ *
+ * Security guarantees are provided by getSession(), which already:
+ *  1. Validates the JWT cryptographic signature and expiry.
+ *  2. Checks in-memory token revocation (revokedTokensCache).
+ *  3. Queries the database for the current token_version, is_active, and
+ *     deleted_at — rejecting sessions whose token version no longer matches
+ *     or whose principal has been deactivated/deleted.
+ *
+ * A second DB lookup here (findByEmployeeId) would duplicate all three
+ * checks above and inflate per-request latency by an extra round-trip for
+ * every parallel API call on a single page load.
  *
  * @example
  * export const GET = withAuth(async (request, { session }) => {
- *   // session is guaranteed to exist
+ *   // session is guaranteed to be valid
  *   return NextResponse.json({ user: session.employeeId })
  * })
  */
@@ -52,8 +54,7 @@ export function withAuth<T = unknown>(handler: AuthenticatedHandler<T>) {
         )
       }
 
-      const tenantId = session.tenantId
-      if (!tenantId) {
+      if (!session.tenantId) {
         logger.warn('Session missing tenant identifier during auth proxy', {
           path: request.nextUrl.pathname,
           employeeId: session.employeeId,
@@ -65,52 +66,9 @@ export function withAuth<T = unknown>(handler: AuthenticatedHandler<T>) {
         )
       }
 
-      const employee = await supabaseEmployeeRepository.findByEmployeeId({
-        employeeId: session.employeeId,
-        tenantId,
-      })
-
-      if (!employee || !employee.isActive) {
-        logger.warn('Session principal not found or inactive during auth proxy', {
-          path: request.nextUrl.pathname,
-          employeeId: session.employeeId,
-          tenantId,
-        })
-
-        return NextResponse.json(
-          errorResponse(authErrorCodes.unauthorized, authErrorMessages[authErrorCodes.unauthorized]),
-          { status: 401 }
-        )
-      }
-
-      const jwtTokenVersion = normalizeTokenVersion(session.tokenVersion)
-      const currentTokenVersion = normalizeTokenVersion(employee.tokenVersion)
-
-      if (jwtTokenVersion !== currentTokenVersion) {
-        logger.warn('Session rejected in auth proxy due to token version mismatch', {
-          path: request.nextUrl.pathname,
-          employeeId: session.employeeId,
-          tenantId,
-          jwtTokenVersion,
-          currentTokenVersion,
-        })
-
-        return NextResponse.json(
-          errorResponse(authErrorCodes.unauthorized, authErrorMessages[authErrorCodes.unauthorized]),
-          { status: 401 }
-        )
-      }
-
-      const hydratedSession: SessionData = {
-        ...session,
-        role: employee.role,
-        email: employee.email,
-        fullName: employee.fullName ?? undefined,
-        tokenVersion: employee.tokenVersion,
-      }
-
-      // Pass validated session to handler
-      return await handler(request, { params: resolvedParams, session: hydratedSession })
+      // session already carries role, email, fullName, and tokenVersion from the
+      // verified JWT payload — no additional DB hydration required.
+      return await handler(request, { params: resolvedParams, session })
     } catch (error) {
       logger.error('Auth proxy error', {
         path: request.nextUrl.pathname,

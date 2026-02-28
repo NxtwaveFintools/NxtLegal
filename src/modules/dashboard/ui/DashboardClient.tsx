@@ -306,25 +306,19 @@ export default function DashboardClient({ session }: DashboardClientProps) {
     [session.role]
   )
 
-  const loadPendingApprovals = useCallback(async () => {
-    if (!roleConfig.showApproveCard) {
-      setPendingApprovalsCount(0)
-      return
-    }
-
-    const response = await contractsClient.dashboardContracts({
-      filter: roleConfig.approveFilter,
-      scope: roleConfig.approveScope,
-      limit: 1,
+  const loadDashboardCounts = useCallback(async () => {
+    const response = await contractsClient.dashboardCounts({
+      filters: roleConfig.filters.map((f) => f.value),
     })
 
     if (!response.ok || !response.data) {
-      setPendingApprovalsCount(0)
       return
     }
 
-    setPendingApprovalsCount(response.data.pagination.total)
-  }, [roleConfig.approveFilter, roleConfig.approveScope, roleConfig.showApproveCard])
+    const counts = response.data.counts
+    setFilterCounts(counts)
+    setPendingApprovalsCount(roleConfig.showApproveCard ? (counts[roleConfig.approveFilter] ?? 0) : 0)
+  }, [roleConfig.filters, roleConfig.approveFilter, roleConfig.showApproveCard])
 
   const loadContractsForFilter = useCallback(
     async (
@@ -418,30 +412,6 @@ export default function DashboardClient({ session }: DashboardClientProps) {
     [resolveFilterScope]
   )
 
-  const loadFilterCounts = useCallback(async () => {
-    const results = await Promise.all(
-      roleConfig.filters.map(async (filterOption) => {
-        const response = await contractsClient.dashboardContracts({
-          filter: filterOption.value,
-          scope: resolveFilterScope(filterOption.value),
-          limit: 1,
-        })
-
-        return {
-          filter: filterOption.value,
-          count: response.ok && response.data ? response.data.pagination.total : 0,
-        }
-      })
-    )
-
-    const nextCounts: Partial<Record<DashboardContractsFilter, number>> = {}
-    for (const item of results) {
-      nextCounts[item.filter] = item.count
-    }
-
-    setFilterCounts(nextCounts)
-  }, [resolveFilterScope, roleConfig.filters])
-
   const applyFilter = useCallback(
     (filter: DashboardContractsFilter) => {
       setActiveFilter(filter)
@@ -474,13 +444,13 @@ export default function DashboardClient({ session }: DashboardClientProps) {
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
-      void Promise.all([loadPendingApprovals(), loadFilterCounts()])
+      void loadDashboardCounts()
     }, 0)
 
     return () => {
       window.clearTimeout(timeoutId)
     }
-  }, [loadFilterCounts, loadPendingApprovals])
+  }, [loadDashboardCounts])
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -495,7 +465,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   useEffect(() => {
     const reloadContracts = () => {
       void Promise.all([
-        loadPendingApprovals(),
+        loadDashboardCounts(),
         loadContractsForFilter(activeFilter, { cursor: undefined, pageIndex: 0 }),
       ])
     }
@@ -519,7 +489,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
     return () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
-  }, [activeFilter, loadContractsForFilter, loadPendingApprovals])
+  }, [activeFilter, loadContractsForFilter, loadDashboardCounts])
 
   const uploadIcon = (
     <svg viewBox="0 0 20 20" aria-hidden="true">
@@ -560,8 +530,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
         }
 
         await Promise.all([
-          loadPendingApprovals(),
-          loadFilterCounts(),
+          loadDashboardCounts(),
           loadContractsForFilter(activeFilter, { cursor: pageCursors[pageIndex], pageIndex, isPageChange: true }),
         ])
         toast.success(action === 'hod.approve' ? 'Contract approved successfully' : 'Contract rejected successfully')
@@ -574,15 +543,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
         setMutatingContractId(null)
       }
     },
-    [
-      activeFilter,
-      loadContractsForFilter,
-      loadFilterCounts,
-      loadPendingApprovals,
-      mutatingContractId,
-      pageCursors,
-      pageIndex,
-    ]
+    [activeFilter, loadContractsForFilter, loadDashboardCounts, mutatingContractId, pageCursors, pageIndex]
   )
 
   const openRejectDialog = useCallback((contractId: string) => {
@@ -1112,7 +1073,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
           setUploadMode(contractUploadModes.default)
         }}
         onUploaded={async () => {
-          await Promise.all([loadContractsForFilter(activeFilter), loadFilterCounts(), loadPendingApprovals()])
+          await Promise.all([loadContractsForFilter(activeFilter), loadDashboardCounts()])
           router.refresh()
         }}
       />

@@ -330,23 +330,32 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     }
 
     let totalCount = 0
-    if (!params.cursor) {
-      let totalResult = await buildTotalQuery('contracts_repository_view')
 
-      if (totalResult.error && this.isViewQueryCompatibilityError(totalResult.error, 'contracts_repository_view')) {
-        totalResult = await buildTotalQuery('contracts')
+    // On the first page (no cursor) kick off the count and the list query in
+    // parallel so both run in a single round-trip instead of two sequential ones.
+    // Paginated pages (cursor present) skip the count entirely.
+    const listQueryPromise = buildListQuery('contracts_repository_view', contractsListSelectWithSlaMetrics)
+    const totalQueryPromise = params.cursor ? null : buildTotalQuery('contracts_repository_view')
+
+    const [initialListResult, initialTotalResult] = await Promise.all([listQueryPromise, totalQueryPromise])
+
+    let { data, error } = initialListResult
+
+    if (!params.cursor && initialTotalResult !== null) {
+      let resolvedTotal = initialTotalResult
+
+      if (resolvedTotal.error && this.isViewQueryCompatibilityError(resolvedTotal.error, 'contracts_repository_view')) {
+        resolvedTotal = await buildTotalQuery('contracts')
       }
 
-      if (totalResult.error) {
-        throw new DatabaseError('Failed to count contracts', new Error(totalResult.error.message), {
-          code: totalResult.error.code,
+      if (resolvedTotal.error) {
+        throw new DatabaseError('Failed to count contracts', new Error(resolvedTotal.error.message), {
+          code: resolvedTotal.error.code,
         })
       }
 
-      totalCount = totalResult.count ?? 0
+      totalCount = resolvedTotal.count ?? 0
     }
-
-    let { data, error } = await buildListQuery('contracts_repository_view', contractsListSelectWithSlaMetrics)
 
     if (error && this.isMissingColumnError(error, 'contracts_repository_view')) {
       const fallbackResult = await buildListQuery('contracts_repository_view', contractsListSelectLegacy)
@@ -1074,7 +1083,27 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
               legacyRows
             )
 
-      const mappedItems = legacyRows.slice(0, params.limit).map((row) =>
+      const legalMetadataByContractId = await this.getContractLegalMetadataMap(
+        params.tenantId,
+        legacyRows.map((row) => row.id)
+      )
+
+      const hydratedLegacyRows = legacyRows.map((row) => {
+        const legalMetadata = legalMetadataByContractId.get(row.id)
+        if (!legalMetadata) {
+          return row
+        }
+
+        return {
+          ...row,
+          legal_effective_date: legalMetadata.legalEffectiveDate,
+          legal_termination_date: legalMetadata.legalTerminationDate,
+          legal_notice_period: legalMetadata.legalNoticePeriod,
+          legal_auto_renewal: legalMetadata.legalAutoRenewal,
+        }
+      })
+
+      const mappedItems = hydratedLegacyRows.slice(0, params.limit).map((row) =>
         this.mapListItem(row, additionalApproverContext.get(row.id), {
           creatorName: row.uploaded_by_email,
           departmentName: row.department_id ? (departmentNameById.get(row.department_id) ?? null) : null,
@@ -4899,13 +4928,26 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
     const supabase = createServiceSupabase()
 
-    const { data: pendingRows, error: pendingError } = await supabase
-      .from('contract_additional_approvers')
-      .select('contract_id, approver_employee_id, sequence_order')
-      .eq('tenant_id', tenantId)
-      .eq('status', 'PENDING')
-      .is('deleted_at', null)
-      .in('contract_id', uniqueContractIds)
+    // Run both queries in parallel — they have no dependency on each other.
+    const [pendingResult, rejectionResult] = await Promise.all([
+      supabase
+        .from('contract_additional_approvers')
+        .select('contract_id, approver_employee_id, sequence_order')
+        .eq('tenant_id', tenantId)
+        .eq('status', 'PENDING')
+        .is('deleted_at', null)
+        .in('contract_id', uniqueContractIds),
+      supabase
+        .from('audit_logs')
+        .select('resource_id, note_text, created_at')
+        .eq('tenant_id', tenantId)
+        .eq('resource_type', 'contract')
+        .eq('action', 'contract.approver.rejected')
+        .in('resource_id', uniqueContractIds)
+        .order('created_at', { ascending: false }),
+    ])
+
+    const { data: pendingRows, error: pendingError } = pendingResult
 
     if (pendingError) {
       if (
@@ -4960,15 +5002,9 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       }
     }
 
+    const { data: rejectionData, error: rejectionError } = rejectionResult
+
     let rejectionRows: Array<{ resource_id: string; note_text: string | null; created_at: string }> = []
-    const { data: rejectionData, error: rejectionError } = await supabase
-      .from('audit_logs')
-      .select('resource_id, note_text, created_at')
-      .eq('tenant_id', tenantId)
-      .eq('resource_type', 'contract')
-      .eq('action', 'contract.approver.rejected')
-      .in('resource_id', uniqueContractIds)
-      .order('created_at', { ascending: false })
 
     if (rejectionError) {
       if (
