@@ -14,8 +14,30 @@ const decodeZohoSignature = (signatureHeader: string): Buffer | null => {
     return null
   }
 
-  const decoded = Buffer.from(trimmed, 'base64')
-  return decoded.length > 0 ? decoded : null
+  const withoutPrefix = trimmed.replace(/^sha256=/i, '').trim()
+
+  // Zoho integrations may send HMAC digest as either base64 or hex.
+  const tryDecodeBase64 = (): Buffer | null => {
+    try {
+      if (!/^[A-Za-z0-9+/=]+$/.test(withoutPrefix)) {
+        return null
+      }
+      const decoded = Buffer.from(withoutPrefix, 'base64')
+      return decoded.length > 0 ? decoded : null
+    } catch {
+      return null
+    }
+  }
+
+  const tryDecodeHex = (): Buffer | null => {
+    if (!/^[A-Fa-f0-9]+$/.test(withoutPrefix) || withoutPrefix.length % 2 !== 0) {
+      return null
+    }
+    const decoded = Buffer.from(withoutPrefix, 'hex')
+    return decoded.length > 0 ? decoded : null
+  }
+
+  return tryDecodeBase64() ?? tryDecodeHex()
 }
 
 const isDigestMatch = (expectedDigest: Buffer, receivedDigest: Buffer): boolean => {
@@ -51,12 +73,10 @@ export async function POST(request: NextRequest) {
 
     const rawBody = await request.text()
     const receivedSignatureHeader = request.headers.get('x-zs-webhook-signature')
-    const receivedSignature = receivedSignatureHeader ? decodeZohoSignature(receivedSignatureHeader) : null
-    const hasSignatureHeader = Boolean(receivedSignatureHeader)
+    const hasSignatureHeader = Boolean(receivedSignatureHeader?.trim())
+    const receivedSignature = hasSignatureHeader ? decodeZohoSignature(receivedSignatureHeader as string) : null
     const expectedDigest = createHmac('sha256', webhookSecret).update(rawBody, 'utf8').digest()
-    const signatureValid = hasSignatureHeader
-      ? Boolean(receivedSignature && isDigestMatch(expectedDigest, receivedSignature))
-      : true
+    const signatureValid = Boolean(receivedSignature && isDigestMatch(expectedDigest, receivedSignature))
 
     logger.info('ZOHO_SIGN_SIGNATURE_VALIDATION_RESULT', {
       signatureValid,
