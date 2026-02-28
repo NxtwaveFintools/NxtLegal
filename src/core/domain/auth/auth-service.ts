@@ -107,13 +107,14 @@ export class AuthService {
       tenantId,
     })
 
-    const isExistingAdmin = employee
-      ? ['ADMIN', 'LEGAL_ADMIN', 'SUPER_ADMIN'].includes((employee.role ?? '').toUpperCase())
-      : false
+    const normalizedExistingRole = (employee?.role ?? '').trim().toUpperCase()
+    const isExistingAdmin = ['ADMIN', 'LEGAL_ADMIN', 'SUPER_ADMIN'].includes(normalizedExistingRole)
+    const isExistingLegalTeam = normalizedExistingRole === 'LEGAL_TEAM'
 
     if (
       !resolvedMappedRole &&
       !isExistingAdmin &&
+      !isExistingLegalTeam &&
       !hasActionableAdditionalApproverAssignments &&
       !hasAdditionalApproverParticipation
     ) {
@@ -148,7 +149,7 @@ export class AuthService {
       throw new AuthorizationError(authErrorCodes.accountInactive, 'Account is inactive')
     }
 
-    const sessionRole = isExistingAdmin ? employee.role : (resolvedMappedRole ?? 'USER')
+    const sessionRole = isExistingAdmin || isExistingLegalTeam ? normalizedExistingRole : (resolvedMappedRole ?? 'USER')
 
     await createSession({
       employeeId: employee.id,

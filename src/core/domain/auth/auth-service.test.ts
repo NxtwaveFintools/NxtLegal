@@ -225,6 +225,47 @@ describe('AuthService', () => {
       )
     })
 
+    it('allows existing legal team user without mapping', async () => {
+      const tenantId = 'tenant-001'
+      const email = 'legal.user@nxtwave.co.in'
+
+      mockEmployeeRepository.findMappedTeamRolesByEmail.mockResolvedValue([])
+      mockEmployeeRepository.hasAdditionalApproverParticipation.mockResolvedValue(false)
+      mockEmployeeRepository.hasActionableAdditionalApproverAssignments.mockResolvedValue(false)
+      mockEmployeeRepository.findByEmail.mockResolvedValue({
+        id: 'legal-uuid-123',
+        employeeId: 'legal-uuid-123',
+        tenantId,
+        email,
+        fullName: 'Legal User',
+        isActive: true,
+        passwordHash: null,
+        role: 'LEGAL_TEAM',
+        tokenVersion: 2,
+        createdAt: '2026-02-14T00:00:00Z',
+        updatedAt: '2026-02-14T00:00:00Z',
+        deletedAt: null,
+      })
+
+      const result = await authService.loginWithOAuth(
+        {
+          email,
+          name: 'Legal User',
+        },
+        tenantId
+      )
+
+      expect(result.user.role).toBe('LEGAL_TEAM')
+      expect(createSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          employeeId: 'legal-uuid-123',
+          role: 'LEGAL_TEAM',
+          tenantId,
+          tokenVersion: 2,
+        })
+      )
+    })
+
     it('derives OAuth runtime role from mapping for non-admin user', async () => {
       const tenantId = 'tenant-001'
       const email = 'mapped.user@nxtwave.co.in'
