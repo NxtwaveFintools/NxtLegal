@@ -144,7 +144,22 @@ export default function AdditionalApproverHistoryWorkspace({ session }: Addition
 
         <section className={styles.historySection}>
           {isLoading ? (
-            <div className={styles.loading}>Loading history...</div>
+            <div className={styles.loadingSkeleton} aria-label="Loading approver history">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <article key={`history-skeleton-${index}`} className={styles.skeletonItem} aria-hidden="true">
+                  <div className={styles.skeletonMain}>
+                    <div className={styles.shimmerLine} style={{ width: `${58 + (index % 2) * 14}%` }} />
+                    <div className={styles.shimmerLine} style={{ width: '82%', height: 11 }} />
+                    <div className={styles.shimmerLine} style={{ width: `${45 + (index % 3) * 8}%`, height: 11 }} />
+                  </div>
+                  <div className={styles.skeletonRight}>
+                    <div className={styles.shimmerBadge} />
+                    <div className={styles.shimmerLine} style={{ width: 90, height: 11 }} />
+                    <div className={styles.shimmerButton} />
+                  </div>
+                </article>
+              ))}
+            </div>
           ) : historyItems.length === 0 ? (
             <div className={styles.empty}>No additional approver decision history found.</div>
           ) : (

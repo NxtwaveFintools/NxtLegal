@@ -1,4 +1,4 @@
-import type { AdminAuditViewerRepository } from '@/core/domain/admin/admin-audit-viewer-repository'
+import type { IAuditViewerRepository } from '@/core/domain/admin/audit-viewer-service'
 
 describe('supabaseAdminAuditViewerRepository pagination count optimization', () => {
   afterEach(() => {
@@ -6,14 +6,14 @@ describe('supabaseAdminAuditViewerRepository pagination count optimization', () 
     jest.resetModules()
   })
 
-  const loadRepository = async (from: jest.Mock): Promise<AdminAuditViewerRepository> => {
+  const loadRepository = async (from: jest.Mock): Promise<IAuditViewerRepository> => {
     jest.doMock('@/lib/supabase/service', () => ({
       createServiceSupabase: () => ({ from }),
     }))
 
     const loadedRepositoryModule =
       (await import('@/core/infra/repositories/supabase-admin-audit-viewer-repository')) as {
-        supabaseAdminAuditViewerRepository: AdminAuditViewerRepository
+        supabaseAdminAuditViewerRepository: IAuditViewerRepository
       }
 
     return loadedRepositoryModule.supabaseAdminAuditViewerRepository

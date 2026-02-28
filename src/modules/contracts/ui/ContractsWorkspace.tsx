@@ -121,6 +121,20 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
   const PAGE_SIZE = 15
 
+  const upsertContractInSidebarList = useCallback((contract: ContractRecord) => {
+    setContracts((current) => {
+      const existingIndex = current.findIndex((item) => item.id === contract.id)
+
+      if (existingIndex === -1) {
+        return [contract, ...current]
+      }
+
+      const next = [...current]
+      next[existingIndex] = { ...next[existingIndex], ...contract }
+      return next
+    })
+  }, [])
+
   const loadContracts = useCallback(async (cursor?: string) => {
     const response = await contractsClient.list({ cursor, limit: PAGE_SIZE })
 
@@ -134,7 +148,37 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
     const { contracts: newContracts, pagination } = response.data
 
-    setContracts((prev) => (cursor ? [...prev, ...newContracts] : newContracts))
+    setContracts((prev) => {
+      if (!cursor) {
+        const mergedFirstPage = [...newContracts]
+
+        for (const existingContract of prev) {
+          if (!mergedFirstPage.some((contract) => contract.id === existingContract.id)) {
+            mergedFirstPage.push(existingContract)
+          }
+        }
+
+        return mergedFirstPage
+      }
+
+      const mergedContracts = [...prev]
+
+      for (const incomingContract of newContracts) {
+        const existingIndex = mergedContracts.findIndex((contract) => contract.id === incomingContract.id)
+
+        if (existingIndex === -1) {
+          mergedContracts.push(incomingContract)
+          continue
+        }
+
+        mergedContracts[existingIndex] = {
+          ...mergedContracts[existingIndex],
+          ...incomingContract,
+        }
+      }
+
+      return mergedContracts
+    })
     setNextCursor(pagination.cursor)
     setHasMore(pagination.cursor !== null)
     setTotalContracts(pagination.total)
@@ -209,34 +253,38 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     )
   }, [])
 
-  const loadContractContext = useCallback(async (contractId: string) => {
-    const [detailResponse, timelineResponse] = await Promise.all([
-      contractsClient.detail(contractId),
-      contractsClient.timeline(contractId),
-    ])
+  const loadContractContext = useCallback(
+    async (contractId: string) => {
+      const [detailResponse, timelineResponse] = await Promise.all([
+        contractsClient.detail(contractId),
+        contractsClient.timeline(contractId),
+      ])
 
-    if (!detailResponse.ok || !detailResponse.data?.contract) {
-      toast.error(detailResponse.error?.message ?? 'Failed to load contract detail')
-      setSelectedContract(null)
-      resetLegalMetadataDraft()
-      setTimeline([])
-      setCounterparties([])
-      setDocuments([])
-      setAvailableActions([])
-      setApprovers([])
-      setLegalCollaborators([])
-      setSignatories([])
-      return
-    }
+      if (!detailResponse.ok || !detailResponse.data?.contract) {
+        toast.error(detailResponse.error?.message ?? 'Failed to load contract detail')
+        setSelectedContract(null)
+        resetLegalMetadataDraft()
+        setTimeline([])
+        setCounterparties([])
+        setDocuments([])
+        setAvailableActions([])
+        setApprovers([])
+        setLegalCollaborators([])
+        setSignatories([])
+        return
+      }
 
-    applyContractView(detailResponse.data)
+      applyContractView(detailResponse.data)
+      upsertContractInSidebarList(detailResponse.data.contract)
 
-    if (timelineResponse.ok && timelineResponse.data) {
-      setTimeline(timelineResponse.data.events)
-    } else {
-      setTimeline([])
-    }
-  }, [])
+      if (timelineResponse.ok && timelineResponse.data) {
+        setTimeline(timelineResponse.data.events)
+      } else {
+        setTimeline([])
+      }
+    },
+    [upsertContractInSidebarList]
+  )
 
   useEffect(() => {
     const bootstrap = async () => {
@@ -282,6 +330,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       }
 
       applyContractView(detailResponse.data)
+      upsertContractInSidebarList(detailResponse.data.contract)
 
       if (timelineResponse.ok && timelineResponse.data) {
         setTimeline(timelineResponse.data.events)
@@ -297,7 +346,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     return () => {
       isCancelled = true
     }
-  }, [selectedContractId])
+  }, [selectedContractId, upsertContractInSidebarList])
 
   const selectContract = (contractId: string) => {
     setIsContractContextLoading(true)
@@ -928,6 +977,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     [contracts, selectedContractId]
   )
   const hasUnreadActivity = Boolean(selectedContractListRow?.hasUnreadActivity)
+  const shouldShowDetailShimmer = Boolean(selectedContractId) && (isLoading || isContractContextLoading)
 
   useEffect(() => {
     if (!selectedContractId || activeTab !== 'activity' || !hasUnreadActivity || isMarkingActivitySeen) {
@@ -1161,13 +1211,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
           <div className={styles.rejectionContextBanner}>Void reason: {selectedContract.voidReason}</div>
         ) : null}
 
-        {!selectedContract ? (
-          <div className={styles.emptyState}>
-            <div className={styles.emptyStateIcon}>📄</div>
-            <div style={{ fontWeight: 600 }}>Select a contract</div>
-            <div className={styles.itemMeta}>Choose a contract from the sidebar to view details</div>
-          </div>
-        ) : isContractContextLoading ? (
+        {shouldShowDetailShimmer ? (
           <div className={styles.detailShimmer}>
             <div className={styles.shimmerBlock}>
               <div className={styles.shimmerLine} style={{ width: '28%' }} />
@@ -1184,6 +1228,12 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
               <div className={styles.shimmerLine} style={{ width: '24%' }} />
               <div className={styles.shimmerLine} style={{ width: '90%' }} />
             </div>
+          </div>
+        ) : !selectedContract ? (
+          <div className={styles.emptyState}>
+            <div className={styles.emptyStateIcon}>📄</div>
+            <div style={{ fontWeight: 600 }}>Select a contract</div>
+            <div className={styles.itemMeta}>Choose a contract from the sidebar to view details</div>
           </div>
         ) : (
           <div className={styles.detailsShell}>
@@ -1486,8 +1536,8 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                 )}
 
                 {activeTab === 'activity' && (
-                  <div className={styles.tabSection}>
-                    <div className={styles.card}>
+                  <div className={`${styles.tabSection} h-full min-h-0`}>
+                    <div className={`${styles.card} h-full min-h-0 flex flex-col`}>
                       <div className={styles.sectionHeaderRow}>
                         <div className={styles.sectionTitle}>Logs Timeline</div>
                         {(session.role === 'LEGAL_TEAM' || session.role === 'ADMIN' || session.role === 'HOD') && (
@@ -1522,7 +1572,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                         </form>
                       ) : null}
 
-                      <div className={styles.logContainer}>
+                      <div className={`${styles.logContainer} flex-1 min-h-0 overflow-y-auto`}>
                         {visibleLogs.map((event) => {
                           const rawEvent = timelineById.get(event.id)
                           const roleClass =
