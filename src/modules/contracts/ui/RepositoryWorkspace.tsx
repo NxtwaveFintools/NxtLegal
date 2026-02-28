@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { type ColumnDef, type SortingState, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table'
+import { useDebouncedValue } from '@/lib/hooks/use-debounced-value'
 import { toast } from 'sonner'
 import ContractStatusBadge from '@/modules/contracts/ui/ContractStatusBadge'
 import ThirdPartyUploadSidebar from '@/modules/contracts/ui/third-party-upload/ThirdPartyUploadSidebar'
@@ -23,6 +24,7 @@ import {
   type RepositoryDatePreset,
   type RepositorySortBy,
 } from '@/core/client/contracts-client'
+import ErrorBoundary from '@/components/ui/ErrorBoundary'
 import styles from './RepositoryWorkspace.module.css'
 
 type RepositoryWorkspaceProps = {
@@ -291,6 +293,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
   const [contracts, setContracts] = useState<ContractRecord[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const debouncedSearch = useDebouncedValue(search, 400)
   const [statusFilter, setStatusFilter] = useState<RepositoryStatusFilter | ''>(() => savedViews[0]?.statusFilter ?? '')
   const [dateBasis, setDateBasis] = useState<RepositoryDateBasis>(
     () => savedViews[0]?.dateBasis ?? 'request_created_at'
@@ -415,7 +418,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
         limit: 15,
         sortBy,
         sortDirection,
-        search,
+        search: debouncedSearch,
         repositoryStatus: statusFilter || undefined,
         dateBasis,
         datePreset: datePreset || undefined,
@@ -453,7 +456,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     customToDate,
     dateBasis,
     datePreset,
-    search,
+    debouncedSearch,
     statusFilter,
     sortBy,
     sortDirection,
@@ -488,7 +491,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
 
   useEffect(() => {
     setCursorHistory([undefined])
-  }, [customFromDate, customToDate, dateBasis, datePreset, search, statusFilter, sortBy, sortDirection])
+  }, [customFromDate, customToDate, dateBasis, datePreset, debouncedSearch, statusFilter, sortBy, sortDirection])
 
   const handleSavedViewChange = (viewId: string) => {
     if (viewId === 'custom') {
@@ -939,7 +942,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
 
   const downloadExport = (format: 'csv' | 'excel' | 'pdf') => {
     const exportUrl = contractsClient.repositoryExportUrl({
-      search,
+      search: debouncedSearch,
       repositoryStatus: statusFilter || undefined,
       dateBasis,
       datePreset: datePreset || undefined,
@@ -981,342 +984,346 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
       }
     >
       <main className={styles.main}>
-        <section className={styles.header}>
-          <div>
-            <h1 className={styles.title}>Repository</h1>
-            <p className={styles.subtitle}>Search and browse all accessible contracts</p>
-          </div>
-          <div className={styles.controls}>
-            <input
-              className={styles.searchInput}
-              placeholder="Search by contract name"
-              value={search}
-              onChange={(event) => {
-                setActiveSavedViewId('custom')
-                setSearch(event.target.value)
-              }}
-            />
-            <select
-              className={styles.statusSelect}
-              value={activeSavedViewId}
-              onChange={(event) => handleSavedViewChange(event.target.value)}
-            >
-              {savedViews.map((view) => (
-                <option key={view.id} value={view.id}>
-                  {view.label}
-                </option>
-              ))}
-              <option value="custom">Custom View</option>
-            </select>
-            <select
-              className={styles.statusSelect}
-              value={statusFilter}
-              onChange={(event) => handleStatusFilterChange(event.target.value as RepositoryStatusFilter | '')}
-            >
-              <option value="">All statuses</option>
-              {Object.entries(contractRepositoryStatusLabels).map(([value, label]) => (
-                <option key={value} value={value}>
-                  {label}
-                </option>
-              ))}
-            </select>
-            <select
-              className={styles.statusSelect}
-              value={dateBasis}
-              onChange={(event) => handleDateBasisChange(event.target.value as RepositoryDateBasis)}
-            >
-              {repositoryDateBasisOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            <select
-              className={styles.statusSelect}
-              value={datePreset}
-              onChange={(event) => handleDatePresetChange(event.target.value as RepositoryDatePreset | '')}
-            >
-              <option value="">All time</option>
-              {repositoryDatePresetOptions.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-            {datePreset === 'custom' ? (
-              <>
-                <input
-                  type="date"
-                  className={styles.searchInput}
-                  value={customFromDate}
-                  onChange={(event) => {
-                    setActiveSavedViewId('custom')
-                    setCustomFromDate(event.target.value)
-                  }}
-                />
-                <input
-                  type="date"
-                  className={styles.searchInput}
-                  value={customToDate}
-                  onChange={(event) => {
-                    setActiveSavedViewId('custom')
-                    setCustomToDate(event.target.value)
-                  }}
-                />
-              </>
-            ) : null}
-          </div>
-        </section>
-
-        {canAccessRepositoryReporting ? (
-          <section className={styles.reportingSection}>
-            <div className={styles.reportingHeader}>
-              <h2 className={styles.reportingTitle}>Repository Reporting</h2>
-              <div className={styles.exportActions}>
-                <button type="button" className={styles.pageButton} onClick={() => setActiveExportFormat('csv')}>
-                  Export CSV
-                </button>
-                <button type="button" className={styles.pageButton} onClick={() => setActiveExportFormat('excel')}>
-                  Export Excel
-                </button>
-              </div>
-            </div>
-            {activeExportFormat ? (
-              <div className={styles.exportConfigurator}>
-                <div className={styles.exportConfiguratorHeader}>
-                  <div>
-                    <h3 className={styles.exportConfiguratorTitle}>
-                      Choose columns for {activeExportFormat === 'csv' ? 'CSV' : 'Excel'} export
-                    </h3>
-                    <p className={styles.exportConfiguratorHint}>Select the fields you want to include in the file.</p>
-                  </div>
-                  <div className={styles.exportConfiguratorActions}>
-                    <button type="button" className={styles.pageButton} onClick={() => setActiveExportFormat(null)}>
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      className={`${styles.pageButton} ${styles.primaryButton}`}
-                      onClick={() => downloadExport(activeExportFormat)}
-                    >
-                      Download {activeExportFormat === 'csv' ? 'CSV' : 'Excel'}
-                    </button>
-                  </div>
-                </div>
-
-                <div className={styles.exportColumnsGrid}>
-                  {defaultExportColumns.map((column) => (
-                    <label key={column} className={styles.exportColumnItem}>
-                      <input
-                        type="checkbox"
-                        checked={selectedExportColumns.includes(column)}
-                        onChange={() => toggleExportColumn(column)}
-                      />
-                      <span>{contractRepositoryExportColumnLabels[column]}</span>
-                    </label>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-
-            {isReportLoading ? (
-              <div className={styles.empty}>Loading report...</div>
-            ) : reportMetrics ? (
-              <div className={styles.reportingGrid}>
-                <div className={styles.metricCard}>
-                  <h3 className={styles.metricTitle}>Department-wise Reporting</h3>
-                  {reportMetrics.departmentMetrics.length === 0 ? (
-                    <p className={styles.muted}>No department metrics available.</p>
-                  ) : (
-                    <ul className={`${styles.metricList} ${styles.metricListScrollable}`}>
-                      {reportMetrics.departmentMetrics.map((metric) => (
-                        <li key={metric.departmentId ?? 'unassigned'} className={styles.metricListItem}>
-                          <span className={styles.metricName}>{metric.departmentName ?? 'Unassigned'}</span>
-                          <span className={styles.metricMeta}>
-                            Total {metric.totalRequestsReceived} · Approved {metric.approved} · Rejected{' '}
-                            {metric.rejected} · Completed {metric.completed} · Pending {metric.pending}
-                          </span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-
-                <div className={styles.metricCard}>
-                  <h3 className={styles.metricTitle}>Status-wise Reporting</h3>
-                  {reportMetrics.statusMetrics.length === 0 ? (
-                    <p className={styles.muted}>No status metrics available.</p>
-                  ) : (
-                    <ul className={styles.metricList}>
-                      {reportMetrics.statusMetrics.map((metric) => (
-                        <li key={metric.key} className={styles.metricListItem}>
-                          <span className={styles.metricName}>{metric.label}</span>
-                          <span className={styles.metricValue}>{metric.count}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              </div>
-            ) : null}
-          </section>
-        ) : null}
-
-        <section className={styles.pagination}>
-          <button
-            type="button"
-            className={styles.pageButton}
-            disabled={cursorHistory.length <= 1}
-            onClick={() => {
-              setCursorHistory((previous) => previous.slice(0, previous.length - 1))
-            }}
-          >
-            Previous
-          </button>
-          <button
-            type="button"
-            className={styles.pageButton}
-            disabled={!nextCursor}
-            onClick={() => {
-              if (!nextCursor) {
-                return
-              }
-
-              setCursorHistory((previous) => [...previous, nextCursor])
-            }}
-          >
-            Next
-          </button>
-        </section>
-
-        <section
-          ref={tableWrapRef}
-          className={styles.tableWrap}
-          onMouseMove={handleTableWrapMouseMove}
-          onMouseLeave={stopTableAutoScroll}
-        >
-          {isLoading ? (
+        <ErrorBoundary sectionLabel="contract repository">
+          <section className={styles.header}>
             <div>
-              {[1, 2, 3, 4, 5].map((i) => (
-                <div key={i} className={styles.shimmerTableRow}>
-                  <div className={styles.shimmerCell} style={{ width: `${50 + i * 8}%` }} />
-                  <div className={styles.shimmerCell} style={{ width: '70%' }} />
-                  <div className={styles.shimmerCell} style={{ width: '65%' }} />
-                  <div className={styles.shimmerCell} style={{ width: '50%' }} />
-                </div>
-              ))}
+              <h1 className={styles.title}>Repository</h1>
+              <p className={styles.subtitle}>Search and browse all accessible contracts</p>
             </div>
-          ) : (
-            <table className={styles.table}>
-              <thead>
-                {table.getHeaderGroups().map((headerGroup) => (
-                  <tr key={headerGroup.id}>
-                    {headerGroup.headers.map((header) => {
-                      const canSort = header.column.getCanSort()
-                      const sortedState = header.column.getIsSorted()
-
-                      return (
-                        <th key={header.id}>
-                          {canSort ? (
-                            <button
-                              type="button"
-                              className={styles.sortButton}
-                              onClick={header.column.getToggleSortingHandler()}
-                            >
-                              {flexRender(header.column.columnDef.header, header.getContext())}
-                              {sortedState === 'asc' ? ' ↑' : sortedState === 'desc' ? ' ↓' : ''}
-                            </button>
-                          ) : (
-                            flexRender(header.column.columnDef.header, header.getContext())
-                          )}
-                        </th>
-                      )
-                    })}
-                  </tr>
+            <div className={styles.controls}>
+              <input
+                className={styles.searchInput}
+                placeholder="Search by contract name"
+                value={search}
+                onChange={(event) => {
+                  setActiveSavedViewId('custom')
+                  setSearch(event.target.value)
+                }}
+              />
+              <select
+                className={styles.statusSelect}
+                value={activeSavedViewId}
+                onChange={(event) => handleSavedViewChange(event.target.value)}
+              >
+                {savedViews.map((view) => (
+                  <option key={view.id} value={view.id}>
+                    {view.label}
+                  </option>
                 ))}
-              </thead>
-              <tbody>
-                {table.getRowModel().rows.length === 0 ? (
-                  <tr>
-                    <td colSpan={columns.length} className={styles.empty}>
-                      No contracts found.
-                    </td>
-                  </tr>
-                ) : (
-                  table.getRowModel().rows.map((row) => (
-                    <tr
-                      key={row.id}
-                      className={`${styles.row} ${row.original.isTatBreached ? styles.rowBreached : ''}`}
-                      onClick={() =>
-                        router.push(
-                          contractsClient.resolveProtectedContractPath(row.original.id, {
-                            from: 'repository',
-                          })
-                        )
-                      }
-                    >
-                      {row.getVisibleCells().map((cell) => (
-                        <td key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>
-                      ))}
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          )}
-        </section>
+                <option value="custom">Custom View</option>
+              </select>
+              <select
+                className={styles.statusSelect}
+                value={statusFilter}
+                onChange={(event) => handleStatusFilterChange(event.target.value as RepositoryStatusFilter | '')}
+              >
+                <option value="">All statuses</option>
+                {Object.entries(contractRepositoryStatusLabels).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+              <select
+                className={styles.statusSelect}
+                value={dateBasis}
+                onChange={(event) => handleDateBasisChange(event.target.value as RepositoryDateBasis)}
+              >
+                {repositoryDateBasisOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              <select
+                className={styles.statusSelect}
+                value={datePreset}
+                onChange={(event) => handleDatePresetChange(event.target.value as RepositoryDatePreset | '')}
+              >
+                <option value="">All time</option>
+                {repositoryDatePresetOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+              {datePreset === 'custom' ? (
+                <>
+                  <input
+                    type="date"
+                    className={styles.searchInput}
+                    value={customFromDate}
+                    onChange={(event) => {
+                      setActiveSavedViewId('custom')
+                      setCustomFromDate(event.target.value)
+                    }}
+                  />
+                  <input
+                    type="date"
+                    className={styles.searchInput}
+                    value={customToDate}
+                    onChange={(event) => {
+                      setActiveSavedViewId('custom')
+                      setCustomToDate(event.target.value)
+                    }}
+                  />
+                </>
+              ) : null}
+            </div>
+          </section>
 
-        {activePreview ? (
-          <div
-            className={styles.viewerOverlay}
-            role="dialog"
-            aria-modal="true"
-            aria-label="Contract document preview"
-            onMouseDown={(event) => {
-              if (event.target === event.currentTarget) {
-                closePreview()
-              }
-            }}
+          {canAccessRepositoryReporting ? (
+            <section className={styles.reportingSection}>
+              <div className={styles.reportingHeader}>
+                <h2 className={styles.reportingTitle}>Repository Reporting</h2>
+                <div className={styles.exportActions}>
+                  <button type="button" className={styles.pageButton} onClick={() => setActiveExportFormat('csv')}>
+                    Export CSV
+                  </button>
+                  <button type="button" className={styles.pageButton} onClick={() => setActiveExportFormat('excel')}>
+                    Export Excel
+                  </button>
+                </div>
+              </div>
+              {activeExportFormat ? (
+                <div className={styles.exportConfigurator}>
+                  <div className={styles.exportConfiguratorHeader}>
+                    <div>
+                      <h3 className={styles.exportConfiguratorTitle}>
+                        Choose columns for {activeExportFormat === 'csv' ? 'CSV' : 'Excel'} export
+                      </h3>
+                      <p className={styles.exportConfiguratorHint}>
+                        Select the fields you want to include in the file.
+                      </p>
+                    </div>
+                    <div className={styles.exportConfiguratorActions}>
+                      <button type="button" className={styles.pageButton} onClick={() => setActiveExportFormat(null)}>
+                        Cancel
+                      </button>
+                      <button
+                        type="button"
+                        className={`${styles.pageButton} ${styles.primaryButton}`}
+                        onClick={() => downloadExport(activeExportFormat)}
+                      >
+                        Download {activeExportFormat === 'csv' ? 'CSV' : 'Excel'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className={styles.exportColumnsGrid}>
+                    {defaultExportColumns.map((column) => (
+                      <label key={column} className={styles.exportColumnItem}>
+                        <input
+                          type="checkbox"
+                          checked={selectedExportColumns.includes(column)}
+                          onChange={() => toggleExportColumn(column)}
+                        />
+                        <span>{contractRepositoryExportColumnLabels[column]}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+
+              {isReportLoading ? (
+                <div className={styles.empty}>Loading report...</div>
+              ) : reportMetrics ? (
+                <div className={styles.reportingGrid}>
+                  <div className={styles.metricCard}>
+                    <h3 className={styles.metricTitle}>Department-wise Reporting</h3>
+                    {reportMetrics.departmentMetrics.length === 0 ? (
+                      <p className={styles.muted}>No department metrics available.</p>
+                    ) : (
+                      <ul className={`${styles.metricList} ${styles.metricListScrollable}`}>
+                        {reportMetrics.departmentMetrics.map((metric) => (
+                          <li key={metric.departmentId ?? 'unassigned'} className={styles.metricListItem}>
+                            <span className={styles.metricName}>{metric.departmentName ?? 'Unassigned'}</span>
+                            <span className={styles.metricMeta}>
+                              Total {metric.totalRequestsReceived} · Approved {metric.approved} · Rejected{' '}
+                              {metric.rejected} · Completed {metric.completed} · Pending {metric.pending}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+
+                  <div className={styles.metricCard}>
+                    <h3 className={styles.metricTitle}>Status-wise Reporting</h3>
+                    {reportMetrics.statusMetrics.length === 0 ? (
+                      <p className={styles.muted}>No status metrics available.</p>
+                    ) : (
+                      <ul className={styles.metricList}>
+                        {reportMetrics.statusMetrics.map((metric) => (
+                          <li key={metric.key} className={styles.metricListItem}>
+                            <span className={styles.metricName}>{metric.label}</span>
+                            <span className={styles.metricValue}>{metric.count}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </div>
+              ) : null}
+            </section>
+          ) : null}
+
+          <section className={styles.pagination}>
+            <button
+              type="button"
+              className={styles.pageButton}
+              disabled={cursorHistory.length <= 1}
+              onClick={() => {
+                setCursorHistory((previous) => previous.slice(0, previous.length - 1))
+              }}
+            >
+              Previous
+            </button>
+            <button
+              type="button"
+              className={styles.pageButton}
+              disabled={!nextCursor}
+              onClick={() => {
+                if (!nextCursor) {
+                  return
+                }
+
+                setCursorHistory((previous) => [...previous, nextCursor])
+              }}
+            >
+              Next
+            </button>
+          </section>
+
+          <section
+            ref={tableWrapRef}
+            className={styles.tableWrap}
+            onMouseMove={handleTableWrapMouseMove}
+            onMouseLeave={stopTableAutoScroll}
           >
-            <div className={styles.viewerModal}>
-              <div className={styles.viewerHeader}>
-                <div className={styles.viewerTitle}>{activePreview.fileName}</div>
-                <button type="button" className={styles.pageButton} onClick={closePreview}>
-                  Close
-                </button>
+            {isLoading ? (
+              <div>
+                {[1, 2, 3, 4, 5].map((i) => (
+                  <div key={i} className={styles.shimmerTableRow}>
+                    <div className={styles.shimmerCell} style={{ width: `${50 + i * 8}%` }} />
+                    <div className={styles.shimmerCell} style={{ width: '70%' }} />
+                    <div className={styles.shimmerCell} style={{ width: '65%' }} />
+                    <div className={styles.shimmerCell} style={{ width: '50%' }} />
+                  </div>
+                ))}
               </div>
-              <div className={styles.viewerBody}>
-                {activePreview.fileMimeType.startsWith('image/') ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img src={activePreview.url} alt={activePreview.fileName} className={styles.viewerFrame} />
-                ) : (
-                  <iframe src={activePreview.url} title={activePreview.fileName} className={styles.viewerFrame} />
-                )}
-              </div>
-              <div className={styles.viewerFooter}>
-                <span className={styles.muted}>If preview is not available, open in a new tab.</span>
-                <button
-                  type="button"
-                  className={`${styles.pageButton} ${styles.primaryButton}`}
-                  onClick={() => window.open(activePreview.externalUrl, '_blank', 'noopener,noreferrer')}
-                >
-                  Open in New Tab
-                </button>
+            ) : (
+              <table className={styles.table}>
+                <thead>
+                  {table.getHeaderGroups().map((headerGroup) => (
+                    <tr key={headerGroup.id}>
+                      {headerGroup.headers.map((header) => {
+                        const canSort = header.column.getCanSort()
+                        const sortedState = header.column.getIsSorted()
+
+                        return (
+                          <th key={header.id}>
+                            {canSort ? (
+                              <button
+                                type="button"
+                                className={styles.sortButton}
+                                onClick={header.column.getToggleSortingHandler()}
+                              >
+                                {flexRender(header.column.columnDef.header, header.getContext())}
+                                {sortedState === 'asc' ? ' ↑' : sortedState === 'desc' ? ' ↓' : ''}
+                              </button>
+                            ) : (
+                              flexRender(header.column.columnDef.header, header.getContext())
+                            )}
+                          </th>
+                        )
+                      })}
+                    </tr>
+                  ))}
+                </thead>
+                <tbody>
+                  {table.getRowModel().rows.length === 0 ? (
+                    <tr>
+                      <td colSpan={columns.length} className={styles.empty}>
+                        No contracts found.
+                      </td>
+                    </tr>
+                  ) : (
+                    table.getRowModel().rows.map((row) => (
+                      <tr
+                        key={row.id}
+                        className={`${styles.row} ${row.original.isTatBreached ? styles.rowBreached : ''}`}
+                        onClick={() =>
+                          router.push(
+                            contractsClient.resolveProtectedContractPath(row.original.id, {
+                              from: 'repository',
+                            })
+                          )
+                        }
+                      >
+                        {row.getVisibleCells().map((cell) => (
+                          <td key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>
+                        ))}
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            )}
+          </section>
+
+          {activePreview ? (
+            <div
+              className={styles.viewerOverlay}
+              role="dialog"
+              aria-modal="true"
+              aria-label="Contract document preview"
+              onMouseDown={(event) => {
+                if (event.target === event.currentTarget) {
+                  closePreview()
+                }
+              }}
+            >
+              <div className={styles.viewerModal}>
+                <div className={styles.viewerHeader}>
+                  <div className={styles.viewerTitle}>{activePreview.fileName}</div>
+                  <button type="button" className={styles.pageButton} onClick={closePreview}>
+                    Close
+                  </button>
+                </div>
+                <div className={styles.viewerBody}>
+                  {activePreview.fileMimeType.startsWith('image/') ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={activePreview.url} alt={activePreview.fileName} className={styles.viewerFrame} />
+                  ) : (
+                    <iframe src={activePreview.url} title={activePreview.fileName} className={styles.viewerFrame} />
+                  )}
+                </div>
+                <div className={styles.viewerFooter}>
+                  <span className={styles.muted}>If preview is not available, open in a new tab.</span>
+                  <button
+                    type="button"
+                    className={`${styles.pageButton} ${styles.primaryButton}`}
+                    onClick={() => window.open(activePreview.externalUrl, '_blank', 'noopener,noreferrer')}
+                  >
+                    Open in New Tab
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
-        ) : null}
+          ) : null}
 
-        <ThirdPartyUploadSidebar
-          isOpen={isUploadOpen}
-          mode={contractUploadModes.default}
-          actorRole={session.role ?? undefined}
-          onClose={() => setIsUploadOpen(false)}
-          onUploaded={async () => {
-            await loadContractsAndReport()
-            router.refresh()
-          }}
-        />
+          <ThirdPartyUploadSidebar
+            isOpen={isUploadOpen}
+            mode={contractUploadModes.default}
+            actorRole={session.role ?? undefined}
+            onClose={() => setIsUploadOpen(false)}
+            onUploaded={async () => {
+              await loadContractsAndReport()
+              router.refresh()
+            }}
+          />
+        </ErrorBoundary>
       </main>
     </ProtectedAppShell>
   )

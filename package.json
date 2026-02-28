@@ -14,6 +14,12 @@
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
     "test:login": "tsx scripts/test-login.js",
+    "test:e2e": "npx playwright test",
+    "test:e2e:headed": "npx playwright test --headed",
+    "test:e2e:ui": "npx playwright test --ui",
+    "test:e2e:report": "npx playwright show-report tests/e2e/.report",
+    "test:e2e:cleanup": "tsx tests/e2e/cleanup/teardown.ts",
+    "test:e2e:cleanup:delete": "tsx tests/e2e/cleanup/teardown.ts --delete",
     "seed:test-employee": "tsx scripts/seed-test-employee.ts",
     "prepare": "husky"
   },
@@ -60,6 +66,7 @@
     "zod": "^3.22.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@tailwindcss/postcss": "^4",
     "@testing-library/dom": "^10.4.1",
     "@testing-library/jest-dom": "^6.9.1",

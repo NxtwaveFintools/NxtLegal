@@ -11,6 +11,11 @@ import { isAppError } from '@/core/http/errors'
 import { contractUploadModes, contractWorkflowRoles } from '@/core/constants/contracts'
 import { z } from 'zod'
 
+// Route segment config — extends the serverless function execution timeout
+// to 300 s (5 min) so large multipart uploads (up to 100 MB) have time to
+// be received, validated, and persisted to storage.
+export const maxDuration = 300
+
 const dispatchNotificationInBackground = (notification: Promise<unknown>, event: string, contractId: string): void => {
   void notification.catch((error) => {
     logger.warn('Contract upload notification dispatch failed', {
@@ -213,20 +218,12 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
 
     shouldReleaseClaim = true
 
-    const fileArrayBuffer = await uploadedFile.arrayBuffer()
-    const fileBytes = new Uint8Array(fileArrayBuffer)
-
-    const supportingFiles = await Promise.all(
-      supportingUploadFiles.map(async (file) => {
-        const arrayBuffer = await file.arrayBuffer()
-        return {
-          fileName: file.name,
-          fileSizeBytes: file.size,
-          fileMimeType: file.type || 'application/octet-stream',
-          fileBytes: new Uint8Array(arrayBuffer),
-        }
-      })
-    )
+    const supportingFiles = supportingUploadFiles.map((file) => ({
+      fileName: file.name,
+      fileSizeBytes: file.size,
+      fileMimeType: file.type || 'application/octet-stream',
+      fileBody: file as Blob,
+    }))
 
     const counterparties = parsedForm.data.counterparties?.map((counterparty) => ({
       counterpartyName: counterparty.counterpartyName,
@@ -285,7 +282,7 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
       fileName: uploadedFile.name,
       fileSizeBytes: uploadedFile.size,
       fileMimeType: uploadedFile.type || 'application/octet-stream',
-      fileBytes,
+      fileBody: uploadedFile as Blob,
       supportingFiles,
     })
 

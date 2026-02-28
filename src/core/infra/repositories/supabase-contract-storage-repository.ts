@@ -6,12 +6,12 @@ import { createServiceSupabase } from '@/lib/supabase/service'
 import type { ContractStorageRepository } from '@/core/domain/contracts/contract-storage-repository'
 
 class SupabaseContractStorageRepository implements ContractStorageRepository {
-  async upload(params: { path: string; fileBytes: Uint8Array; contentType: string }): Promise<void> {
+  async upload(params: { path: string; fileBody: Blob | Uint8Array; contentType: string }): Promise<void> {
     const supabase = createServiceSupabase()
 
     const { error } = await supabase.storage
       .from(contractStorage.privateBucketName)
-      .upload(params.path, params.fileBytes, {
+      .upload(params.path, params.fileBody, {
         contentType: params.contentType,
         upsert: false,
       })

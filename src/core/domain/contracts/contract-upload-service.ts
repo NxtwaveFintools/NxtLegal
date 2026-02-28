@@ -43,18 +43,18 @@ export type UploadContractInput = {
       fileName: string
       fileSizeBytes: number
       fileMimeType: string
-      fileBytes: Uint8Array
+      fileBody: Blob
     }>
   }>
   fileName: string
   fileSizeBytes: number
   fileMimeType: string
-  fileBytes: Uint8Array
+  fileBody: Blob
   supportingFiles?: Array<{
     fileName: string
     fileSizeBytes: number
     fileMimeType: string
-    fileBytes: Uint8Array
+    fileBody: Blob
   }>
 }
 
@@ -67,7 +67,7 @@ export type ReplacePrimaryDocumentInput = {
   fileName: string
   fileSizeBytes: number
   fileMimeType: string
-  fileBytes: Uint8Array
+  fileBody: Blob
 }
 
 export class ContractUploadService {
@@ -160,7 +160,7 @@ export class ContractUploadService {
 
     await this.contractStorageRepository.upload({
       path: filePath,
-      fileBytes: input.fileBytes,
+      fileBody: input.fileBody,
       contentType: input.fileMimeType,
     })
 
@@ -171,7 +171,7 @@ export class ContractUploadService {
 
         await this.contractStorageRepository.upload({
           path: supportingFilePath,
-          fileBytes: supportingFile.fileBytes,
+          fileBody: supportingFile.fileBody,
           contentType: supportingFile.fileMimeType,
         })
 
@@ -341,7 +341,7 @@ export class ContractUploadService {
 
     await this.contractStorageRepository.upload({
       path: filePath,
-      fileBytes: input.fileBytes,
+      fileBody: input.fileBody,
       contentType: input.fileMimeType,
     })
 
@@ -591,7 +591,7 @@ export class ContractUploadService {
       fileName: string
       fileSizeBytes: number
       fileMimeType: string
-      fileBytes: Uint8Array
+      fileBody: Blob
     }>
   }> {
     if (input.counterparties && input.counterparties.length > 0) {

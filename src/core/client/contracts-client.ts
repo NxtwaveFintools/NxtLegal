@@ -340,6 +340,19 @@ type LegalTeamMemberOption = {
   fullName?: string | null
 }
 
+/** User-friendly message returned when `fetch()` itself throws (network down, DNS failure, CORS). */
+const NETWORK_ERROR_MESSAGE = 'Network error. Please check your connection and try again.'
+
+function networkErrorResponse<T>(): ApiResponse<T> {
+  return {
+    ok: false,
+    error: {
+      code: 'network_error',
+      message: NETWORK_ERROR_MESSAGE,
+    },
+  }
+}
+
 async function parseApiResponse<T>(response: Response): Promise<ApiResponse<T>> {
   try {
     return (await response.json()) as ApiResponse<T>
@@ -352,6 +365,108 @@ async function parseApiResponse<T>(response: Response): Promise<ApiResponse<T>> 
       },
     }
   }
+}
+
+/**
+ * Wraps `fetch()` + `parseApiResponse()` in a single call that gracefully
+ * catches network-level errors (e.g. `TypeError: Failed to fetch` when
+ * offline) and returns a well-formed `ApiResponse<T>` instead of throwing.
+ *
+ * Every non-GET mutation method in `contractsClient` should use this instead
+ * of bare `fetch()` to ensure the UI never sees a raw TypeError.
+ */
+async function safeFetch<T>(url: string, init?: RequestInit): Promise<ApiResponse<T>> {
+  try {
+    const response = await fetch(url, init)
+    return parseApiResponse<T>(response)
+  } catch {
+    return networkErrorResponse<T>()
+  }
+}
+
+/**
+ * Upload files via XMLHttpRequest with real-time byte progress tracking.
+ *
+ * `fetch()` cannot report upload progress because it does not expose
+ * `xhr.upload.onprogress`.  This wrapper sends `FormData` through XHR and
+ * returns a Promise that resolves to the same `ApiResponse<T>` shape the
+ * rest of the client uses.
+ *
+ * @param url             Target endpoint
+ * @param formData        The multipart payload to send
+ * @param options.headers Optional headers (e.g. Idempotency-Key)
+ * @param options.onProgress  Callback invoked with 0–100 as bytes are sent
+ * @param options.signal      AbortSignal to cancel the upload mid-flight
+ */
+function xhrUpload<T>(
+  url: string,
+  formData: FormData,
+  options?: {
+    headers?: Record<string, string>
+    onProgress?: (percent: number) => void
+    signal?: AbortSignal
+  }
+): Promise<ApiResponse<T>> {
+  return new Promise<ApiResponse<T>>((resolve) => {
+    const xhr = new XMLHttpRequest()
+
+    // ── Progress tracking ──
+    xhr.upload.addEventListener('progress', (event) => {
+      if (event.lengthComputable && options?.onProgress) {
+        const percent = Math.round((event.loaded / event.total) * 100)
+        options.onProgress(percent)
+      }
+    })
+
+    // ── Completion ──
+    xhr.addEventListener('load', () => {
+      try {
+        const parsed = JSON.parse(xhr.responseText) as ApiResponse<T>
+        resolve(parsed)
+      } catch {
+        resolve({
+          ok: false,
+          error: { code: 'invalid_json_response', message: 'Unexpected response from server' },
+        })
+      }
+    })
+
+    // ── Network error ──
+    xhr.addEventListener('error', () => {
+      resolve(networkErrorResponse<T>())
+    })
+
+    // ── Abort ──
+    xhr.addEventListener('abort', () => {
+      resolve({
+        ok: false,
+        error: { code: 'upload_cancelled', message: 'Upload was cancelled.' },
+      })
+    })
+
+    // ── Wire AbortSignal ──
+    if (options?.signal) {
+      if (options.signal.aborted) {
+        resolve({
+          ok: false,
+          error: { code: 'upload_cancelled', message: 'Upload was cancelled.' },
+        })
+        return
+      }
+      options.signal.addEventListener('abort', () => xhr.abort(), { once: true })
+    }
+
+    xhr.open('POST', url)
+    xhr.withCredentials = true
+
+    if (options?.headers) {
+      for (const [key, value] of Object.entries(options.headers)) {
+        xhr.setRequestHeader(key, value)
+      }
+    }
+
+    xhr.send(formData)
+  })
 }
 
 /**
@@ -376,13 +491,7 @@ function fetchGetJson<T>(url: string): Promise<ApiResponse<T>> {
     cache: 'no-store',
   })
     .then((res) => res.json() as Promise<ApiResponse<unknown>>)
-    .catch(() => ({
-      ok: false as const,
-      error: {
-        code: 'invalid_json_response',
-        message: 'Unexpected response from server',
-      },
-    }))
+    .catch(() => networkErrorResponse<unknown>())
     .finally(() => {
       inflightGetCache.delete(url)
     })
@@ -714,7 +823,7 @@ export const contractsClient = {
   },
 
   async addActivityMessage(contractId: string, payload: { messageText: string }) {
-    const response = await fetch(resolveContractPath(routeRegistry.api.contracts.activity, contractId), {
+    return safeFetch<ContractDetailResponse>(resolveContractPath(routeRegistry.api.contracts.activity, contractId), {
       method: 'POST',
       credentials: 'include',
       headers: {
@@ -722,21 +831,20 @@ export const contractsClient = {
       },
       body: JSON.stringify(payload),
     })
-
-    return parseApiResponse<ContractDetailResponse>(response)
   },
 
   async markActivitySeen(contractId: string) {
-    const response = await fetch(resolveContractPath(routeRegistry.api.contracts.activityReadState, contractId), {
-      method: 'PATCH',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ markSeen: true }),
-    })
-
-    return parseApiResponse<ContractActivityReadState>(response)
+    return safeFetch<ContractActivityReadState>(
+      resolveContractPath(routeRegistry.api.contracts.activityReadState, contractId),
+      {
+        method: 'PATCH',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ markSeen: true }),
+      }
+    )
   },
 
   async upload(params: {
@@ -759,6 +867,10 @@ export const contractsClient = {
     file: File
     supportingFiles?: File[]
     idempotencyKey: string
+    /** Callback invoked with 0–100 as bytes are uploaded */
+    onProgress?: (percent: number) => void
+    /** AbortSignal to cancel the upload mid-flight */
+    signal?: AbortSignal
   }): Promise<ApiResponse<{ contract: ContractRecord }>> {
     const formData = new FormData()
     formData.set('title', params.title)
@@ -820,16 +932,11 @@ export const contractsClient = {
       }
     }
 
-    const response = await fetch(routeRegistry.api.contracts.upload, {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Idempotency-Key': params.idempotencyKey,
-      },
-      body: formData,
+    return xhrUpload<{ contract: ContractRecord }>(routeRegistry.api.contracts.upload, formData, {
+      headers: { 'Idempotency-Key': params.idempotencyKey },
+      onProgress: params.onProgress,
+      signal: params.signal,
     })
-
-    return parseApiResponse<{ contract: ContractRecord }>(response)
   },
 
   async replaceMainDocument(params: {
@@ -840,7 +947,7 @@ export const contractsClient = {
     const formData = new FormData()
     formData.set('file', params.file)
 
-    const response = await fetch(
+    return safeFetch<{ document: ContractDocument }>(
       resolveContractPath(routeRegistry.api.contracts.replaceMainDocument, params.contractId),
       {
         method: 'POST',
@@ -851,8 +958,6 @@ export const contractsClient = {
         body: formData,
       }
     )
-
-    return parseApiResponse<{ document: ContractDocument }>(response)
   },
 
   async action(
@@ -861,7 +966,7 @@ export const contractsClient = {
       | { action: ContractActionName; noteText?: string }
       | { action: ContractBypassApprovalActionName; approverId: string; reason: string }
   ) {
-    const response = await fetch(resolveContractPath(routeRegistry.api.contracts.action, contractId), {
+    return safeFetch<ContractDetailResponse>(resolveContractPath(routeRegistry.api.contracts.action, contractId), {
       method: 'POST',
       credentials: 'include',
       headers: {
@@ -869,12 +974,10 @@ export const contractsClient = {
       },
       body: JSON.stringify(payload),
     })
-
-    return parseApiResponse<ContractDetailResponse>(response)
   },
 
   async addNote(contractId: string, payload: { noteText: string }) {
-    const response = await fetch(resolveContractPath(routeRegistry.api.contracts.note, contractId), {
+    return safeFetch<ContractDetailResponse>(resolveContractPath(routeRegistry.api.contracts.note, contractId), {
       method: 'POST',
       credentials: 'include',
       headers: {
@@ -882,12 +985,10 @@ export const contractsClient = {
       },
       body: JSON.stringify(payload),
     })
-
-    return parseApiResponse<ContractDetailResponse>(response)
   },
 
   async addApprover(contractId: string, payload: { approverEmail: string }) {
-    const response = await fetch(resolveContractPath(routeRegistry.api.contracts.approvers, contractId), {
+    return safeFetch<ContractDetailResponse>(resolveContractPath(routeRegistry.api.contracts.approvers, contractId), {
       method: 'POST',
       credentials: 'include',
       headers: {
@@ -895,25 +996,24 @@ export const contractsClient = {
       },
       body: JSON.stringify(payload),
     })
-
-    return parseApiResponse<ContractDetailResponse>(response)
   },
 
   async remindApprover(contractId: string, payload?: { approverEmail?: string }) {
-    const response = await fetch(resolveContractPath(routeRegistry.api.contracts.approverReminder, contractId), {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ approverEmail: payload?.approverEmail }),
-    })
-
-    return parseApiResponse<ContractApproverReminderResponse>(response)
+    return safeFetch<ContractApproverReminderResponse>(
+      resolveContractPath(routeRegistry.api.contracts.approverReminder, contractId),
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ approverEmail: payload?.approverEmail }),
+      }
+    )
   },
 
   async manageAssignment(contractId: string, payload: LegalAssignmentPayload) {
-    const response = await fetch(resolveContractPath(routeRegistry.api.contracts.assignments, contractId), {
+    return safeFetch<ContractDetailResponse>(resolveContractPath(routeRegistry.api.contracts.assignments, contractId), {
       method: 'POST',
       credentials: 'include',
       headers: {
@@ -921,21 +1021,20 @@ export const contractsClient = {
       },
       body: JSON.stringify(payload),
     })
-
-    return parseApiResponse<ContractDetailResponse>(response)
   },
 
   async updateLegalMetadata(contractId: string, payload: LegalMetadataPayload) {
-    const response = await fetch(resolveContractPath(routeRegistry.api.contracts.legalMetadata, contractId), {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    })
-
-    return parseApiResponse<ContractDetailResponse>(response)
+    return safeFetch<ContractDetailResponse>(
+      resolveContractPath(routeRegistry.api.contracts.legalMetadata, contractId),
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      }
+    )
   },
 
   async addSignatory(
@@ -958,7 +1057,7 @@ export const contractsClient = {
           }>
         }
   ) {
-    const response = await fetch(resolveContractPath(routeRegistry.api.contracts.signatories, contractId), {
+    return safeFetch<ContractDetailResponse>(resolveContractPath(routeRegistry.api.contracts.signatories, contractId), {
       method: 'POST',
       credentials: 'include',
       headers: {
@@ -966,8 +1065,6 @@ export const contractsClient = {
       },
       body: JSON.stringify(payload),
     })
-
-    return parseApiResponse<ContractDetailResponse>(response)
   },
 
   async saveSigningPreparationDraft(
@@ -989,34 +1086,37 @@ export const contractsClient = {
       }>
     }
   ) {
-    const response = await fetch(resolveContractPath(routeRegistry.api.contracts.signingPreparationDraft, contractId), {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    })
-
-    return parseApiResponse<ContractSigningPreparationDraft>(response)
+    return safeFetch<ContractSigningPreparationDraft>(
+      resolveContractPath(routeRegistry.api.contracts.signingPreparationDraft, contractId),
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      }
+    )
   },
 
   async getSigningPreparationDraft(contractId: string) {
-    const response = await fetch(resolveContractPath(routeRegistry.api.contracts.signingPreparationDraft, contractId), {
-      method: 'GET',
-      credentials: 'include',
-    })
-
-    return parseApiResponse<ContractSigningPreparationDraft | null>(response)
+    return safeFetch<ContractSigningPreparationDraft | null>(
+      resolveContractPath(routeRegistry.api.contracts.signingPreparationDraft, contractId),
+      {
+        method: 'GET',
+        credentials: 'include',
+      }
+    )
   },
 
   async sendSigningPreparationDraft(contractId: string) {
-    const response = await fetch(resolveContractPath(routeRegistry.api.contracts.signingPreparationSend, contractId), {
-      method: 'POST',
-      credentials: 'include',
-    })
-
-    return parseApiResponse<{ envelopeId: string; contractView: ContractDetailResponse }>(response)
+    return safeFetch<{ envelopeId: string; contractView: ContractDetailResponse }>(
+      resolveContractPath(routeRegistry.api.contracts.signingPreparationSend, contractId),
+      {
+        method: 'POST',
+        credentials: 'include',
+      }
+    )
   },
 
   async download(
@@ -1031,12 +1131,10 @@ export const contractsClient = {
 
     const url = query.size > 0 ? `${path}?${query.toString()}` : path
 
-    const response = await fetch(url, {
+    return safeFetch<{ signedUrl: string; fileName: string }>(url, {
       method: 'GET',
       credentials: 'include',
     })
-
-    return parseApiResponse<{ signedUrl: string; fileName: string }>(response)
   },
 
   previewUrl(contractId: string, options?: { documentId?: string; renderAs?: 'binary' | 'html' }): string {

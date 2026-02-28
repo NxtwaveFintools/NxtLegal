@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState, type KeyboardEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { toast } from 'sonner'
 import { contractsClient, type ContractTypeOption, type DepartmentOption } from '@/core/client/contracts-client'
@@ -67,6 +67,8 @@ export default function ThirdPartyUploadSidebar({
   const [uploadIdempotencyKey, setUploadIdempotencyKey] = useState<string | null>(null)
   const [bypassHodApproval, setBypassHodApproval] = useState(false)
   const [bypassReason, setBypassReason] = useState('')
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null)
+  const uploadAbortRef = useRef<AbortController | null>(null)
 
   const showCounterpartyModal = counterpartyEntries.some(
     (entry) => entry.counterpartyName.trim() !== '' && !COUNTERPARTIES.includes(entry.counterpartyName.trim())
@@ -126,6 +128,11 @@ export default function ThirdPartyUploadSidebar({
     setUploadIdempotencyKey(null)
     setBypassHodApproval(false)
     setBypassReason('')
+    setUploadProgress(null)
+    if (uploadAbortRef.current) {
+      uploadAbortRef.current.abort()
+      uploadAbortRef.current = null
+    }
   }
 
   const handleMainFile = (file: File) => {
@@ -254,11 +261,15 @@ export default function ThirdPartyUploadSidebar({
 
     setUploadSuccess(null)
     setIsSubmitting(true)
+    setUploadProgress(0)
 
     const idempotencyKey = uploadIdempotencyKey ?? crypto.randomUUID()
     if (!uploadIdempotencyKey) {
       setUploadIdempotencyKey(idempotencyKey)
     }
+
+    const abortController = new AbortController()
+    uploadAbortRef.current = abortController
 
     try {
       const response = await contractsClient.upload({
@@ -277,6 +288,8 @@ export default function ThirdPartyUploadSidebar({
         bypassReason: undefined,
         file: mainFile,
         idempotencyKey,
+        onProgress: (percent) => setUploadProgress(percent),
+        signal: abortController.signal,
       })
 
       if (!response.ok || !response.data?.contract) {
@@ -303,6 +316,7 @@ export default function ThirdPartyUploadSidebar({
       toast.error(errorMessage)
     } finally {
       setIsSubmitting(false)
+      uploadAbortRef.current = null
     }
   }
 
@@ -490,7 +504,19 @@ export default function ThirdPartyUploadSidebar({
       )
     }
 
-    return <UploadStep isSubmitting={isSubmitting} successMessage={uploadSuccess} />
+    return (
+      <UploadStep
+        isSubmitting={isSubmitting}
+        successMessage={uploadSuccess}
+        uploadProgress={uploadProgress}
+        onCancel={() => {
+          if (uploadAbortRef.current) {
+            uploadAbortRef.current.abort()
+            uploadAbortRef.current = null
+          }
+        }}
+      />
+    )
   }
 
   const footer = (
@@ -516,7 +542,7 @@ export default function ThirdPartyUploadSidebar({
             disabled={isSubmitting || Boolean(uploadSuccess)}
             onClick={handleUpload}
           >
-            {isSubmitting ? 'Uploading...' : 'Upload'}
+            {isSubmitting ? `Uploading${uploadProgress !== null ? ` ${uploadProgress}%` : '…'}` : 'Upload'}
           </button>
         )}
       </div>
