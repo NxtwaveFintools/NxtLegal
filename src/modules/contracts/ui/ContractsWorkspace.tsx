@@ -119,6 +119,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const knownContractStatusesRef = useRef<Map<string, ContractRecord['status']>>(new Map())
   const executedCelebratedContractIdsRef = useRef<Set<string>>(new Set())
   const pendingCompletedCelebrationContractIdRef = useRef<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
 
   const PAGE_SIZE = 15
 
@@ -675,34 +676,6 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const handleGenerateSigningLink = async (recipientEmail: string, recipientType: string) => {
     if (!selectedContractId) {
       return
-    }
-
-    if (recipientType !== 'INTERNAL') {
-      setError('Signing link can only be generated for internal recipients')
-      return
-    }
-    setIsGeneratingLinkFor(recipientEmail)
-    try {
-      const response = await fetch(
-        `/api/contracts/${selectedContractId}/signatories/link?email=${encodeURIComponent(recipientEmail)}`,
-        { method: 'GET' }
-      )
-      const json = await response.json()
-      if (!response.ok || !json?.ok || !json.data?.signing_url) {
-        throw new Error(json?.error?.message ?? 'Failed to generate signing link')
-      }
-      await navigator.clipboard.writeText(json.data.signing_url)
-      setError(null)
-    } catch (error) {
-      setError(error instanceof Error ? error.message : 'Failed to generate signing link')
-    } finally {
-      setIsGeneratingLinkFor(null)
-    }
-  }
-
-  const handleRemindApprover = async (approverEmailToRemind?: string) => {
-    if (!selectedContractId) {
-      throw new Error('No contract selected')
     }
 
     if (recipientType !== 'INTERNAL') {

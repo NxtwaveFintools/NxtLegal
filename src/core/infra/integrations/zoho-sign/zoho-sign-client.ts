@@ -363,61 +363,62 @@ export class ZohoSignClient {
     defaultHeight: number
     fieldLabel: string
   } {
+    // Zoho expects abs_width/abs_height in PDF points, not UI percentage units.
     switch (fieldType) {
       case 'SIGNATURE':
         return {
           fieldTypeName: 'Signature',
           fieldCategory: 'image',
-          defaultWidth: 30,
-          defaultHeight: 10,
+          defaultWidth: 96,
+          defaultHeight: 22,
           fieldLabel: 'Signature',
         }
       case 'INITIAL':
         return {
           fieldTypeName: 'Initial',
           fieldCategory: 'image',
-          defaultWidth: 15,
-          defaultHeight: 8,
+          defaultWidth: 40,
+          defaultHeight: 15,
           fieldLabel: 'Initial',
         }
       case 'STAMP':
         return {
           fieldTypeName: 'Stamp',
           fieldCategory: 'image',
-          defaultWidth: 20,
-          defaultHeight: 10,
+          defaultWidth: 96,
+          defaultHeight: 36,
           fieldLabel: 'Stamp',
         }
       case 'NAME':
         return {
           fieldTypeName: 'Name',
           fieldCategory: 'textfield',
-          defaultWidth: 25,
-          defaultHeight: 4,
+          defaultWidth: 110,
+          defaultHeight: 22,
           fieldLabel: 'Name',
         }
       case 'DATE':
         return {
           fieldTypeName: 'Date',
           fieldCategory: 'datefield',
-          defaultWidth: 18,
-          defaultHeight: 4,
+          defaultWidth: 110,
+          defaultHeight: 22,
           fieldLabel: 'Date',
         }
       case 'TIME':
         return {
           fieldTypeName: 'Textfield',
           fieldCategory: 'textfield',
-          defaultWidth: 15,
-          defaultHeight: 4,
+          defaultWidth: 96,
+          defaultHeight: 22,
           fieldLabel: 'Time',
         }
       case 'TEXT':
         return {
           fieldTypeName: 'Textfield',
           fieldCategory: 'textfield',
-          defaultWidth: 30,
-          defaultHeight: 4,
+          defaultWidth: 200,
+          defaultHeight: 22,
           fieldLabel: 'Text',
         }
     }

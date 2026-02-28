@@ -50,13 +50,13 @@ const fieldPalette: FieldType[] = ['SIGNATURE', 'INITIAL', 'STAMP', 'NAME', 'DAT
 
 const createDraftId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`
 const fieldDimensionsByType: Record<FieldType, { width: number; height: number }> = {
-  SIGNATURE: { width: 30, height: 10 },
-  INITIAL: { width: 15, height: 8 },
-  STAMP: { width: 20, height: 10 },
-  NAME: { width: 25, height: 4 },
-  DATE: { width: 18, height: 4 },
-  TIME: { width: 15, height: 4 },
-  TEXT: { width: 30, height: 4 },
+  SIGNATURE: { width: 12, height: 4 },
+  INITIAL: { width: 12, height: 4 },
+  STAMP: { width: 12, height: 4 },
+  NAME: { width: 12, height: 4 },
+  DATE: { width: 12, height: 4 },
+  TIME: { width: 12, height: 4 },
+  TEXT: { width: 12, height: 4 },
 }
 
 export default function PrepareForSigningModal({
