@@ -1,10 +1,12 @@
+import { cache } from 'react'
 import { redirect } from 'next/navigation'
 import { appConfig } from '@/core/config/app-config'
 import { getSession } from '@/core/infra/session/jwt-session-store'
 import type { AuthenticatedEmployee } from '@/core/domain/auth/types'
 import { supabaseEmployeeRepository } from '@/core/infra/repositories/supabase-employee-repository'
 
-export const requireAuthenticatedUser = async (): Promise<AuthenticatedEmployee> => {
+// Memoised per-request via React cache() — layout and page presenters share a single DB lookup.
+export const requireAuthenticatedUser = cache(async (): Promise<AuthenticatedEmployee> => {
   const session = await getSession()
 
   if (!session || !session.employeeId || session.employeeId.length === 0) {
@@ -33,4 +35,4 @@ export const requireAuthenticatedUser = async (): Promise<AuthenticatedEmployee>
     role: employee.role,
     team: employee.teamName ?? null,
   }
-}
+})

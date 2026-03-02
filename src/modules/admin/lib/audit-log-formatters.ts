@@ -36,6 +36,7 @@ const actionDictionary: Record<string, string> = {
   'contract.legal.query': 'Legal Team Raised Query',
   'contract.legal.query.reroute': 'Legal Team Rerouted Query to HOD',
   'contract.legal.void': 'Legal Team Voided Contract',
+  'contract.legal.send_for_signing.initiated': 'Initiated Send for Signing Workflow',
   'contract.legal.set.under_review': 'Legal Team Marked Contract Under Review',
   'contract.legal.set.pending_internal': 'Legal Team Marked Pending Internal Stakeholders',
   'contract.legal.set.pending_external': 'Legal Team Marked Pending External Stakeholders',

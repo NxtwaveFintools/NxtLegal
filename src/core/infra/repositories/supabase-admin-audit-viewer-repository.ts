@@ -35,6 +35,11 @@ type ActorUserRow = {
 const encodeCursor = (createdAt: string): string => Buffer.from(createdAt, 'utf8').toString('base64url')
 const decodeCursor = (cursor: string): string => Buffer.from(cursor, 'base64url').toString('utf8')
 
+const buildAuditSearchClause = (query: string): string => {
+  const normalized = query.replace(/[(),]/g, ' ').trim()
+  return `action.ilike.%${normalized}%,resource_type.ilike.%${normalized}%,resource_id.ilike.%${normalized}%,user_id.ilike.%${normalized}%`
+}
+
 class SupabaseAdminAuditViewerRepository implements IAuditViewerRepository {
   private readonly supabase = createServiceSupabase()
 
@@ -97,45 +102,47 @@ class SupabaseAdminAuditViewerRepository implements IAuditViewerRepository {
     cursor?: string
     limit: number
   }): Promise<AuditViewerListResult> {
-    let countQuery = this.supabase
-      .from('audit_logs')
-      .select('id', { head: true, count: 'exact' })
-      .eq('tenant_id', params.tenantId)
+    let total = 0
+    if (!params.cursor) {
+      let countQuery = this.supabase
+        .from('audit_logs')
+        .select('id', { head: true, count: 'exact' })
+        .eq('tenant_id', params.tenantId)
 
-    if (params.filters.action) {
-      countQuery = countQuery.eq('action', params.filters.action)
-    }
+      if (params.filters.action) {
+        countQuery = countQuery.eq('action', params.filters.action)
+      }
 
-    if (params.filters.resourceType) {
-      countQuery = countQuery.eq('resource_type', params.filters.resourceType)
-    }
+      if (params.filters.resourceType) {
+        countQuery = countQuery.eq('resource_type', params.filters.resourceType)
+      }
 
-    if (params.filters.userId) {
-      countQuery = countQuery.eq('user_id', params.filters.userId)
-    }
+      if (params.filters.userId) {
+        countQuery = countQuery.eq('user_id', params.filters.userId)
+      }
 
-    if (params.filters.from) {
-      countQuery = countQuery.gte('created_at', params.filters.from)
-    }
+      if (params.filters.from) {
+        countQuery = countQuery.gte('created_at', params.filters.from)
+      }
 
-    if (params.filters.to) {
-      countQuery = countQuery.lte('created_at', params.filters.to)
-    }
+      if (params.filters.to) {
+        countQuery = countQuery.lte('created_at', params.filters.to)
+      }
 
-    if (params.filters.query) {
-      const escaped = params.filters.query.replace(/,/g, ' ')
-      countQuery = countQuery.or(
-        `action.ilike.%${escaped}%,resource_type.ilike.%${escaped}%,resource_id.ilike.%${escaped}%,user_id.ilike.%${escaped}%`
-      )
-    }
+      if (params.filters.query) {
+        countQuery = countQuery.or(buildAuditSearchClause(params.filters.query))
+      }
 
-    const { count, error: countError } = await countQuery
+      const { count, error: countError } = await countQuery
 
-    if (countError) {
-      throw new DatabaseError('Failed to count audit logs', undefined, {
-        errorCode: countError.code,
-        errorMessage: countError.message,
-      })
+      if (countError) {
+        throw new DatabaseError('Failed to count audit logs', undefined, {
+          errorCode: countError.code,
+          errorMessage: countError.message,
+        })
+      }
+
+      total = count ?? 0
     }
 
     let dataQuery = this.supabase
@@ -168,10 +175,7 @@ class SupabaseAdminAuditViewerRepository implements IAuditViewerRepository {
     }
 
     if (params.filters.query) {
-      const escaped = params.filters.query.replace(/,/g, ' ')
-      dataQuery = dataQuery.or(
-        `action.ilike.%${escaped}%,resource_type.ilike.%${escaped}%,resource_id.ilike.%${escaped}%,user_id.ilike.%${escaped}%`
-      )
+      dataQuery = dataQuery.or(buildAuditSearchClause(params.filters.query))
     }
 
     if (params.cursor) {
@@ -201,7 +205,7 @@ class SupabaseAdminAuditViewerRepository implements IAuditViewerRepository {
       items,
       cursor: nextCursor,
       limit: params.limit,
-      total: count ?? 0,
+      total,
     }
   }
 
@@ -241,10 +245,7 @@ class SupabaseAdminAuditViewerRepository implements IAuditViewerRepository {
     }
 
     if (params.filters.query) {
-      const escaped = params.filters.query.replace(/,/g, ' ')
-      dataQuery = dataQuery.or(
-        `action.ilike.%${escaped}%,resource_type.ilike.%${escaped}%,resource_id.ilike.%${escaped}%,user_id.ilike.%${escaped}%`
-      )
+      dataQuery = dataQuery.or(buildAuditSearchClause(params.filters.query))
     }
 
     if (params.cursor) {

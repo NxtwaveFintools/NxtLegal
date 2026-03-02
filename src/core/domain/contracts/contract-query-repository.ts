@@ -58,6 +58,8 @@ export type DashboardContractFilter =
   | 'ON_HOLD'
   | 'ASSIGNED_TO_ME'
 
+export type DashboardContractScope = 'default' | 'personal'
+
 export type RepositorySortBy = 'title' | 'created_at' | 'hod_approved_at' | 'status' | 'tat_deadline_at'
 export type RepositorySortDirection = 'asc' | 'desc'
 export type RepositoryDateBasis = 'request_created_at' | 'hod_approved_at'
@@ -111,6 +113,11 @@ export type RepositoryReport = {
 }
 
 export type RepositoryExportRow = Record<RepositoryExportColumn, string | number>
+
+export type RepositoryExportRowsChunk = {
+  items: RepositoryExportRow[]
+  nextCursor?: string
+}
 
 export type ContractDetail = ContractListItem & {
   contractTypeId: string
@@ -327,9 +334,22 @@ export interface ContractQueryRepository {
     employeeId: string
     role?: string
     filter: DashboardContractFilter
+    scope?: DashboardContractScope
     cursor?: string
     limit: number
   }): Promise<{ items: ContractListItem[]; nextCursor?: string; total: number }>
+  /**
+   * Returns only the count for a single dashboard filter.
+   * Use this instead of getDashboardContracts when only the total is needed
+   * (e.g. the counts endpoint) — avoids fetching rows and all post-processing.
+   */
+  getDashboardFilterCount(params: {
+    tenantId: string
+    employeeId: string
+    role?: string
+    filter: DashboardContractFilter
+    scope?: DashboardContractScope
+  }): Promise<number>
   getActionableAdditionalApprovals(params: {
     tenantId: string
     employeeId: string
@@ -384,6 +404,21 @@ export interface ContractQueryRepository {
     toDate?: string
     columns: RepositoryExportColumn[]
   }): Promise<RepositoryExportRow[]>
+  listRepositoryExportRowsChunk(params: {
+    tenantId: string
+    employeeId: string
+    role?: string
+    cursor?: string
+    limit: number
+    search?: string
+    status?: ContractStatus
+    repositoryStatus?: ContractRepositoryStatus
+    dateBasis?: RepositoryDateBasis
+    datePreset?: RepositoryDatePreset
+    fromDate?: string
+    toDate?: string
+    columns: RepositoryExportColumn[]
+  }): Promise<RepositoryExportRowsChunk>
   getById(tenantId: string, contractId: string): Promise<ContractDetail | null>
   getCounterparties(tenantId: string, contractId: string): Promise<ContractCounterparty[]>
   getDocuments(tenantId: string, contractId: string): Promise<ContractDocument[]>

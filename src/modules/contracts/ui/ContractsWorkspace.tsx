@@ -24,6 +24,7 @@ import ContractDocumentsPanel from '@/modules/contracts/ui/ContractDocumentsPane
 import ApprovalsTab from '@/modules/contracts/ui/ApprovalsTab'
 import { formatContractLogEvents, isContractNoteEvent } from '@/modules/contracts/ui/formatContractLogEvent'
 import { triggerContractStatusConfetti } from '@/modules/contracts/ui/contract-status-confetti'
+import ErrorBoundary from '@/components/ui/ErrorBoundary'
 import styles from './contracts-workspace.module.css'
 
 const PrepareForSigningModal = dynamic(() => import('@/modules/contracts/ui/PrepareForSigningModal'), {
@@ -125,6 +126,20 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
   const PAGE_SIZE = 15
 
+  const upsertContractInSidebarList = useCallback((contract: ContractRecord) => {
+    setContracts((current) => {
+      const existingIndex = current.findIndex((item) => item.id === contract.id)
+
+      if (existingIndex === -1) {
+        return [contract, ...current]
+      }
+
+      const next = [...current]
+      next[existingIndex] = { ...next[existingIndex], ...contract }
+      return next
+    })
+  }, [])
+
   const loadContracts = useCallback(async (cursor?: string) => {
     const response = await contractsClient.list({ cursor, limit: PAGE_SIZE })
 
@@ -138,7 +153,37 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
     const { contracts: newContracts, pagination } = response.data
 
-    setContracts((prev) => (cursor ? [...prev, ...newContracts] : newContracts))
+    setContracts((prev) => {
+      if (!cursor) {
+        const mergedFirstPage = [...newContracts]
+
+        for (const existingContract of prev) {
+          if (!mergedFirstPage.some((contract) => contract.id === existingContract.id)) {
+            mergedFirstPage.push(existingContract)
+          }
+        }
+
+        return mergedFirstPage
+      }
+
+      const mergedContracts = [...prev]
+
+      for (const incomingContract of newContracts) {
+        const existingIndex = mergedContracts.findIndex((contract) => contract.id === incomingContract.id)
+
+        if (existingIndex === -1) {
+          mergedContracts.push(incomingContract)
+          continue
+        }
+
+        mergedContracts[existingIndex] = {
+          ...mergedContracts[existingIndex],
+          ...incomingContract,
+        }
+      }
+
+      return mergedContracts
+    })
     setNextCursor(pagination.cursor)
     setHasMore(pagination.cursor !== null)
     setTotalContracts(pagination.total)
@@ -213,34 +258,38 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     )
   }, [])
 
-  const loadContractContext = useCallback(async (contractId: string) => {
-    const [detailResponse, timelineResponse] = await Promise.all([
-      contractsClient.detail(contractId),
-      contractsClient.timeline(contractId),
-    ])
+  const loadContractContext = useCallback(
+    async (contractId: string) => {
+      const [detailResponse, timelineResponse] = await Promise.all([
+        contractsClient.detail(contractId),
+        contractsClient.timeline(contractId),
+      ])
 
-    if (!detailResponse.ok || !detailResponse.data?.contract) {
-      toast.error(detailResponse.error?.message ?? 'Failed to load contract detail')
-      setSelectedContract(null)
-      resetLegalMetadataDraft()
-      setTimeline([])
-      setCounterparties([])
-      setDocuments([])
-      setAvailableActions([])
-      setApprovers([])
-      setLegalCollaborators([])
-      setSignatories([])
-      return
-    }
+      if (!detailResponse.ok || !detailResponse.data?.contract) {
+        toast.error(detailResponse.error?.message ?? 'Failed to load contract detail')
+        setSelectedContract(null)
+        resetLegalMetadataDraft()
+        setTimeline([])
+        setCounterparties([])
+        setDocuments([])
+        setAvailableActions([])
+        setApprovers([])
+        setLegalCollaborators([])
+        setSignatories([])
+        return
+      }
 
-    applyContractView(detailResponse.data)
+      applyContractView(detailResponse.data)
+      upsertContractInSidebarList(detailResponse.data.contract)
 
-    if (timelineResponse.ok && timelineResponse.data) {
-      setTimeline(timelineResponse.data.events)
-    } else {
-      setTimeline([])
-    }
-  }, [])
+      if (timelineResponse.ok && timelineResponse.data) {
+        setTimeline(timelineResponse.data.events)
+      } else {
+        setTimeline([])
+      }
+    },
+    [upsertContractInSidebarList]
+  )
 
   useEffect(() => {
     const bootstrap = async () => {
@@ -294,6 +343,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       }
 
       applyContractView(detailResponse.data)
+      upsertContractInSidebarList(detailResponse.data.contract)
 
       if (timelineResponse.ok && timelineResponse.data) {
         setTimeline(timelineResponse.data.events)
@@ -309,7 +359,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     return () => {
       isCancelled = true
     }
-  }, [selectedContractId])
+  }, [selectedContractId, upsertContractInSidebarList])
 
   const selectContract = (contractId: string) => {
     setIsContractContextLoading(true)
@@ -975,6 +1025,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     [contracts, selectedContractId]
   )
   const hasUnreadActivity = Boolean(selectedContractListRow?.hasUnreadActivity)
+  const shouldShowDetailShimmer = Boolean(selectedContractId) && (isLoading || isContractContextLoading)
 
   useEffect(() => {
     if (!selectedContractId || activeTab !== 'activity' || !hasUnreadActivity || isMarkingActivitySeen) {
@@ -1145,587 +1196,595 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
       {/* ── Right Detail Panel ── */}
       <section className={styles.detail}>
-        <div className={styles.headerRow}>
-          <button type="button" className={styles.backButton} onClick={handleBackNavigation}>
-            ← Back
-          </button>
-          <div className={styles.title}>{selectedContract?.title ?? 'Contract Details'}</div>
-          <div className={styles.headerActions}>
-            {selectedContract ? (
-              <ContractStatusBadge
-                status={selectedContract.status}
-                displayLabel={selectedContract.displayStatusLabel}
-              />
-            ) : null}
-
-            {legalStatusActions.length > 0 ? (
-              <select
-                className={styles.actionDropdown}
-                value={selectedLegalAction}
-                onChange={(event) =>
-                  handleLegalActionSelect(event.target.value as ContractAllowedAction['action'] | '')
-                }
-                disabled={Boolean(activeAction) || isMutating}
-                aria-label="Legal status actions"
-              >
-                <option value="">Legal Status Actions</option>
-                {legalStatusActions.map((item) => (
-                  <option key={item.action} value={item.action}>
-                    {item.label}
-                  </option>
-                ))}
-              </select>
-            ) : null}
-
-            {nonLegalStatusActions.map((item) => (
-              <button
-                key={item.action}
-                type="button"
-                className={`${styles.button} ${styles.buttonPrimary}`}
-                disabled={Boolean(activeAction) || isMutating}
-                onClick={() => void executeAction(item)}
-              >
-                {activeAction === item.action ? (
-                  <span className={styles.buttonContent}>
-                    <Spinner size={14} />
-                    Processing…
-                  </span>
-                ) : (
-                  item.label
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {selectedContract?.latestAdditionalApproverRejectionReason ? (
-          <div className={styles.rejectionContextBanner}>
-            Additional approver rejection reason: {selectedContract.latestAdditionalApproverRejectionReason}
-          </div>
-        ) : null}
-
-        {selectedContract?.status === contractStatuses.void && selectedContract.voidReason ? (
-          <div className={styles.rejectionContextBanner}>Void reason: {selectedContract.voidReason}</div>
-        ) : null}
-
-        {!selectedContract ? (
-          <div className={styles.emptyState}>
-            <div className={styles.emptyStateIcon}>📄</div>
-            <div style={{ fontWeight: 600 }}>Select a contract</div>
-            <div className={styles.itemMeta}>Choose a contract from the sidebar to view details</div>
-          </div>
-        ) : isContractContextLoading ? (
-          <div className={styles.detailShimmer}>
-            <div className={styles.shimmerBlock}>
-              <div className={styles.shimmerLine} style={{ width: '28%' }} />
-              <div className={styles.shimmerLine} style={{ width: '92%' }} />
-              <div className={styles.shimmerLine} style={{ width: '84%' }} />
-            </div>
-            <div className={styles.shimmerBlock}>
-              <div className={styles.shimmerLine} style={{ width: '20%' }} />
-              <div className={styles.shimmerLine} style={{ width: '96%' }} />
-              <div className={styles.shimmerLine} style={{ width: '88%' }} />
-              <div className={styles.shimmerLine} style={{ width: '80%' }} />
-            </div>
-            <div className={styles.shimmerBlock}>
-              <div className={styles.shimmerLine} style={{ width: '24%' }} />
-              <div className={styles.shimmerLine} style={{ width: '90%' }} />
-            </div>
-          </div>
-        ) : (
-          <div className={styles.detailsShell}>
-            {/* ── Summary Column (flat sections) ── */}
-            <aside className={styles.summaryColumn}>
-              <div className={styles.sectionBlock}>
-                <div className={styles.sectionLabel}>Contract Summary</div>
-                <div className={styles.row}>
-                  <span>Title</span>
-                  <span className={styles.rowValue}>{selectedContract.title}</span>
-                </div>
-                <div className={styles.row}>
-                  <span>Contract Type</span>
-                  <span>{selectedContract.contractTypeName ?? '—'}</span>
-                </div>
-                <div className={styles.row}>
-                  <span>File</span>
-                  <span className={styles.rowValue}>{selectedContract.fileName}</span>
-                </div>
-              </div>
-
-              <div className={styles.sectionBlock}>
-                <div className={styles.sectionLabel}>Department</div>
-                <div className={styles.row}>
-                  <span>Name</span>
-                  <span>{selectedContract.departmentName ?? '—'}</span>
-                </div>
-                <div className={styles.row}>
-                  <span>HOD</span>
-                  <span>{selectedContract.departmentHodName ?? '—'}</span>
-                </div>
-                <div className={styles.row}>
-                  <span>HOD Email</span>
-                  <span>{selectedContract.departmentHodEmail ?? '—'}</span>
-                </div>
-              </div>
-
-              <div className={styles.sectionBlock}>
-                <div className={styles.sectionLabel}>Assignee</div>
-                <div className={styles.row}>
-                  <span>Current</span>
-                  <span>{selectedContract.currentAssigneeEmail}</span>
-                </div>
-                <div className={styles.row}>
-                  <span>Uploaded By</span>
-                  <span>{selectedContract.uploadedByEmail}</span>
-                </div>
-              </div>
-
-              <div className={styles.sectionBlock}>
-                <div className={styles.sectionLabel}>Metadata</div>
-                {quickMetadata.map((item) => (
-                  <div key={item.label} className={styles.row}>
-                    <span>{item.label}</span>
-                    <span>{item.value}</span>
-                  </div>
-                ))}
-              </div>
-
-              {canManageLegalMetadata ? (
-                <div className={styles.sectionBlock}>
-                  <div className={styles.sectionLabel}>Legal Metadata</div>
-                  <form className={styles.legalMetadataForm} onSubmit={handleLegalMetadataSubmit}>
-                    <div className={styles.legalMetadataField}>
-                      <span>Effective Date</span>
-                      <input
-                        type="date"
-                        className={styles.input}
-                        value={legalEffectiveDate}
-                        onChange={(event) => setLegalEffectiveDate(event.target.value)}
-                        disabled={isSavingLegalMetadata || isMutating}
-                      />
-                    </div>
-                    <div className={styles.legalMetadataField}>
-                      <span>Termination Date</span>
-                      <input
-                        type="date"
-                        className={styles.input}
-                        value={legalTerminationDate}
-                        onChange={(event) => setLegalTerminationDate(event.target.value)}
-                        disabled={isSavingLegalMetadata || isMutating}
-                      />
-                    </div>
-                    <div className={styles.legalMetadataField}>
-                      <span>Notice Period</span>
-                      <input
-                        type="text"
-                        className={styles.input}
-                        value={legalNoticePeriod}
-                        onChange={(event) => setLegalNoticePeriod(event.target.value)}
-                        placeholder="e.g. 30 days"
-                        disabled={isSavingLegalMetadata || isMutating}
-                      />
-                    </div>
-                    <div className={styles.legalMetadataField}>
-                      <span>Auto-renewal</span>
-                      <select
-                        className={styles.input}
-                        value={legalAutoRenewal}
-                        onChange={(event) => setLegalAutoRenewal(event.target.value as 'unknown' | 'yes' | 'no')}
-                        disabled={isSavingLegalMetadata || isMutating}
-                      >
-                        <option value="unknown">Not set</option>
-                        <option value="yes">Yes</option>
-                        <option value="no">No</option>
-                      </select>
-                    </div>
-                    <button
-                      type="submit"
-                      className={styles.button}
-                      disabled={isSavingLegalMetadata || isMutating || !selectedContractId}
-                    >
-                      <span className={styles.buttonContent}>
-                        {isSavingLegalMetadata ? <Spinner size={14} /> : null}
-                        {isSavingLegalMetadata ? 'Saving…' : 'Save Legal Metadata'}
-                      </span>
-                    </button>
-                  </form>
-                </div>
+        <ErrorBoundary sectionLabel="contract details" resetKey={selectedContractId}>
+          <div className={styles.headerRow}>
+            <button type="button" className={styles.backButton} onClick={handleBackNavigation}>
+              ← Back
+            </button>
+            <div className={styles.title}>{selectedContract?.title ?? 'Contract Details'}</div>
+            <div className={styles.headerActions}>
+              {selectedContract ? (
+                <ContractStatusBadge
+                  status={selectedContract.status}
+                  displayLabel={selectedContract.displayStatusLabel}
+                />
               ) : null}
-            </aside>
 
-            {/* ── Tab Column ── */}
-            <div className={styles.tabColumn}>
-              <div
-                className={styles.tabHeader}
-                role="tablist"
-                aria-label="Contract details sections"
-                onKeyDown={handleTabKeyDown}
-              >
-                {tabs.map((tab) => {
-                  const selected = activeTab === tab.id
-                  const showTabUnreadDot = tab.id === 'activity' && hasUnreadActivity && !selected
+              {legalStatusActions.length > 0 ? (
+                <select
+                  className={styles.actionDropdown}
+                  value={selectedLegalAction}
+                  onChange={(event) =>
+                    handleLegalActionSelect(event.target.value as ContractAllowedAction['action'] | '')
+                  }
+                  disabled={Boolean(activeAction) || isMutating}
+                  aria-label="Legal status actions"
+                >
+                  <option value="">Legal Status Actions</option>
+                  {legalStatusActions.map((item) => (
+                    <option key={item.action} value={item.action}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              ) : null}
 
-                  return (
-                    <button
-                      key={tab.id}
-                      id={`contract-tab-${tab.id}`}
-                      type="button"
-                      role="tab"
-                      tabIndex={selected ? 0 : -1}
-                      aria-selected={selected}
-                      aria-controls={`contract-tabpanel-${tab.id}`}
-                      className={`${styles.tabButton} ${selected ? styles.tabButtonActive : ''}`}
-                      onClick={() => handleTabChange(tab.id)}
-                    >
-                      <span className={styles.tabLabelWithDot}>
-                        {tab.label}
-                        {showTabUnreadDot ? <span className={styles.unreadDot} aria-label="Unread activity" /> : null}
-                      </span>
-                    </button>
-                  )
-                })}
+              {nonLegalStatusActions.map((item) => (
+                <button
+                  key={item.action}
+                  type="button"
+                  className={`${styles.button} ${styles.buttonPrimary}`}
+                  disabled={Boolean(activeAction) || isMutating}
+                  onClick={() => void executeAction(item)}
+                >
+                  {activeAction === item.action ? (
+                    <span className={styles.buttonContent}>
+                      <Spinner size={14} />
+                      Processing…
+                    </span>
+                  ) : (
+                    item.label
+                  )}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {selectedContract?.latestAdditionalApproverRejectionReason ? (
+            <div className={styles.rejectionContextBanner}>
+              Additional approver rejection reason: {selectedContract.latestAdditionalApproverRejectionReason}
+            </div>
+          ) : null}
+
+          {selectedContract?.status === contractStatuses.void && selectedContract.voidReason ? (
+            <div className={styles.rejectionContextBanner}>Void reason: {selectedContract.voidReason}</div>
+          ) : null}
+
+          {shouldShowDetailShimmer ? (
+            <div className={styles.detailShimmer}>
+              <div className={styles.shimmerBlock}>
+                <div className={styles.shimmerLine} style={{ width: '28%' }} />
+                <div className={styles.shimmerLine} style={{ width: '92%' }} />
+                <div className={styles.shimmerLine} style={{ width: '84%' }} />
               </div>
-
-              <div
-                id={`contract-tabpanel-${activeTab}`}
-                role="tabpanel"
-                aria-labelledby={`contract-tab-${activeTab}`}
-                className={styles.tabPanel}
-              >
-                {activeTab === 'overview' && (
-                  <div className={styles.tabSection}>
-                    <div className={styles.card}>
-                      <div className={styles.sectionTitle}>Overview</div>
-                      <div className={styles.row}>
-                        <span>Contract Type</span>
-                        <span>{selectedContract.contractTypeName ?? '—'}</span>
-                      </div>
-                      <div className={styles.row}>
-                        <span>Counterparty</span>
-                        <span>
-                          {counterparties.length > 0
-                            ? counterparties.map((counterparty) => counterparty.counterpartyName).join(', ')
-                            : (selectedContract.counterpartyName ?? '—')}
-                        </span>
-                      </div>
-                      <div className={styles.row}>
-                        <span>File Name</span>
-                        <span>{selectedContract.fileName ?? '—'}</span>
-                      </div>
-                      <div className={styles.row}>
-                        <span>File Size</span>
-                        <span>
-                          {typeof selectedContract.fileSizeBytes === 'number'
-                            ? `${Math.round(selectedContract.fileSizeBytes / 1024)} KB`
-                            : '—'}
-                        </span>
-                      </div>
-                      <div className={styles.row}>
-                        <span>File Type</span>
-                        <span>{selectedContract.fileMimeType ?? '—'}</span>
-                      </div>
-                    </div>
-
-                    <div className={styles.card}>
-                      <button
-                        type="button"
-                        className={styles.accordionTrigger}
-                        aria-expanded={isIntakeOpen}
-                        aria-controls="intake-details-panel"
-                        onClick={() => setIsIntakeOpen((current) => !current)}
-                      >
-                        {isIntakeOpen ? '▾' : '▸'} Intake Details
-                      </button>
-                      {isIntakeOpen ? (
-                        <div id="intake-details-panel" className={styles.accordionBody}>
-                          <div className={styles.row}>
-                            <span>Counterparty Signatory Name</span>
-                            <span>{selectedContract.signatoryName ?? '—'}</span>
-                          </div>
-                          <div className={styles.row}>
-                            <span>Counterparty Signatory Designation</span>
-                            <span>{selectedContract.signatoryDesignation ?? '—'}</span>
-                          </div>
-                          <div className={styles.row}>
-                            <span>Counterparty Signatory Email</span>
-                            <span>{selectedContract.signatoryEmail ?? '—'}</span>
-                          </div>
-                          <div className={styles.row}>
-                            <span>Background</span>
-                            <span className={styles.multilineValue}>{selectedContract.backgroundOfRequest ?? '—'}</span>
-                          </div>
-                        </div>
-                      ) : null}
-                    </div>
-
-                    {canManageLegalWorkSharing && (
-                      <div className={styles.card}>
-                        <div className={styles.sectionTitle}>Legal Work Sharing</div>
-                        <form className={styles.inlineForm} onSubmit={handleAddCollaboratorSubmit}>
-                          <input
-                            type="email"
-                            className={styles.input}
-                            placeholder="legalmember@nxtwave.co.in"
-                            value={collaboratorEmail}
-                            onChange={(event) => setCollaboratorEmail(event.target.value)}
-                          />
-                          <button type="submit" className={styles.button} disabled={isMutating || isAddingCollaborator}>
-                            <span className={styles.buttonContent}>
-                              {isAddingCollaborator ? <Spinner size={14} /> : null}
-                              {isAddingCollaborator ? 'Adding Collaborator…' : 'Add Collaborator'}
-                            </span>
-                          </button>
-                        </form>
-                        <div className={styles.timeline}>
-                          {legalCollaborators.length === 0 ? (
-                            <div className={styles.eventMeta}>No collaborators assigned.</div>
-                          ) : (
-                            legalCollaborators.map((collaborator) => (
-                              <div key={collaborator.id} className={styles.event}>
-                                <div>{collaborator.collaboratorEmail}</div>
-                                <button
-                                  type="button"
-                                  className={`${styles.button} ${styles.buttonGhost}`}
-                                  disabled={isMutating}
-                                  onClick={() => void handleRemoveCollaborator(collaborator.collaboratorEmail)}
-                                >
-                                  Remove
-                                </button>
-                              </div>
-                            ))
-                          )}
-                        </div>
-                      </div>
-                    )}
-
-                    {(session.role === 'LEGAL_TEAM' || session.role === 'ADMIN') && (
-                      <>
-                        <div className={styles.card}>
-                          <div className={styles.sectionTitle}>Signatories</div>
-                          {selectedContract.status === contractStatuses.completed ? (
-                            <div className={styles.inlineForm}>
-                              <button
-                                type="button"
-                                className={styles.button}
-                                disabled={!selectedContractId}
-                                onClick={() => setIsPrepareForSigningOpen(true)}
-                              >
-                                Prepare for Signing
-                              </button>
-                            </div>
-                          ) : (
-                            <div className={styles.eventMeta}>Sign is available only after COMPLETED.</div>
-                          )}
-                          <div className={styles.timeline}>
-                            {signatories.map((signatory) => (
-                              <div key={signatory.id} className={styles.event}>
-                                <div className={styles.signatoryHeader}>
-                                  <div>
-                                    {signatory.signatoryEmail} · {signatory.recipientType} · Step{' '}
-                                    {signatory.routingOrder}
-                                  </div>
-                                  <span
-                                    className={`${styles.signatoryStatusBadge} ${
-                                      signatory.status === 'SIGNED'
-                                        ? styles.signatoryStatusSigned
-                                        : styles.signatoryStatusPending
-                                    }`}
-                                  >
-                                    {signatory.status}
-                                  </span>
-                                </div>
-                                {signatory.recipientType === 'INTERNAL' ? (
-                                  <div className={styles.signatoryActionRow}>
-                                    <button
-                                      type="button"
-                                      className={`${styles.button} ${styles.buttonGhost} ${styles.signatoryLinkButton}`}
-                                      disabled={isMutating || isGeneratingLinkFor === signatory.signatoryEmail}
-                                      onClick={() =>
-                                        void handleGenerateSigningLink(
-                                          signatory.signatoryEmail,
-                                          signatory.recipientType
-                                        )
-                                      }
-                                    >
-                                      {isGeneratingLinkFor === signatory.signatoryEmail
-                                        ? 'Generating link...'
-                                        : copiedSigningLinkFor === signatory.signatoryEmail
-                                          ? 'Copied'
-                                          : 'Copy Signing Link'}
-                                    </button>
-                                    <span className={styles.signatoryActionHint}>
-                                      {copiedSigningLinkFor === signatory.signatoryEmail
-                                        ? 'Copied to clipboard'
-                                        : 'Generates fresh secure link'}
-                                    </span>
-                                  </div>
-                                ) : (
-                                  <div className={styles.signatoryActionHint}>
-                                    Signing link available for internal users.
-                                  </div>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      </>
-                    )}
+              <div className={styles.shimmerBlock}>
+                <div className={styles.shimmerLine} style={{ width: '20%' }} />
+                <div className={styles.shimmerLine} style={{ width: '96%' }} />
+                <div className={styles.shimmerLine} style={{ width: '88%' }} />
+                <div className={styles.shimmerLine} style={{ width: '80%' }} />
+              </div>
+              <div className={styles.shimmerBlock}>
+                <div className={styles.shimmerLine} style={{ width: '24%' }} />
+                <div className={styles.shimmerLine} style={{ width: '90%' }} />
+              </div>
+            </div>
+          ) : !selectedContract ? (
+            <div className={styles.emptyState}>
+              <div className={styles.emptyStateIcon}>📄</div>
+              <div style={{ fontWeight: 600 }}>Select a contract</div>
+              <div className={styles.itemMeta}>Choose a contract from the sidebar to view details</div>
+            </div>
+          ) : (
+            <div className={styles.detailsShell}>
+              {/* ── Summary Column (flat sections) ── */}
+              <aside className={styles.summaryColumn}>
+                <div className={styles.sectionBlock}>
+                  <div className={styles.sectionLabel}>Contract Summary</div>
+                  <div className={styles.row}>
+                    <span>Title</span>
+                    <span className={styles.rowValue}>{selectedContract.title}</span>
                   </div>
-                )}
-
-                {activeTab === 'activity' && (
-                  <div className={styles.tabSection}>
-                    <div className={styles.card}>
-                      <div className={styles.sectionHeaderRow}>
-                        <div className={styles.sectionTitle}>Logs Timeline</div>
-                        {(session.role === 'LEGAL_TEAM' || session.role === 'ADMIN' || session.role === 'HOD') && (
-                          <button
-                            type="button"
-                            className={`${styles.button} ${styles.buttonGhost}`}
-                            onClick={() => setIsActivityComposerOpen((current) => !current)}
-                          >
-                            {isActivityComposerOpen ? 'Cancel' : '+ Add'}
-                          </button>
-                        )}
-                      </div>
-
-                      {isActivityComposerOpen ? (
-                        <form className={styles.activityComposer} onSubmit={handleAddActivitySubmit}>
-                          <textarea
-                            className={styles.textarea}
-                            placeholder="Discuss this contract. Use @email to tag someone."
-                            value={activityMessageText}
-                            onChange={(event) => setActivityMessageText(event.target.value)}
-                            rows={3}
-                          />
-                          <div className={styles.activityComposerActions}>
-                            <button
-                              type="submit"
-                              className={styles.button}
-                              disabled={isSubmittingActivity || isMutating}
-                            >
-                              {isSubmittingActivity ? 'Posting…' : 'Post'}
-                            </button>
-                          </div>
-                        </form>
-                      ) : null}
-
-                      <div className={styles.logContainer}>
-                        {visibleLogs.map((event) => {
-                          const rawEvent = timelineById.get(event.id)
-                          const roleClass =
-                            rawEvent?.actorRole === 'HOD'
-                              ? styles.roleHod
-                              : rawEvent?.actorRole === 'LEGAL_TEAM'
-                                ? styles.roleLegal
-                                : styles.rolePoc
-                          const isExpanded = expandedLogIds.has(event.id)
-
-                          return (
-                            <div key={event.id} className={`${styles.timelineEvent} ${roleClass}`}>
-                              <div className={styles.timelineMarker} />
-                              <div className={styles.timelineContent}>
-                                <div className={styles.eventActor}>{event.actorLabel}</div>
-                                <div>{event.message}</div>
-                                <div className={styles.eventMeta} title={event.absoluteTimestamp}>
-                                  {event.relativeTimestamp}
-                                </div>
-                                <button
-                                  type="button"
-                                  className={styles.inlineLinkButton}
-                                  onClick={() => toggleLogExpansion(event.id)}
-                                  aria-expanded={isExpanded}
-                                >
-                                  {isExpanded ? 'Collapse' : 'Expand'}
-                                </button>
-                                {isExpanded ? (
-                                  <div className={styles.expandedMeta}>
-                                    {event.remark ? <div className={styles.eventRemark}>{event.remark}</div> : null}
-                                    <div className={styles.eventMeta}>{event.absoluteTimestamp}</div>
-                                  </div>
-                                ) : null}
-                              </div>
-                            </div>
-                          )
-                        })}
-                      </div>
-                      {formattedLogs.length > 5 ? (
-                        <button
-                          type="button"
-                          className={`${styles.button} ${styles.buttonGhost}`}
-                          onClick={() => setShowAllLogs((current) => !current)}
-                          style={{ marginTop: 8 }}
-                        >
-                          {showAllLogs ? 'Show Latest 5' : `Show All (${formattedLogs.length})`}
-                        </button>
-                      ) : null}
-                    </div>
+                  <div className={styles.row}>
+                    <span>Contract Type</span>
+                    <span>{selectedContract.contractTypeName ?? '—'}</span>
                   </div>
-                )}
+                  <div className={styles.row}>
+                    <span>File</span>
+                    <span className={styles.rowValue}>{selectedContract.fileName}</span>
+                  </div>
+                </div>
 
-                {activeTab === 'notes' && (
-                  <div className={styles.tabSection}>
-                    <div className={styles.card}>
-                      <div className={styles.sectionTitle}>Notes</div>
-                      <form className={styles.inlineForm} onSubmit={handleAddNoteSubmit}>
+                <div className={styles.sectionBlock}>
+                  <div className={styles.sectionLabel}>Department</div>
+                  <div className={styles.row}>
+                    <span>Name</span>
+                    <span>{selectedContract.departmentName ?? '—'}</span>
+                  </div>
+                  <div className={styles.row}>
+                    <span>HOD</span>
+                    <span>{selectedContract.departmentHodName ?? '—'}</span>
+                  </div>
+                  <div className={styles.row}>
+                    <span>HOD Email</span>
+                    <span>{selectedContract.departmentHodEmail ?? '—'}</span>
+                  </div>
+                </div>
+
+                <div className={styles.sectionBlock}>
+                  <div className={styles.sectionLabel}>Assignee</div>
+                  <div className={styles.row}>
+                    <span>Current</span>
+                    <span>{selectedContract.currentAssigneeEmail}</span>
+                  </div>
+                  <div className={styles.row}>
+                    <span>Uploaded By</span>
+                    <span>{selectedContract.uploadedByEmail}</span>
+                  </div>
+                </div>
+
+                <div className={styles.sectionBlock}>
+                  <div className={styles.sectionLabel}>Metadata</div>
+                  {quickMetadata.map((item) => (
+                    <div key={item.label} className={styles.row}>
+                      <span>{item.label}</span>
+                      <span>{item.value}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {canManageLegalMetadata ? (
+                  <div className={styles.sectionBlock}>
+                    <div className={styles.sectionLabel}>Legal Metadata</div>
+                    <form className={styles.legalMetadataForm} onSubmit={handleLegalMetadataSubmit}>
+                      <div className={styles.legalMetadataField}>
+                        <span>Effective Date</span>
+                        <input
+                          type="date"
+                          className={styles.input}
+                          value={legalEffectiveDate}
+                          onChange={(event) => setLegalEffectiveDate(event.target.value)}
+                          disabled={isSavingLegalMetadata || isMutating}
+                        />
+                      </div>
+                      <div className={styles.legalMetadataField}>
+                        <span>Termination Date</span>
+                        <input
+                          type="date"
+                          className={styles.input}
+                          value={legalTerminationDate}
+                          onChange={(event) => setLegalTerminationDate(event.target.value)}
+                          disabled={isSavingLegalMetadata || isMutating}
+                        />
+                      </div>
+                      <div className={styles.legalMetadataField}>
+                        <span>Notice Period</span>
                         <input
                           type="text"
                           className={styles.input}
-                          placeholder="Add note"
-                          value={noteText}
-                          onChange={(event) => setNoteText(event.target.value)}
+                          value={legalNoticePeriod}
+                          onChange={(event) => setLegalNoticePeriod(event.target.value)}
+                          placeholder="e.g. 30 days"
+                          disabled={isSavingLegalMetadata || isMutating}
                         />
-                        <button type="submit" className={styles.button} disabled={isMutating}>
-                          Add Note
+                      </div>
+                      <div className={styles.legalMetadataField}>
+                        <span>Auto-renewal</span>
+                        <select
+                          className={styles.input}
+                          value={legalAutoRenewal}
+                          onChange={(event) => setLegalAutoRenewal(event.target.value as 'unknown' | 'yes' | 'no')}
+                          disabled={isSavingLegalMetadata || isMutating}
+                        >
+                          <option value="unknown">Not set</option>
+                          <option value="yes">Yes</option>
+                          <option value="no">No</option>
+                        </select>
+                      </div>
+                      <button
+                        type="submit"
+                        className={styles.button}
+                        disabled={isSavingLegalMetadata || isMutating || !selectedContractId}
+                      >
+                        <span className={styles.buttonContent}>
+                          {isSavingLegalMetadata ? <Spinner size={14} /> : null}
+                          {isSavingLegalMetadata ? 'Saving…' : 'Save Legal Metadata'}
+                        </span>
+                      </button>
+                    </form>
+                  </div>
+                ) : null}
+              </aside>
+
+              {/* ── Tab Column ── */}
+              <div className={styles.tabColumn}>
+                <div
+                  className={styles.tabHeader}
+                  role="tablist"
+                  aria-label="Contract details sections"
+                  onKeyDown={handleTabKeyDown}
+                >
+                  {tabs.map((tab) => {
+                    const selected = activeTab === tab.id
+                    const showTabUnreadDot = tab.id === 'activity' && hasUnreadActivity && !selected
+
+                    return (
+                      <button
+                        key={tab.id}
+                        id={`contract-tab-${tab.id}`}
+                        type="button"
+                        role="tab"
+                        tabIndex={selected ? 0 : -1}
+                        aria-selected={selected}
+                        aria-controls={`contract-tabpanel-${tab.id}`}
+                        className={`${styles.tabButton} ${selected ? styles.tabButtonActive : ''}`}
+                        onClick={() => handleTabChange(tab.id)}
+                      >
+                        <span className={styles.tabLabelWithDot}>
+                          {tab.label}
+                          {showTabUnreadDot ? <span className={styles.unreadDot} aria-label="Unread activity" /> : null}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+
+                <div
+                  id={`contract-tabpanel-${activeTab}`}
+                  role="tabpanel"
+                  aria-labelledby={`contract-tab-${activeTab}`}
+                  className={styles.tabPanel}
+                >
+                  {activeTab === 'overview' && (
+                    <div className={styles.tabSection}>
+                      <div className={styles.card}>
+                        <div className={styles.sectionTitle}>Overview</div>
+                        <div className={styles.row}>
+                          <span>Contract Type</span>
+                          <span>{selectedContract.contractTypeName ?? '—'}</span>
+                        </div>
+                        <div className={styles.row}>
+                          <span>Counterparty</span>
+                          <span>
+                            {counterparties.length > 0
+                              ? counterparties.map((counterparty) => counterparty.counterpartyName).join(', ')
+                              : (selectedContract.counterpartyName ?? '—')}
+                          </span>
+                        </div>
+                        <div className={styles.row}>
+                          <span>File Name</span>
+                          <span>{selectedContract.fileName ?? '—'}</span>
+                        </div>
+                        <div className={styles.row}>
+                          <span>File Size</span>
+                          <span>
+                            {typeof selectedContract.fileSizeBytes === 'number'
+                              ? `${Math.round(selectedContract.fileSizeBytes / 1024)} KB`
+                              : '—'}
+                          </span>
+                        </div>
+                        <div className={styles.row}>
+                          <span>File Type</span>
+                          <span>{selectedContract.fileMimeType ?? '—'}</span>
+                        </div>
+                      </div>
+
+                      <div className={styles.card}>
+                        <button
+                          type="button"
+                          className={styles.accordionTrigger}
+                          aria-expanded={isIntakeOpen}
+                          aria-controls="intake-details-panel"
+                          onClick={() => setIsIntakeOpen((current) => !current)}
+                        >
+                          {isIntakeOpen ? '▾' : '▸'} Intake Details
                         </button>
-                      </form>
-                      <div className={styles.timeline}>
-                        {noteEvents.map((event) => (
-                          <div key={event.id} className={styles.event}>
-                            <div className={styles.eventActor}>{event.actorEmail ?? 'System'}</div>
-                            <div>{event.noteText}</div>
-                            <div className={styles.eventMeta}>{new Date(event.createdAt).toLocaleString()}</div>
+                        {isIntakeOpen ? (
+                          <div id="intake-details-panel" className={styles.accordionBody}>
+                            <div className={styles.row}>
+                              <span>Counterparty Signatory Name</span>
+                              <span>{selectedContract.signatoryName ?? '—'}</span>
+                            </div>
+                            <div className={styles.row}>
+                              <span>Counterparty Signatory Designation</span>
+                              <span>{selectedContract.signatoryDesignation ?? '—'}</span>
+                            </div>
+                            <div className={styles.row}>
+                              <span>Counterparty Signatory Email</span>
+                              <span>{selectedContract.signatoryEmail ?? '—'}</span>
+                            </div>
+                            <div className={styles.row}>
+                              <span>Background</span>
+                              <span className={styles.multilineValue}>
+                                {selectedContract.backgroundOfRequest ?? '—'}
+                              </span>
+                            </div>
                           </div>
-                        ))}
+                        ) : null}
+                      </div>
+
+                      {canManageLegalWorkSharing && (
+                        <div className={styles.card}>
+                          <div className={styles.sectionTitle}>Legal Work Sharing</div>
+                          <form className={styles.inlineForm} onSubmit={handleAddCollaboratorSubmit}>
+                            <input
+                              type="email"
+                              className={styles.input}
+                              placeholder="legalmember@nxtwave.co.in"
+                              value={collaboratorEmail}
+                              onChange={(event) => setCollaboratorEmail(event.target.value)}
+                            />
+                            <button
+                              type="submit"
+                              className={styles.button}
+                              disabled={isMutating || isAddingCollaborator}
+                            >
+                              <span className={styles.buttonContent}>
+                                {isAddingCollaborator ? <Spinner size={14} /> : null}
+                                {isAddingCollaborator ? 'Adding Collaborator…' : 'Add Collaborator'}
+                              </span>
+                            </button>
+                          </form>
+                          <div className={styles.timeline}>
+                            {legalCollaborators.length === 0 ? (
+                              <div className={styles.eventMeta}>No collaborators assigned.</div>
+                            ) : (
+                              legalCollaborators.map((collaborator) => (
+                                <div key={collaborator.id} className={styles.event}>
+                                  <div>{collaborator.collaboratorEmail}</div>
+                                  <button
+                                    type="button"
+                                    className={`${styles.button} ${styles.buttonGhost}`}
+                                    disabled={isMutating}
+                                    onClick={() => void handleRemoveCollaborator(collaborator.collaboratorEmail)}
+                                  >
+                                    Remove
+                                  </button>
+                                </div>
+                              ))
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {(session.role === 'LEGAL_TEAM' || session.role === 'ADMIN') && (
+                        <>
+                          <div className={styles.card}>
+                            <div className={styles.sectionTitle}>Signatories</div>
+                            {selectedContract.status === contractStatuses.completed ? (
+                              <div className={styles.inlineForm}>
+                                <button
+                                  type="button"
+                                  className={styles.button}
+                                  disabled={!selectedContractId}
+                                  onClick={() => setIsPrepareForSigningOpen(true)}
+                                >
+                                  Prepare for Signing
+                                </button>
+                              </div>
+                            ) : (
+                              <div className={styles.eventMeta}>Sign is available only after COMPLETED.</div>
+                            )}
+                            <div className={styles.timeline}>
+                              {signatories.map((signatory) => (
+                                <div key={signatory.id} className={styles.event}>
+                                  <div className={styles.signatoryHeader}>
+                                    <div>
+                                      {signatory.signatoryEmail} · {signatory.recipientType} · Step{' '}
+                                      {signatory.routingOrder}
+                                    </div>
+                                    <span
+                                      className={`${styles.signatoryStatusBadge} ${
+                                        signatory.status === 'SIGNED'
+                                          ? styles.signatoryStatusSigned
+                                          : styles.signatoryStatusPending
+                                      }`}
+                                    >
+                                      {signatory.status}
+                                    </span>
+                                  </div>
+                                  {signatory.recipientType === 'INTERNAL' ? (
+                                    <div className={styles.signatoryActionRow}>
+                                      <button
+                                        type="button"
+                                        className={`${styles.button} ${styles.buttonGhost} ${styles.signatoryLinkButton}`}
+                                        disabled={isMutating || isGeneratingLinkFor === signatory.signatoryEmail}
+                                        onClick={() =>
+                                          void handleGenerateSigningLink(
+                                            signatory.signatoryEmail,
+                                            signatory.recipientType
+                                          )
+                                        }
+                                      >
+                                        {isGeneratingLinkFor === signatory.signatoryEmail
+                                          ? 'Generating link...'
+                                          : copiedSigningLinkFor === signatory.signatoryEmail
+                                            ? 'Copied'
+                                            : 'Copy Signing Link'}
+                                      </button>
+                                      <span className={styles.signatoryActionHint}>
+                                        {copiedSigningLinkFor === signatory.signatoryEmail
+                                          ? 'Copied to clipboard'
+                                          : 'Generates fresh secure link'}
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <div className={styles.signatoryActionHint}>
+                                      Signing link available for internal users.
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  {activeTab === 'activity' && (
+                    <div className={`${styles.tabSection} h-full min-h-0`}>
+                      <div className={`${styles.card} h-full min-h-0 flex flex-col`}>
+                        <div className={styles.sectionHeaderRow}>
+                          <div className={styles.sectionTitle}>Logs Timeline</div>
+                          {(session.role === 'LEGAL_TEAM' || session.role === 'ADMIN' || session.role === 'HOD') && (
+                            <button
+                              type="button"
+                              className={`${styles.button} ${styles.buttonGhost}`}
+                              onClick={() => setIsActivityComposerOpen((current) => !current)}
+                            >
+                              {isActivityComposerOpen ? 'Cancel' : '+ Add'}
+                            </button>
+                          )}
+                        </div>
+
+                        {isActivityComposerOpen ? (
+                          <form className={styles.activityComposer} onSubmit={handleAddActivitySubmit}>
+                            <textarea
+                              className={styles.textarea}
+                              placeholder="Discuss this contract. Use @email to tag someone."
+                              value={activityMessageText}
+                              onChange={(event) => setActivityMessageText(event.target.value)}
+                              rows={3}
+                            />
+                            <div className={styles.activityComposerActions}>
+                              <button
+                                type="submit"
+                                className={styles.button}
+                                disabled={isSubmittingActivity || isMutating}
+                              >
+                                {isSubmittingActivity ? 'Posting…' : 'Post'}
+                              </button>
+                            </div>
+                          </form>
+                        ) : null}
+
+                        <div className={`${styles.logContainer} flex-1 min-h-0 overflow-y-auto`}>
+                          {visibleLogs.map((event) => {
+                            const rawEvent = timelineById.get(event.id)
+                            const roleClass =
+                              rawEvent?.actorRole === 'HOD'
+                                ? styles.roleHod
+                                : rawEvent?.actorRole === 'LEGAL_TEAM'
+                                  ? styles.roleLegal
+                                  : styles.rolePoc
+                            const isExpanded = expandedLogIds.has(event.id)
+
+                            return (
+                              <div key={event.id} className={`${styles.timelineEvent} ${roleClass}`}>
+                                <div className={styles.timelineMarker} />
+                                <div className={styles.timelineContent}>
+                                  <div className={styles.eventActor}>{event.actorLabel}</div>
+                                  <div>{event.message}</div>
+                                  <div className={styles.eventMeta} title={event.absoluteTimestamp}>
+                                    {event.relativeTimestamp}
+                                  </div>
+                                  <button
+                                    type="button"
+                                    className={styles.inlineLinkButton}
+                                    onClick={() => toggleLogExpansion(event.id)}
+                                    aria-expanded={isExpanded}
+                                  >
+                                    {isExpanded ? 'Collapse' : 'Expand'}
+                                  </button>
+                                  {isExpanded ? (
+                                    <div className={styles.expandedMeta}>
+                                      {event.remark ? <div className={styles.eventRemark}>{event.remark}</div> : null}
+                                      <div className={styles.eventMeta}>{event.absoluteTimestamp}</div>
+                                    </div>
+                                  ) : null}
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                        {formattedLogs.length > 5 ? (
+                          <button
+                            type="button"
+                            className={`${styles.button} ${styles.buttonGhost}`}
+                            onClick={() => setShowAllLogs((current) => !current)}
+                            style={{ marginTop: 8 }}
+                          >
+                            {showAllLogs ? 'Show Latest 5' : `Show All (${formattedLogs.length})`}
+                          </button>
+                        ) : null}
                       </div>
                     </div>
-                  </div>
-                )}
+                  )}
 
-                {activeTab === 'documents' && (
-                  <ContractDocumentsPanel
-                    contractId={selectedContract.id}
-                    contractStatus={selectedContract.status}
-                    userRole={session.role}
-                    currentDocumentId={selectedContract.currentDocumentId}
-                    documents={documents}
-                    defaultUploaderEmail={selectedContract.uploadedByEmail}
-                    onPreviewDocument={(document) => void handleViewDocument(document)}
-                    onDownloadDocument={(document) => void handleDownload(document)}
-                    onRefreshDocuments={async () => {
-                      await loadContractContext(selectedContract.id)
-                    }}
-                  />
-                )}
+                  {activeTab === 'notes' && (
+                    <div className={styles.tabSection}>
+                      <div className={styles.card}>
+                        <div className={styles.sectionTitle}>Notes</div>
+                        <form className={styles.inlineForm} onSubmit={handleAddNoteSubmit}>
+                          <input
+                            type="text"
+                            className={styles.input}
+                            placeholder="Add note"
+                            value={noteText}
+                            onChange={(event) => setNoteText(event.target.value)}
+                          />
+                          <button type="submit" className={styles.button} disabled={isMutating}>
+                            Add Note
+                          </button>
+                        </form>
+                        <div className={styles.timeline}>
+                          {noteEvents.map((event) => (
+                            <div key={event.id} className={styles.event}>
+                              <div className={styles.eventActor}>{event.actorEmail ?? 'System'}</div>
+                              <div>{event.noteText}</div>
+                              <div className={styles.eventMeta}>{new Date(event.createdAt).toLocaleString()}</div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
 
-                {activeTab === 'approvals' && (
-                  <ApprovalsTab
-                    contract={selectedContract}
-                    approvers={approvers}
-                    isMutating={isMutating}
-                    canManageApprovals={session.role === 'LEGAL_TEAM' || session.role === 'ADMIN'}
-                    canBypassApprovals={session.role === 'LEGAL_TEAM' || session.role === 'ADMIN'}
-                    approverEmail={approverEmail}
-                    onApproverEmailChange={setApproverEmail}
-                    onAddApprover={handleAddApprover}
-                    onRemindApprover={handleRemindApprover}
-                    onBypassApprover={handleBypassApprover}
-                  />
-                )}
+                  {activeTab === 'documents' && (
+                    <ContractDocumentsPanel
+                      contractId={selectedContract.id}
+                      contractStatus={selectedContract.status}
+                      userRole={session.role}
+                      currentDocumentId={selectedContract.currentDocumentId}
+                      documents={documents}
+                      defaultUploaderEmail={selectedContract.uploadedByEmail}
+                      onPreviewDocument={(document) => void handleViewDocument(document)}
+                      onDownloadDocument={(document) => void handleDownload(document)}
+                      onRefreshDocuments={async () => {
+                        await loadContractContext(selectedContract.id)
+                      }}
+                    />
+                  )}
+
+                  {activeTab === 'approvals' && (
+                    <ApprovalsTab
+                      contract={selectedContract}
+                      approvers={approvers}
+                      isMutating={isMutating}
+                      canManageApprovals={session.role === 'LEGAL_TEAM' || session.role === 'ADMIN'}
+                      canBypassApprovals={session.role === 'LEGAL_TEAM' || session.role === 'ADMIN'}
+                      approverEmail={approverEmail}
+                      onApproverEmailChange={setApproverEmail}
+                      onAddApprover={handleAddApprover}
+                      onRemindApprover={handleRemindApprover}
+                      onBypassApprover={handleBypassApprover}
+                    />
+                  )}
+                </div>
               </div>
             </div>
-          </div>
-        )}
+          )}
+        </ErrorBoundary>
       </section>
 
       {isViewerOpen && viewerUrl ? (

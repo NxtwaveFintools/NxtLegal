@@ -37,6 +37,7 @@ export const routeRegistry = {
       legalTeamMembers: '/api/contracts/legal-team-members',
       pendingApprovals: '/api/contracts/pending-approvals',
       dashboard: '/api/contracts/dashboard',
+      dashboardCounts: '/api/contracts/dashboard/counts',
       additionalApproverHistory: '/api/contracts/additional-approver-history',
       repository: '/api/contracts/repository',
       repositoryReport: '/api/contracts/repository/report',

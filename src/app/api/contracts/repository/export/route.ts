@@ -1,7 +1,5 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { ZodError } from 'zod'
-import PDFDocument from 'pdfkit'
-import * as XLSX from 'xlsx'
 import {
   contractRepositoryExportColumnLabels,
   contractRepositoryExportColumns,
@@ -28,19 +26,27 @@ const toLabeledRows = (rows: Record<string, string | number>[], columns: Reposit
     return labeled
   })
 
-const buildCsv = (rows: Record<string, string | number>[], columns: RepositoryExportColumn[]): string => {
-  const headers = columns.map((column) => contractRepositoryExportColumnLabels[column])
+const buildCsvHeader = (columns: RepositoryExportColumn[]): string =>
+  columns.map((column) => contractRepositoryExportColumnLabels[column]).join(',')
+
+const buildCsvChunk = (rows: Record<string, string | number>[], columns: RepositoryExportColumn[]): string => {
+  if (rows.length === 0) {
+    return ''
+  }
 
   const escapeValue = (value: unknown): string => {
     const raw = typeof value === 'string' ? value : String(value ?? '')
     return `"${raw.replace(/"/g, '""')}"`
   }
 
-  const body = rows.map((row) => columns.map((column) => escapeValue(row[column])).join(','))
-  return [headers.join(','), ...body].join('\n')
+  return `${rows.map((row) => columns.map((column) => escapeValue(row[column])).join(',')).join('\n')}\n`
 }
 
-const buildXlsxBuffer = (rows: Record<string, string | number>[], columns: RepositoryExportColumn[]): Buffer => {
+const buildXlsxBuffer = async (
+  rows: Record<string, string | number>[],
+  columns: RepositoryExportColumn[]
+): Promise<Buffer> => {
+  const XLSX = await import('xlsx')
   const worksheet = XLSX.utils.json_to_sheet(toLabeledRows(rows, columns))
   const workbook = XLSX.utils.book_new()
   XLSX.utils.book_append_sheet(workbook, worksheet, 'Repository Report')
@@ -51,13 +57,15 @@ const buildPdfBuffer = async (
   rows: Record<string, string | number>[],
   columns: RepositoryExportColumn[]
 ): Promise<Buffer> => {
+  const pdfkit = await import('pdfkit')
+  const PDFDocument = pdfkit.default
   const headers = columns.map((column) => contractRepositoryExportColumnLabels[column])
 
   return new Promise<Buffer>((resolve, reject) => {
     const chunks: Buffer[] = []
     const doc = new PDFDocument({ size: 'A4', margin: 36 })
 
-    doc.on('data', (chunk: Buffer) => chunks.push(chunk))
+    doc.on('data', (chunk: Uint8Array | Buffer) => chunks.push(Buffer.from(chunk)))
     doc.on('end', () => resolve(Buffer.concat(chunks)))
     doc.on('error', (error) => reject(error))
 
@@ -84,6 +92,8 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
       return NextResponse.json(errorResponse('SESSION_INVALID', 'Session tenant is required'), { status: 401 })
     }
 
+    const tenantId = session.tenantId
+
     const normalizedRole = (session.role ?? '').toUpperCase()
     if (!repositoryReportingAllowedRoles.has(normalizedRole)) {
       return NextResponse.json(errorResponse('FORBIDDEN', 'You are not allowed to export repository reports'), {
@@ -98,8 +108,98 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
     const selectedColumns = columns.length > 0 ? columns : defaultColumns
 
     const contractQueryService = getContractQueryService()
+    if (format === contractRepositoryExportFormats.csv) {
+      const encoder = new TextEncoder()
+      let isAborted = request.signal.aborted
+      const abortListener = () => {
+        isAborted = true
+      }
+      request.signal.addEventListener('abort', abortListener)
+
+      const stream = new ReadableStream<Uint8Array>({
+        start: async (controller) => {
+          try {
+            if (isAborted) {
+              controller.close()
+              return
+            }
+
+            controller.enqueue(encoder.encode('\uFEFF'))
+            controller.enqueue(encoder.encode(`${buildCsvHeader(selectedColumns)}\n`))
+
+            let cursor: string | undefined
+
+            while (true) {
+              if (isAborted) {
+                break
+              }
+
+              const chunk = await contractQueryService.listRepositoryExportRowsChunk({
+                tenantId,
+                employeeId: session.employeeId,
+                role: session.role,
+                cursor,
+                limit: 200,
+                search,
+                status,
+                repositoryStatus,
+                dateBasis,
+                datePreset,
+                fromDate,
+                toDate,
+                columns: selectedColumns,
+              })
+
+              if (chunk.items.length === 0) {
+                break
+              }
+
+              controller.enqueue(encoder.encode(buildCsvChunk(chunk.items, selectedColumns)))
+
+              if (!chunk.nextCursor) {
+                break
+              }
+
+              cursor = chunk.nextCursor
+            }
+
+            controller.close()
+          } catch (streamError) {
+            const isAbortError =
+              isAborted ||
+              (streamError instanceof DOMException && streamError.name === 'AbortError') ||
+              (streamError instanceof Error && streamError.name === 'AbortError')
+
+            if (isAbortError) {
+              try {
+                controller.close()
+              } catch {
+                return
+              }
+              return
+            }
+
+            controller.error(streamError)
+          } finally {
+            request.signal.removeEventListener('abort', abortListener)
+          }
+        },
+        cancel: () => {
+          isAborted = true
+        },
+      })
+
+      return new NextResponse(stream, {
+        status: 200,
+        headers: {
+          'Content-Type': 'text/csv; charset=utf-8',
+          'Content-Disposition': 'attachment; filename="contract-repository-report.csv"',
+        },
+      })
+    }
+
     const rows = await contractQueryService.listRepositoryExportRows({
-      tenantId: session.tenantId,
+      tenantId,
       employeeId: session.employeeId,
       role: session.role,
       search,
@@ -112,19 +212,8 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
       columns: selectedColumns,
     })
 
-    if (format === contractRepositoryExportFormats.csv) {
-      const csv = buildCsv(rows, selectedColumns)
-      return new NextResponse(csv, {
-        status: 200,
-        headers: {
-          'Content-Type': 'text/csv; charset=utf-8',
-          'Content-Disposition': 'attachment; filename="contract-repository-report.csv"',
-        },
-      })
-    }
-
     if (format === contractRepositoryExportFormats.excel) {
-      const buffer = buildXlsxBuffer(rows, selectedColumns)
+      const buffer = await buildXlsxBuffer(rows, selectedColumns)
       return new NextResponse(new Uint8Array(buffer), {
         status: 200,
         headers: {

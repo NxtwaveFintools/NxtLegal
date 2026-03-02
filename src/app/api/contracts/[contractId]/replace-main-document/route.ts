@@ -5,6 +5,11 @@ import { isAppError } from '@/core/http/errors'
 import { getContractUploadService, getIdempotencyService } from '@/core/registry/service-registry'
 import { logger } from '@/core/infra/logging/logger'
 
+// Route segment config — extends the serverless function execution timeout
+// to 300 s (5 min) so large document replacements (up to 100 MB) have time
+// to be received, validated, and persisted to storage.
+export const maxDuration = 300
+
 const POSTHandler = withAuth(async (request: NextRequest, { session, params }) => {
   let shouldReleaseClaim = false
 
@@ -55,9 +60,6 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
 
     shouldReleaseClaim = true
 
-    const fileArrayBuffer = await uploadedFile.arrayBuffer()
-    const fileBytes = new Uint8Array(fileArrayBuffer)
-
     const contractUploadService = getContractUploadService()
     const document = await contractUploadService.replacePrimaryDocument({
       tenantId: session.tenantId,
@@ -68,7 +70,7 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
       fileName: uploadedFile.name,
       fileSizeBytes: uploadedFile.size,
       fileMimeType: uploadedFile.type || 'application/octet-stream',
-      fileBytes,
+      fileBody: uploadedFile as Blob,
     })
 
     logger.info('Main contract document replaced successfully', {

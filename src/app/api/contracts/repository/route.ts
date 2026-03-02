@@ -26,9 +26,56 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
       datePreset,
       fromDate,
       toDate,
+      includeReport,
     } = repositoryContractsQuerySchema.parse(queryParams)
 
     const contractQueryService = getContractQueryService()
+
+    if (includeReport) {
+      const [result, report] = await Promise.all([
+        contractQueryService.listRepositoryContracts({
+          tenantId: session.tenantId,
+          employeeId: session.employeeId,
+          role: session.role,
+          cursor,
+          limit,
+          search,
+          status,
+          repositoryStatus,
+          sortBy,
+          sortDirection,
+          dateBasis,
+          datePreset,
+          fromDate,
+          toDate,
+        }),
+        contractQueryService.getRepositoryReport({
+          tenantId: session.tenantId,
+          employeeId: session.employeeId,
+          role: session.role,
+          search,
+          status,
+          repositoryStatus,
+          dateBasis,
+          datePreset,
+          fromDate,
+          toDate,
+        }),
+      ])
+
+      return NextResponse.json(
+        okResponse({
+          contracts: result.items,
+          pagination: {
+            cursor: result.nextCursor ?? null,
+            limit,
+            total: result.total,
+          },
+          report,
+        })
+      )
+    }
+
     const result = await contractQueryService.listRepositoryContracts({
       tenantId: session.tenantId,
       employeeId: session.employeeId,

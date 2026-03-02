@@ -34,6 +34,7 @@ import type {
   ContractNotificationDeliverySummary,
   ContractNotificationFailure,
   DashboardContractFilter,
+  DashboardContractScope,
   ContractAdditionalApprover,
   ContractSignatory,
   ContractAllowedAction,
@@ -46,6 +47,7 @@ import type {
   RepositoryDatePreset,
   RepositoryExportColumn,
   RepositoryExportRow,
+  RepositoryExportRowsChunk,
   RepositoryReport,
   RepositoryStatusMetric,
   RepositorySortBy,
@@ -223,6 +225,48 @@ type AdditionalApproverContractContext = {
   isAdditionalApproverActionable: boolean
 }
 
+type RepositoryJoinedContractRow = {
+  id: string
+  tenant_id: string
+  title: string
+  status: string
+  uploaded_by_employee_id: string
+  uploaded_by_email: string
+  current_assignee_employee_id: string
+  current_assignee_email: string
+  hod_approved_at: string | null
+  tat_deadline_at: string | null
+  tat_breached_at: string | null
+  request_created_at: string | null
+  department_id: string | null
+  legal_effective_date: string | null
+  legal_termination_date: string | null
+  legal_notice_period: string | null
+  legal_auto_renewal: boolean | null
+  void_reason: string | null
+  created_at: string
+  updated_at: string
+  department?: { name: string | null } | Array<{ name: string | null }> | null
+  assignments?: Array<{
+    user_email: string
+    assignment_role: 'OWNER' | 'COLLABORATOR' | 'APPROVER'
+    deleted_at: string | null
+  }>
+  legal_collaborators?: Array<{ collaborator_email: string; deleted_at: string | null }>
+  additional_approvers?: Array<{
+    approver_employee_id: string
+    status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'BYPASSED'
+    sequence_order: number
+    approved_at: string | null
+    deleted_at: string | null
+  }>
+}
+
+type VisibilityFilterContext = {
+  filter: string | null
+  actionableContractIds: string[]
+}
+
 class SupabaseContractQueryRepository implements ContractQueryRepository {
   private readonly validStatuses = new Set<ContractStatus>(Object.values(contractStatuses))
 
@@ -248,7 +292,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     employeeId: string
   }): Promise<{ items: ContractListItem[]; nextCursor?: string; total: number }> {
     const supabase = createServiceSupabase()
-    const decodedCursor = this.decodeCursor(params.cursor)
+    const decodedCursor = this.decodeTimestampIdCursor(params.cursor)
 
     const visibilityFilter = await this.getVisibilityFilter(params.tenantId, params.role, params.employeeId)
     const buildListQuery = (source: 'contracts_repository_view' | 'contracts', selectColumns: string) => {
@@ -265,8 +309,8 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         query = query.lt('created_at', decodedCursor.createdAt)
       }
 
-      if (visibilityFilter) {
-        query = query.or(visibilityFilter)
+      if (visibilityFilter.filter) {
+        query = query.or(visibilityFilter.filter)
       }
 
       return query
@@ -278,26 +322,40 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         .select('id', { count: 'exact', head: true })
         .eq('tenant_id', params.tenantId)
 
-      if (visibilityFilter) {
-        totalQuery = totalQuery.or(visibilityFilter)
+      if (visibilityFilter.filter) {
+        totalQuery = totalQuery.or(visibilityFilter.filter)
       }
 
       return totalQuery
     }
 
-    let totalResult = await buildTotalQuery('contracts_repository_view')
+    let totalCount = 0
 
-    if (totalResult.error && this.isViewQueryCompatibilityError(totalResult.error, 'contracts_repository_view')) {
-      totalResult = await buildTotalQuery('contracts')
+    // On the first page (no cursor) kick off the count and the list query in
+    // parallel so both run in a single round-trip instead of two sequential ones.
+    // Paginated pages (cursor present) skip the count entirely.
+    const listQueryPromise = buildListQuery('contracts_repository_view', contractsListSelectWithSlaMetrics)
+    const totalQueryPromise = params.cursor ? null : buildTotalQuery('contracts_repository_view')
+
+    const [initialListResult, initialTotalResult] = await Promise.all([listQueryPromise, totalQueryPromise])
+
+    let { data, error } = initialListResult
+
+    if (!params.cursor && initialTotalResult !== null) {
+      let resolvedTotal = initialTotalResult
+
+      if (resolvedTotal.error && this.isViewQueryCompatibilityError(resolvedTotal.error, 'contracts_repository_view')) {
+        resolvedTotal = await buildTotalQuery('contracts')
+      }
+
+      if (resolvedTotal.error) {
+        throw new DatabaseError('Failed to count contracts', new Error(resolvedTotal.error.message), {
+          code: resolvedTotal.error.code,
+        })
+      }
+
+      totalCount = resolvedTotal.count ?? 0
     }
-
-    if (totalResult.error) {
-      throw new DatabaseError('Failed to count contracts', new Error(totalResult.error.message), {
-        code: totalResult.error.code,
-      })
-    }
-
-    let { data, error } = await buildListQuery('contracts_repository_view', contractsListSelectWithSlaMetrics)
 
     if (error && this.isMissingColumnError(error, 'contracts_repository_view')) {
       const fallbackResult = await buildListQuery('contracts_repository_view', contractsListSelectLegacy)
@@ -352,7 +410,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
     const nextCursor = hasNext ? this.encodeCursor(items[items.length - 1]?.createdAt ?? '') : undefined
 
-    return { items, nextCursor, total: totalResult.count ?? 0 }
+    return { items, nextCursor, total: totalCount }
   }
 
   async getPendingApprovalsForRole(params: {
@@ -453,14 +511,22 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     employeeId: string
     role?: string
     filter: DashboardContractFilter
+    scope?: DashboardContractScope
     cursor?: string
     limit: number
   }): Promise<{ items: ContractListItem[]; nextCursor?: string; total: number }> {
     const resolvedFilter = this.resolveDashboardFilter(params.role, params.filter)
-    const statusFilter = this.resolveDashboardStatusFromFilter(resolvedFilter)
-    const decodedCursor = this.decodeCursor(params.cursor)
+    const shouldUsePersonalScope = params.scope === 'personal'
+    let statusFilter = this.resolveDashboardStatusFromFilter(resolvedFilter)
+
+    if (shouldUsePersonalScope && resolvedFilter === 'ASSIGNED_TO_ME' && params.role === 'ADMIN') {
+      statusFilter = contractStatuses.hodPending
+    }
+
+    const decodedCursor = this.decodeTimestampIdCursor(params.cursor)
     const supabase = createServiceSupabase()
-    const shouldFilterAssignedToMe = resolvedFilter === 'ASSIGNED_TO_ME'
+    const shouldFilterAssignedToMe = resolvedFilter === 'ASSIGNED_TO_ME' && !shouldUsePersonalScope
+    const actorEmail = shouldUsePersonalScope ? await this.getEmployeeEmail(params.tenantId, params.employeeId) : null
     let assignedContractIds: string[] | null = null
 
     if (shouldFilterAssignedToMe) {
@@ -557,10 +623,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         'id, tenant_id, title, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, hod_approved_at, tat_deadline_at, tat_breached_at, aging_business_days, near_breach, is_tat_breached, created_at, updated_at'
       )
       .eq('tenant_id', params.tenantId)
-      .order('is_tat_breached', { ascending: false })
-      .order('near_breach', { ascending: false })
       .order('created_at', { ascending: false })
-      .order('updated_at', { ascending: false })
       .order('id', { ascending: false })
       .limit(params.limit + 1)
 
@@ -576,34 +639,59 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       query = query.in('id', assignedContractIds)
     }
 
-    const visibilityFilter = await this.getVisibilityFilter(params.tenantId, params.role, params.employeeId)
-    if (visibilityFilter) {
-      query = query.or(visibilityFilter)
+    const visibilityFilterContext = shouldUsePersonalScope
+      ? null
+      : await this.getVisibilityFilter(params.tenantId, params.role, params.employeeId)
+
+    if (shouldUsePersonalScope) {
+      if (actorEmail) {
+        query = query.or(`current_assignee_employee_id.eq.${params.employeeId},current_assignee_email.eq.${actorEmail}`)
+      } else {
+        query = query.eq('current_assignee_employee_id', params.employeeId)
+      }
+    } else {
+      if (visibilityFilterContext?.filter) {
+        query = query.or(visibilityFilterContext.filter)
+      }
     }
 
-    let totalQuery = supabase
-      .from('contracts_repository_view')
-      .select('id', { count: 'exact', head: true })
-      .eq('tenant_id', params.tenantId)
+    let totalCount = 0
+    if (!params.cursor) {
+      let totalQuery = supabase
+        .from('contracts_repository_view')
+        .select('id', { count: 'exact', head: true })
+        .eq('tenant_id', params.tenantId)
 
-    if (statusFilter) {
-      totalQuery = totalQuery.eq('status', statusFilter)
-    }
+      if (statusFilter) {
+        totalQuery = totalQuery.eq('status', statusFilter)
+      }
 
-    if (assignedContractIds) {
-      totalQuery = totalQuery.in('id', assignedContractIds)
-    }
+      if (assignedContractIds) {
+        totalQuery = totalQuery.in('id', assignedContractIds)
+      }
 
-    if (visibilityFilter) {
-      totalQuery = totalQuery.or(visibilityFilter)
-    }
+      if (shouldUsePersonalScope) {
+        if (actorEmail) {
+          totalQuery = totalQuery.or(
+            `current_assignee_employee_id.eq.${params.employeeId},current_assignee_email.eq.${actorEmail}`
+          )
+        } else {
+          totalQuery = totalQuery.eq('current_assignee_employee_id', params.employeeId)
+        }
+      } else {
+        if (visibilityFilterContext?.filter) {
+          totalQuery = totalQuery.or(visibilityFilterContext.filter)
+        }
+      }
 
-    const { count: totalCount, error: totalError } = await totalQuery
+      const totalResult = await totalQuery
+      if (totalResult.error) {
+        throw new DatabaseError('Failed to count dashboard contracts', new Error(totalResult.error.message), {
+          code: totalResult.error.code,
+        })
+      }
 
-    if (totalError) {
-      throw new DatabaseError('Failed to count dashboard contracts', new Error(totalError.message), {
-        code: totalError.code,
-      })
+      totalCount = totalResult.count ?? 0
     }
 
     const { data, error } = await query
@@ -645,9 +733,160 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       .slice(0, params.limit)
       .map((row) => this.mapListItem(row, additionalApproverContext.get(row.id)))
     const items = await this.attachActorContractSignals(params.tenantId, params.employeeId, mappedItems, params.role)
-    const nextCursor = hasNext ? this.encodeCursor(items[items.length - 1]?.createdAt ?? '') : undefined
+    const nextCursor = hasNext
+      ? this.encodeTimestampIdCursor(items[items.length - 1]?.createdAt ?? '', items[items.length - 1]?.id ?? '')
+      : undefined
 
-    return { items, nextCursor, total: totalCount ?? 0 }
+    return { items, nextCursor, total: totalCount }
+  }
+
+  /**
+   * Optimised count-only variant of getDashboardContracts.
+   * Executes a single HEAD COUNT query — no row fetch, no additional approver
+   * context map, no actor signal enrichment. Use this for the counts endpoint.
+   */
+  async getDashboardFilterCount(params: {
+    tenantId: string
+    employeeId: string
+    role?: string
+    filter: DashboardContractFilter
+    scope?: DashboardContractScope
+  }): Promise<number> {
+    const resolvedFilter = this.resolveDashboardFilter(params.role, params.filter)
+    const shouldUsePersonalScope = params.scope === 'personal'
+    let statusFilter = this.resolveDashboardStatusFromFilter(resolvedFilter)
+
+    if (shouldUsePersonalScope && resolvedFilter === 'ASSIGNED_TO_ME' && params.role === 'ADMIN') {
+      statusFilter = contractStatuses.hodPending
+    }
+
+    const supabase = createServiceSupabase()
+    const shouldFilterAssignedToMe = resolvedFilter === 'ASSIGNED_TO_ME' && !shouldUsePersonalScope
+
+    // For personal-scope counts we need the actor email to match the assignee.
+    const actorEmail = shouldUsePersonalScope ? await this.getEmployeeEmail(params.tenantId, params.employeeId) : null
+
+    let assignedContractIds: string[] | null = null
+
+    if (shouldFilterAssignedToMe) {
+      const assignedIds = new Set<string>()
+
+      // Resolve directly-assigned contracts and legal-collaborator contracts
+      // in parallel to avoid sequential round-trips.
+      const [assigneeResult, collaboratorResult] = await Promise.all([
+        params.role !== 'LEGAL_TEAM'
+          ? (async () => {
+              let q = supabase
+                .from('contracts_repository_view')
+                .select('id')
+                .eq('tenant_id', params.tenantId)
+                .eq('current_assignee_employee_id', params.employeeId)
+              if (statusFilter) q = q.eq('status', statusFilter)
+              return q
+            })()
+          : Promise.resolve({ data: [] as Array<{ id: string }>, error: null }),
+        supabase
+          .from('contract_legal_collaborators')
+          .select('contract_id')
+          .eq('tenant_id', params.tenantId)
+          .eq('collaborator_employee_id', params.employeeId)
+          .is('deleted_at', null),
+      ])
+
+      if (assigneeResult.error) {
+        throw new DatabaseError(
+          'Failed to resolve assigned contracts for dashboard count',
+          new Error(assigneeResult.error.message),
+          { code: assigneeResult.error.code }
+        )
+      }
+      for (const row of (assigneeResult.data ?? []) as Array<{ id: string }>) {
+        assignedIds.add(row.id)
+      }
+
+      if (collaboratorResult.error) {
+        if (
+          !this.isMissingRelationError(collaboratorResult.error, 'contract_legal_collaborators') &&
+          !this.isMissingColumnError(collaboratorResult.error, 'contract_legal_collaborators')
+        ) {
+          throw new DatabaseError(
+            'Failed to resolve legal collaborator contracts for dashboard count',
+            new Error(collaboratorResult.error.message),
+            { code: collaboratorResult.error.code }
+          )
+        }
+      } else {
+        const collaboratorContractIds = (collaboratorResult.data ?? []).map((row) => row.contract_id)
+        if (collaboratorContractIds.length > 0) {
+          let collaboratorContractQuery = supabase
+            .from('contracts_repository_view')
+            .select('id')
+            .eq('tenant_id', params.tenantId)
+            .in('id', collaboratorContractIds)
+          if (statusFilter) collaboratorContractQuery = collaboratorContractQuery.eq('status', statusFilter)
+
+          const { data: collaboratorContractRows, error: collaboratorContractError } = await collaboratorContractQuery
+
+          if (collaboratorContractError) {
+            throw new DatabaseError(
+              'Failed to resolve collaborator dashboard contracts for count',
+              new Error(collaboratorContractError.message),
+              { code: collaboratorContractError.code }
+            )
+          }
+          for (const row of (collaboratorContractRows ?? []) as Array<{ id: string }>) {
+            assignedIds.add(row.id)
+          }
+        }
+      }
+
+      assignedContractIds = Array.from(assignedIds)
+      if (assignedContractIds.length === 0) {
+        return 0
+      }
+    }
+
+    // For non-personal scope, fetch the visibility filter in parallel with any
+    // remaining work (nothing else to await here, but structured for clarity).
+    const visibilityFilterContext = shouldUsePersonalScope
+      ? null
+      : await this.getVisibilityFilter(params.tenantId, params.role, params.employeeId)
+
+    let countQuery = supabase
+      .from('contracts_repository_view')
+      .select('id', { count: 'exact', head: true })
+      .eq('tenant_id', params.tenantId)
+
+    if (statusFilter) {
+      countQuery = countQuery.eq('status', statusFilter)
+    }
+
+    if (assignedContractIds) {
+      countQuery = countQuery.in('id', assignedContractIds)
+    }
+
+    if (shouldUsePersonalScope) {
+      if (actorEmail) {
+        countQuery = countQuery.or(
+          `current_assignee_employee_id.eq.${params.employeeId},current_assignee_email.eq.${actorEmail}`
+        )
+      } else {
+        countQuery = countQuery.eq('current_assignee_employee_id', params.employeeId)
+      }
+    } else {
+      if (visibilityFilterContext?.filter) {
+        countQuery = countQuery.or(visibilityFilterContext.filter)
+      }
+    }
+
+    const { count, error } = await countQuery
+    if (error) {
+      throw new DatabaseError('Failed to count dashboard contracts', new Error(error.message), {
+        code: error.code,
+      })
+    }
+
+    return count ?? 0
   }
 
   async listRepositoryContracts(params: {
@@ -667,7 +906,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     toDate?: string
   }): Promise<{ items: ContractListItem[]; nextCursor?: string; total: number }> {
     const supabase = createServiceSupabase()
-    const decodedCursor = this.decodeCursor(params.cursor)
+    const decodedCursor = this.decodeTimestampIdCursor(params.cursor)
     const sortBy = params.sortBy ?? 'created_at'
     const sortDirection = params.sortDirection ?? 'desc'
     const dateFilter = this.resolveRepositoryDateFilter({
@@ -682,11 +921,112 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       ? repositoryStatusToWorkflowStatuses[params.repositoryStatus]
       : null
 
-    const buildListQuery = (source: 'contracts_repository_view' | 'contracts', selectColumns: string) => {
+    const contractsJoinedSelect =
+      'id, tenant_id, title, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, hod_approved_at, tat_deadline_at, tat_breached_at, request_created_at, department_id, legal_effective_date, legal_termination_date, legal_notice_period, legal_auto_renewal, void_reason, created_at, updated_at, department:teams!contracts_department_id_fkey(name), assignments:contract_repository_assignments(user_email, assignment_role, deleted_at), legal_collaborators:contract_legal_collaborators(collaborator_email, deleted_at), additional_approvers:contract_additional_approvers(approver_employee_id, status, sequence_order, approved_at, deleted_at)'
+
+    const buildLegacyListQuery = (source: 'contracts_repository_view' | 'contracts', selectColumns: string) => {
       let query = supabase
         .from(source)
         .select(selectColumns)
         .eq('tenant_id', params.tenantId)
+        .limit(params.limit + 1)
+
+      if (source === 'contracts') {
+        query = query.is('deleted_at', null)
+      }
+
+      if (params.status) {
+        query = query.eq('status', params.status)
+      }
+
+      if (workflowStatusesForRepositoryStatus && workflowStatusesForRepositoryStatus.length > 0) {
+        query = query.in('status', workflowStatusesForRepositoryStatus)
+      }
+
+      if (params.search) {
+        query = query.ilike('title', `%${params.search}%`)
+      }
+
+      if (dateFilter.fromInclusive) {
+        query = query.gte(dateFilter.column, dateFilter.fromInclusive)
+      }
+
+      if (dateFilter.toExclusive) {
+        query = query.lt(dateFilter.column, dateFilter.toExclusive)
+      }
+
+      if (sortBy === 'title') {
+        query = query.order('title', { ascending: sortDirection === 'asc' }).order('id', { ascending: false })
+      } else if (sortBy === 'status') {
+        query = query.order('status', { ascending: sortDirection === 'asc' }).order('id', { ascending: false })
+      } else if (sortBy === 'hod_approved_at') {
+        query = query
+          .order('hod_approved_at', { ascending: sortDirection === 'asc', nullsFirst: sortDirection === 'asc' })
+          .order('updated_at', { ascending: false })
+          .order('id', { ascending: false })
+      } else if (sortBy === 'tat_deadline_at') {
+        query = query
+          .order('tat_deadline_at', { ascending: sortDirection === 'asc', nullsFirst: sortDirection === 'asc' })
+          .order('updated_at', { ascending: false })
+          .order('id', { ascending: false })
+      } else {
+        query = query.order('created_at', { ascending: sortDirection === 'asc' }).order('id', { ascending: false })
+      }
+
+      if (decodedCursor && sortBy === 'created_at' && sortDirection === 'desc') {
+        query = query.lt('created_at', decodedCursor.createdAt)
+      }
+
+      if (visibilityFilter?.filter) {
+        query = query.or(visibilityFilter.filter)
+      }
+
+      return query
+    }
+
+    const buildLegacyTotalQuery = (source: 'contracts_repository_view' | 'contracts') => {
+      let totalQuery = supabase
+        .from(source)
+        .select('id', { count: 'exact', head: true })
+        .eq('tenant_id', params.tenantId)
+
+      if (source === 'contracts') {
+        totalQuery = totalQuery.is('deleted_at', null)
+      }
+
+      if (params.status) {
+        totalQuery = totalQuery.eq('status', params.status)
+      }
+
+      if (workflowStatusesForRepositoryStatus && workflowStatusesForRepositoryStatus.length > 0) {
+        totalQuery = totalQuery.in('status', workflowStatusesForRepositoryStatus)
+      }
+
+      if (params.search) {
+        totalQuery = totalQuery.ilike('title', `%${params.search}%`)
+      }
+
+      if (dateFilter.fromInclusive) {
+        totalQuery = totalQuery.gte(dateFilter.column, dateFilter.fromInclusive)
+      }
+
+      if (dateFilter.toExclusive) {
+        totalQuery = totalQuery.lt(dateFilter.column, dateFilter.toExclusive)
+      }
+
+      if (visibilityFilter?.filter) {
+        totalQuery = totalQuery.or(visibilityFilter.filter)
+      }
+
+      return totalQuery
+    }
+
+    const buildListQuery = () => {
+      let query = supabase
+        .from('contracts')
+        .select(contractsJoinedSelect)
+        .eq('tenant_id', params.tenantId)
+        .is('deleted_at', null)
         .limit(params.limit + 1)
 
       if (params.status) {
@@ -709,10 +1049,6 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         query = query.lt(dateFilter.column, dateFilter.toExclusive)
       }
 
-      if (source === 'contracts_repository_view') {
-        query = query.order('is_tat_breached', { ascending: false }).order('near_breach', { ascending: false })
-      }
-
       if (sortBy === 'title') {
         query = query.order('title', { ascending: sortDirection === 'asc' }).order('id', { ascending: false })
       } else if (sortBy === 'status') {
@@ -728,28 +1064,26 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
           .order('updated_at', { ascending: false })
           .order('id', { ascending: false })
       } else {
-        query = query
-          .order('created_at', { ascending: sortDirection === 'asc' })
-          .order('updated_at', { ascending: false })
-          .order('id', { ascending: false })
+        query = query.order('created_at', { ascending: sortDirection === 'asc' }).order('id', { ascending: false })
       }
 
       if (decodedCursor && sortBy === 'created_at' && sortDirection === 'desc') {
         query = query.lt('created_at', decodedCursor.createdAt)
       }
 
-      if (visibilityFilter) {
-        query = query.or(visibilityFilter)
+      if (visibilityFilter?.filter) {
+        query = query.or(visibilityFilter.filter)
       }
 
       return query
     }
 
-    const buildTotalQuery = (source: 'contracts_repository_view' | 'contracts') => {
+    const buildTotalQuery = () => {
       let totalQuery = supabase
-        .from(source)
+        .from('contracts')
         .select('id', { count: 'exact', head: true })
         .eq('tenant_id', params.tenantId)
+        .is('deleted_at', null)
 
       if (params.status) {
         totalQuery = totalQuery.eq('status', params.status)
@@ -771,37 +1105,171 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         totalQuery = totalQuery.lt(dateFilter.column, dateFilter.toExclusive)
       }
 
-      if (visibilityFilter) {
-        totalQuery = totalQuery.or(visibilityFilter)
+      if (visibilityFilter?.filter) {
+        totalQuery = totalQuery.or(visibilityFilter.filter)
       }
 
       return totalQuery
     }
 
-    let totalResult = await buildTotalQuery('contracts_repository_view')
+    let totalCount = 0
+    if (!params.cursor) {
+      const totalResult = await buildTotalQuery()
 
-    if (totalResult.error && this.isViewQueryCompatibilityError(totalResult.error, 'contracts_repository_view')) {
-      totalResult = await buildTotalQuery('contracts')
+      if (totalResult.error) {
+        throw new DatabaseError('Failed to count repository contracts', new Error(totalResult.error.message), {
+          code: totalResult.error.code,
+        })
+      }
+
+      totalCount = totalResult.count ?? 0
     }
 
-    if (totalResult.error) {
-      throw new DatabaseError('Failed to count repository contracts', new Error(totalResult.error.message), {
-        code: totalResult.error.code,
+    const { data, error } = await buildListQuery()
+
+    const shouldFallbackToLegacyPath =
+      error !== null &&
+      (this.isMissingRelationError(error, 'contract_repository_assignments') ||
+        this.isMissingRelationError(error, 'contract_legal_collaborators') ||
+        this.isMissingRelationError(error, 'contract_additional_approvers') ||
+        this.isMissingRelationError(error, 'teams') ||
+        this.isMissingColumnError(error, 'contracts'))
+
+    if (shouldFallbackToLegacyPath) {
+      if (!params.cursor) {
+        let totalResult = await buildLegacyTotalQuery('contracts_repository_view')
+
+        if (totalResult.error && this.isViewQueryCompatibilityError(totalResult.error, 'contracts_repository_view')) {
+          totalResult = await buildLegacyTotalQuery('contracts')
+        }
+
+        if (totalResult.error) {
+          throw new DatabaseError('Failed to count repository contracts', new Error(totalResult.error.message), {
+            code: totalResult.error.code,
+          })
+        }
+
+        totalCount = totalResult.count ?? 0
+      }
+
+      let legacyResult = await buildLegacyListQuery('contracts_repository_view', contractsListSelectWithSlaMetrics)
+
+      if (legacyResult.error && this.isMissingColumnError(legacyResult.error, 'contracts_repository_view')) {
+        legacyResult = await buildLegacyListQuery('contracts_repository_view', contractsListSelectLegacy)
+      }
+
+      if (legacyResult.error && this.isViewQueryCompatibilityError(legacyResult.error, 'contracts_repository_view')) {
+        legacyResult = await buildLegacyListQuery('contracts', contractsListSelectFromContractsTable)
+      }
+
+      if (legacyResult.error) {
+        throw new DatabaseError('Failed to list repository contracts', new Error(legacyResult.error.message), {
+          code: legacyResult.error.code,
+        })
+      }
+
+      const legacyRows = (legacyResult.data ?? []) as unknown as Array<{
+        id: string
+        title: string
+        status: string
+        uploaded_by_employee_id: string
+        uploaded_by_email: string
+        current_assignee_employee_id: string
+        current_assignee_email: string
+        hod_approved_at: string | null
+        tat_deadline_at: string | null
+        tat_breached_at: string | null
+        request_created_at: string | null
+        department_id: string | null
+        legal_effective_date?: string | null
+        legal_termination_date?: string | null
+        legal_notice_period?: string | null
+        legal_auto_renewal?: boolean | null
+        aging_business_days: number | null
+        near_breach: boolean
+        is_tat_breached: boolean
+        created_at: string
+        updated_at: string
+      }>
+
+      const additionalApproverContext = await this.getAdditionalApproverContractContextMap(
+        params.tenantId,
+        legacyRows.map((row) => row.id),
+        params.employeeId
+      )
+
+      const departmentIds = Array.from(
+        new Set(legacyRows.map((row) => row.department_id).filter((value): value is string => Boolean(value)))
+      )
+      const departmentNameById = new Map<string, string>()
+      if (departmentIds.length > 0) {
+        const { data: departmentRows, error: departmentsError } = await supabase
+          .from('teams')
+          .select('id, name')
+          .eq('tenant_id', params.tenantId)
+          .in('id', departmentIds)
+          .is('deleted_at', null)
+
+        if (departmentsError) {
+          throw new DatabaseError('Failed to resolve contract departments', new Error(departmentsError.message), {
+            code: departmentsError.code,
+          })
+        }
+
+        for (const departmentRow of (departmentRows ?? []) as Array<{ id: string; name: string }>) {
+          departmentNameById.set(departmentRow.id, departmentRow.name)
+        }
+      }
+
+      const hasNext = legacyRows.length > params.limit
+
+      const assignmentMap =
+        params.role === 'LEGAL_TEAM'
+          ? await this.getContractLegalCollaboratorEmailMap(params.tenantId, legacyRows)
+          : await this.getContractAssignmentEmailMap(
+              params.tenantId,
+              legacyRows.map((row) => row.id),
+              legacyRows
+            )
+
+      const legalMetadataByContractId = await this.getContractLegalMetadataMap(
+        params.tenantId,
+        legacyRows.map((row) => row.id)
+      )
+
+      const hydratedLegacyRows = legacyRows.map((row) => {
+        const legalMetadata = legalMetadataByContractId.get(row.id)
+        if (!legalMetadata) {
+          return row
+        }
+
+        return {
+          ...row,
+          legal_effective_date: legalMetadata.legalEffectiveDate,
+          legal_termination_date: legalMetadata.legalTerminationDate,
+          legal_notice_period: legalMetadata.legalNoticePeriod,
+          legal_auto_renewal: legalMetadata.legalAutoRenewal,
+        }
       })
-    }
 
-    let { data, error } = await buildListQuery('contracts_repository_view', contractsListSelectWithSlaMetrics)
+      const mappedItems = hydratedLegacyRows.slice(0, params.limit).map((row) =>
+        this.mapListItem(row, additionalApproverContext.get(row.id), {
+          creatorName: row.uploaded_by_email,
+          departmentName: row.department_id ? (departmentNameById.get(row.department_id) ?? null) : null,
+          assignedToUsers:
+            params.role === 'LEGAL_TEAM'
+              ? (assignmentMap.get(row.id) ?? [])
+              : (assignmentMap.get(row.id) ?? [row.current_assignee_email]),
+        })
+      )
 
-    if (error && this.isMissingColumnError(error, 'contracts_repository_view')) {
-      const fallbackResult = await buildListQuery('contracts_repository_view', contractsListSelectLegacy)
-      data = fallbackResult.data
-      error = fallbackResult.error
-    }
+      const items = await this.attachActorContractSignals(params.tenantId, params.employeeId, mappedItems, params.role)
+      const nextCursor =
+        sortBy === 'created_at' && sortDirection === 'desc' && hasNext
+          ? this.encodeTimestampIdCursor(items[items.length - 1]?.createdAt ?? '', items[items.length - 1]?.id ?? '')
+          : undefined
 
-    if (error && this.isViewQueryCompatibilityError(error, 'contracts_repository_view')) {
-      const contractsTableResult = await buildListQuery('contracts', contractsListSelectFromContractsTable)
-      data = contractsTableResult.data
-      error = contractsTableResult.error
+      return { items, nextCursor, total: totalCount }
     }
 
     if (error) {
@@ -810,116 +1278,22 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       })
     }
 
-    const rows = (data ?? []) as unknown as Array<{
-      id: string
-      title: string
-      status: string
-      uploaded_by_employee_id: string
-      uploaded_by_email: string
-      current_assignee_employee_id: string
-      current_assignee_email: string
-      hod_approved_at: string | null
-      tat_deadline_at: string | null
-      tat_breached_at: string | null
-      request_created_at: string | null
-      department_id: string | null
-      legal_effective_date?: string | null
-      legal_termination_date?: string | null
-      legal_notice_period?: string | null
-      legal_auto_renewal?: boolean | null
-      aging_business_days: number | null
-      near_breach: boolean
-      is_tat_breached: boolean
-      created_at: string
-      updated_at: string
-    }>
+    const rows = (data ?? []) as unknown as RepositoryJoinedContractRow[]
 
-    if (rows.length > 0) {
-      const legalMetadataByContractId = await this.getContractLegalMetadataMap(
-        params.tenantId,
-        rows.map((row) => row.id)
-      )
-
-      for (const row of rows) {
-        const legalMetadata = legalMetadataByContractId.get(row.id)
-        if (!legalMetadata) {
-          continue
-        }
-
-        row.legal_effective_date = legalMetadata.legalEffectiveDate
-        row.legal_termination_date = legalMetadata.legalTerminationDate
-        row.legal_notice_period = legalMetadata.legalNoticePeriod
-        row.legal_auto_renewal = legalMetadata.legalAutoRenewal
-      }
-    }
-
-    const additionalApproverContext = await this.getAdditionalApproverContractContextMap(
-      params.tenantId,
-      rows.map((row) => row.id),
-      params.employeeId
+    const additionalApproverContext = this.buildAdditionalApproverContextFromJoinedRows(
+      rows,
+      params.employeeId,
+      visibilityFilter?.actionableContractIds ?? []
     )
-
-    const creatorIds = Array.from(
-      new Set(rows.map((row) => row.uploaded_by_employee_id).filter((value): value is string => Boolean(value)))
-    )
-    const creatorNameById = new Map<string, string | null>()
-    if (creatorIds.length > 0) {
-      const { data: userRows, error: usersError } = await supabase
-        .from('users')
-        .select('id, full_name')
-        .eq('tenant_id', params.tenantId)
-        .in('id', creatorIds)
-        .is('deleted_at', null)
-
-      if (usersError) {
-        throw new DatabaseError('Failed to resolve contract creators', new Error(usersError.message), {
-          code: usersError.code,
-        })
-      }
-
-      for (const userRow of (userRows ?? []) as Array<{ id: string; full_name: string | null }>) {
-        creatorNameById.set(userRow.id, userRow.full_name)
-      }
-    }
-
-    const departmentIds = Array.from(
-      new Set(rows.map((row) => row.department_id).filter((value): value is string => Boolean(value)))
-    )
-    const departmentNameById = new Map<string, string>()
-    if (departmentIds.length > 0) {
-      const { data: departmentRows, error: departmentsError } = await supabase
-        .from('teams')
-        .select('id, name')
-        .eq('tenant_id', params.tenantId)
-        .in('id', departmentIds)
-        .is('deleted_at', null)
-
-      if (departmentsError) {
-        throw new DatabaseError('Failed to resolve contract departments', new Error(departmentsError.message), {
-          code: departmentsError.code,
-        })
-      }
-
-      for (const departmentRow of (departmentRows ?? []) as Array<{ id: string; name: string }>) {
-        departmentNameById.set(departmentRow.id, departmentRow.name)
-      }
-    }
 
     const hasNext = rows.length > params.limit
 
-    const assignmentMap =
-      params.role === 'LEGAL_TEAM'
-        ? await this.getContractLegalCollaboratorEmailMap(params.tenantId, rows)
-        : await this.getContractAssignmentEmailMap(
-            params.tenantId,
-            rows.map((row) => row.id),
-            rows
-          )
+    const assignmentMap = this.buildAssignmentMapFromJoinedRows(rows, params.role)
 
     const mappedItems = rows.slice(0, params.limit).map((row) =>
       this.mapListItem(row, additionalApproverContext.get(row.id), {
-        creatorName: creatorNameById.get(row.uploaded_by_employee_id) ?? null,
-        departmentName: row.department_id ? (departmentNameById.get(row.department_id) ?? null) : null,
+        creatorName: row.uploaded_by_email,
+        departmentName: this.resolveDepartmentName(row.department),
         assignedToUsers:
           params.role === 'LEGAL_TEAM'
             ? (assignmentMap.get(row.id) ?? [])
@@ -929,10 +1303,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     const items = await this.attachActorContractSignals(params.tenantId, params.employeeId, mappedItems, params.role)
     const nextCursor =
       sortBy === 'created_at' && sortDirection === 'desc' && hasNext
-        ? this.encodeCursor(items[items.length - 1]?.createdAt ?? '')
+        ? this.encodeTimestampIdCursor(items[items.length - 1]?.createdAt ?? '', items[items.length - 1]?.id ?? '')
         : undefined
 
-    return { items, nextCursor, total: totalResult.count ?? 0 }
+    return { items, nextCursor, total: totalCount }
   }
 
   async getRepositoryReport(params: {
@@ -1065,71 +1439,132 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     toDate?: string
     columns: RepositoryExportColumn[]
   }): Promise<RepositoryExportRow[]> {
-    const contracts = await this.collectRepositoryContractsForReporting(params)
+    const rows: RepositoryExportRow[] = []
+    let cursor: string | undefined
+
+    while (true) {
+      const chunk = await this.listRepositoryExportRowsChunk({
+        ...params,
+        cursor,
+        limit: 200,
+      })
+
+      rows.push(...chunk.items)
+
+      if (!chunk.nextCursor) {
+        break
+      }
+
+      cursor = chunk.nextCursor
+    }
+
+    return rows
+  }
+
+  async listRepositoryExportRowsChunk(params: {
+    tenantId: string
+    employeeId: string
+    role?: string
+    cursor?: string
+    limit: number
+    search?: string
+    status?: ContractStatus
+    repositoryStatus?: ContractRepositoryStatus
+    dateBasis?: RepositoryDateBasis
+    datePreset?: RepositoryDatePreset
+    fromDate?: string
+    toDate?: string
+    columns: RepositoryExportColumn[]
+  }): Promise<RepositoryExportRowsChunk> {
+    const result = await this.listRepositoryContracts({
+      tenantId: params.tenantId,
+      employeeId: params.employeeId,
+      role: params.role,
+      cursor: params.cursor,
+      limit: params.limit,
+      search: params.search,
+      status: params.status,
+      repositoryStatus: params.repositoryStatus,
+      sortBy: 'created_at',
+      sortDirection: 'desc',
+      dateBasis: params.dateBasis,
+      datePreset: params.datePreset,
+      fromDate: params.fromDate,
+      toDate: params.toDate,
+    })
+
     const selectedColumns =
       params.columns.length > 0
         ? params.columns
         : (Object.keys(contractRepositoryExportColumnLabels) as RepositoryExportColumn[])
 
-    const formatLegalDate = (value?: string | null): string => {
-      if (!value) {
-        return '-'
-      }
+    return {
+      items: result.items.map((contract) => this.mapRepositoryExportRow(contract, selectedColumns)),
+      nextCursor: result.nextCursor,
+    }
+  }
 
-      const parsed = new Date(value)
-      if (Number.isNaN(parsed.getTime())) {
-        return '-'
-      }
+  private mapRepositoryExportRow(
+    contract: ContractListItem,
+    selectedColumns: RepositoryExportColumn[]
+  ): RepositoryExportRow {
+    const row = {} as RepositoryExportRow
 
-      const day = String(parsed.getUTCDate()).padStart(2, '0')
-      const month = String(parsed.getUTCMonth() + 1).padStart(2, '0')
-      const year = parsed.getUTCFullYear()
-      return `${day}-${month}-${year}`
+    for (const column of selectedColumns) {
+      if (column === 'request_date') {
+        row[column] = contract.requestCreatedAt ?? contract.createdAt
+      } else if (column === 'creator') {
+        row[column] = contract.creatorName ?? contract.uploadedByEmail
+      } else if (column === 'department') {
+        row[column] = contract.departmentName ?? 'Unassigned'
+      } else if (column === 'hod_approval') {
+        row[column] = contract.hodApprovedAt ? 'Yes' : 'No'
+      } else if (column === 'approval_date') {
+        row[column] = contract.hodApprovedAt ?? ''
+      } else if (column === 'tat') {
+        row[column] = contractRepositoryTatPolicy.label
+      } else if (column === 'contract_aging') {
+        row[column] = contract.agingBusinessDays ?? ''
+      } else if (column === 'status') {
+        row[column] = contract.repositoryStatusLabel ?? contract.displayStatusLabel ?? contract.status
+      } else if (column === 'assigned_to') {
+        row[column] = (contract.assignedToUsers ?? [contract.currentAssigneeEmail]).join('; ')
+      } else if (column === 'effective_date') {
+        row[column] = this.formatRepositoryLegalDate(contract.legalEffectiveDate)
+      } else if (column === 'termination_date') {
+        row[column] = this.formatRepositoryLegalDate(contract.legalTerminationDate)
+      } else if (column === 'notice_period') {
+        row[column] = contract.legalNoticePeriod?.trim() || '-'
+      } else if (column === 'auto_renewal') {
+        row[column] = contract.legalAutoRenewal === true ? 'Yes' : contract.legalAutoRenewal === false ? 'No' : '-'
+      } else if (column === 'tat_breached') {
+        row[column] = contract.isTatBreached ? 'Yes' : 'No'
+      } else if (column === 'overdue_days') {
+        row[column] = contract.isTatBreached
+          ? Math.max((contract.agingBusinessDays ?? 0) - contractRepositoryTatPolicy.businessDays, 0)
+          : 0
+      } else if (column === 'contract_title') {
+        row[column] = contract.title
+      }
     }
 
-    return contracts.map((contract) => {
-      const row = {} as RepositoryExportRow
+    return row
+  }
 
-      for (const column of selectedColumns) {
-        if (column === 'request_date') {
-          row[column] = contract.requestCreatedAt ?? contract.createdAt
-        } else if (column === 'creator') {
-          row[column] = contract.creatorName ?? contract.uploadedByEmail
-        } else if (column === 'department') {
-          row[column] = contract.departmentName ?? 'Unassigned'
-        } else if (column === 'hod_approval') {
-          row[column] = contract.hodApprovedAt ? 'Yes' : 'No'
-        } else if (column === 'approval_date') {
-          row[column] = contract.hodApprovedAt ?? ''
-        } else if (column === 'tat') {
-          row[column] = contractRepositoryTatPolicy.label
-        } else if (column === 'contract_aging') {
-          row[column] = contract.agingBusinessDays ?? ''
-        } else if (column === 'status') {
-          row[column] = contract.repositoryStatusLabel ?? contract.displayStatusLabel ?? contract.status
-        } else if (column === 'assigned_to') {
-          row[column] = (contract.assignedToUsers ?? [contract.currentAssigneeEmail]).join('; ')
-        } else if (column === 'effective_date') {
-          row[column] = formatLegalDate(contract.legalEffectiveDate)
-        } else if (column === 'termination_date') {
-          row[column] = formatLegalDate(contract.legalTerminationDate)
-        } else if (column === 'notice_period') {
-          row[column] = contract.legalNoticePeriod?.trim() || '-'
-        } else if (column === 'auto_renewal') {
-          row[column] = contract.legalAutoRenewal === true ? 'Yes' : contract.legalAutoRenewal === false ? 'No' : '-'
-        } else if (column === 'tat_breached') {
-          row[column] = contract.isTatBreached ? 'Yes' : 'No'
-        } else if (column === 'overdue_days') {
-          row[column] = contract.isTatBreached
-            ? Math.max((contract.agingBusinessDays ?? 0) - contractRepositoryTatPolicy.businessDays, 0)
-            : 0
-        } else if (column === 'contract_title') {
-          row[column] = contract.title
-        }
-      }
+  private formatRepositoryLegalDate(value?: string | null): string {
+    if (!value) {
+      return '-'
+    }
 
-      return row
-    })
+    const parsed = new Date(value)
+    if (Number.isNaN(parsed.getTime())) {
+      return '-'
+    }
+
+    const day = String(parsed.getUTCDate()).padStart(2, '0')
+    const month = String(parsed.getUTCMonth() + 1).padStart(2, '0')
+    const year = parsed.getUTCFullYear()
+    return `${day}-${month}-${year}`
   }
 
   async getById(tenantId: string, contractId: string): Promise<ContractDetail | null> {
@@ -1296,27 +1731,36 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       }
     }
 
-    let totalQuery = supabase
-      .from('audit_logs')
-      .select('id', { count: 'exact', head: true })
-      .eq('tenant_id', params.tenantId)
-      .eq('resource_type', 'contract')
-      .in('action', ['contract.approver.approved', 'contract.approver.rejected'])
+    let totalCount = 0
+    if (!params.cursor) {
+      let totalQuery = supabase
+        .from('audit_logs')
+        .select('id', { count: 'exact', head: true })
+        .eq('tenant_id', params.tenantId)
+        .eq('resource_type', 'contract')
+        .in('action', ['contract.approver.approved', 'contract.approver.rejected'])
 
-    if (!isAdminRole) {
-      totalQuery = totalQuery.eq('user_id', params.employeeId)
-    }
+      if (!isAdminRole) {
+        totalQuery = totalQuery.eq('user_id', params.employeeId)
+      }
 
-    if (scopedContractIds) {
-      totalQuery = totalQuery.in('resource_id', scopedContractIds)
-    }
+      if (scopedContractIds) {
+        totalQuery = totalQuery.in('resource_id', scopedContractIds)
+      }
 
-    const { count: totalCount, error: totalError } = await totalQuery
+      const totalResult = await totalQuery
 
-    if (totalError) {
-      throw new DatabaseError('Failed to count additional approver decision history', new Error(totalError.message), {
-        code: totalError.code,
-      })
+      if (totalResult.error) {
+        throw new DatabaseError(
+          'Failed to count additional approver decision history',
+          new Error(totalResult.error.message),
+          {
+            code: totalResult.error.code,
+          }
+        )
+      }
+
+      totalCount = totalResult.count ?? 0
     }
 
     let auditQuery = supabase
@@ -1357,7 +1801,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     }>
 
     if (typedAuditRows.length === 0) {
-      return { items: [], total: totalCount ?? 0 }
+      return { items: [], total: totalCount }
     }
 
     const hasNext = typedAuditRows.length > params.limit
@@ -4273,7 +4717,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     tenantId: string,
     role: string | undefined,
     employeeId: string
-  ): Promise<string | null> {
+  ): Promise<VisibilityFilterContext> {
     const actionableAdditionalApproverContractIds = await this.getActionableAdditionalApproverContractIds(
       tenantId,
       employeeId
@@ -4284,7 +4728,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         : null
 
     if (role === 'ADMIN' || role === 'LEGAL_TEAM') {
-      return null
+      return {
+        filter: null,
+        actionableContractIds: actionableAdditionalApproverContractIds,
+      }
     }
 
     if (role !== 'HOD') {
@@ -4292,7 +4739,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       if (actionableApproverFilter) {
         conditions.push(actionableApproverFilter)
       }
-      return conditions.join(',')
+      return {
+        filter: conditions.join(','),
+        actionableContractIds: actionableAdditionalApproverContractIds,
+      }
     }
 
     const hodDepartmentIds = await this.getHodDepartmentIds(tenantId, employeeId)
@@ -4301,7 +4751,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       if (actionableApproverFilter) {
         conditions.push(actionableApproverFilter)
       }
-      return conditions.join(',')
+      return {
+        filter: conditions.join(','),
+        actionableContractIds: actionableAdditionalApproverContractIds,
+      }
     }
 
     const conditions = [`current_assignee_employee_id.eq.${employeeId}`, `uploaded_by_employee_id.eq.${employeeId}`]
@@ -4309,7 +4762,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       conditions.push(actionableApproverFilter)
     }
 
-    return conditions.join(',')
+    return {
+      filter: conditions.join(','),
+      actionableContractIds: actionableAdditionalApproverContractIds,
+    }
   }
 
   private getPendingApprovalStatuses(role?: string): ContractStatus[] {
@@ -4375,7 +4831,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     return contractStatuses.onHold
   }
 
-  private async getHodDepartmentIds(tenantId: string, employeeId: string): Promise<string[]> {
+  private async getEmployeeEmail(tenantId: string, employeeId: string): Promise<string | null> {
     const supabase = createServiceSupabase()
 
     const { data: employee, error: employeeError } = await supabase
@@ -4385,27 +4841,30 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       .eq('id', employeeId)
       .eq('is_active', true)
       .is('deleted_at', null)
-      .maybeSingle<{ email: string }>()
+      .maybeSingle<{ email: string | null }>()
 
     if (employeeError) {
-      throw new DatabaseError(
-        'Failed to resolve employee email for HOD access checks',
-        new Error(employeeError.message),
-        {
-          code: employeeError.code,
-        }
-      )
+      throw new DatabaseError('Failed to resolve employee email', new Error(employeeError.message), {
+        code: employeeError.code,
+      })
     }
 
-    if (!employee?.email) {
+    return employee?.email?.trim().toLowerCase() ?? null
+  }
+
+  private async getHodDepartmentIds(tenantId: string, employeeId: string): Promise<string[]> {
+    const employeeEmail = await this.getEmployeeEmail(tenantId, employeeId)
+    if (!employeeEmail) {
       return []
     }
+
+    const supabase = createServiceSupabase()
 
     const { data: hodTeams, error: hodTeamsError } = await supabase
       .from('team_role_mappings')
       .select('team_id')
       .eq('tenant_id', tenantId)
-      .eq('email', employee.email.toLowerCase())
+      .eq('email', employeeEmail)
       .eq('role_type', 'HOD')
       .eq('active_flag', true)
       .is('deleted_at', null)
@@ -4645,13 +5104,26 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
     const supabase = createServiceSupabase()
 
-    const { data: pendingRows, error: pendingError } = await supabase
-      .from('contract_additional_approvers')
-      .select('contract_id')
-      .eq('tenant_id', tenantId)
-      .eq('status', 'PENDING')
-      .is('deleted_at', null)
-      .in('contract_id', uniqueContractIds)
+    // Run both queries in parallel — they have no dependency on each other.
+    const [pendingResult, rejectionResult] = await Promise.all([
+      supabase
+        .from('contract_additional_approvers')
+        .select('contract_id, approver_employee_id, sequence_order')
+        .eq('tenant_id', tenantId)
+        .eq('status', 'PENDING')
+        .is('deleted_at', null)
+        .in('contract_id', uniqueContractIds),
+      supabase
+        .from('audit_logs')
+        .select('resource_id, note_text, created_at')
+        .eq('tenant_id', tenantId)
+        .eq('resource_type', 'contract')
+        .eq('action', 'contract.approver.rejected')
+        .in('resource_id', uniqueContractIds)
+        .order('created_at', { ascending: false }),
+    ])
+
+    const { data: pendingRows, error: pendingError } = pendingResult
 
     if (pendingError) {
       if (
@@ -4679,17 +5151,36 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       )
     }
 
-    const pendingContractIds = new Set((pendingRows ?? []).map((row) => row.contract_id))
+    const typedPendingRows = (pendingRows ?? []) as Array<{
+      contract_id: string
+      approver_employee_id: string
+      sequence_order: number
+    }>
+
+    const pendingContractIds = new Set(typedPendingRows.map((row) => row.contract_id))
+    const minPendingSequenceByContract = new Map<string, number>()
+    for (const row of typedPendingRows) {
+      const currentMin = minPendingSequenceByContract.get(row.contract_id)
+      if (currentMin === undefined || row.sequence_order < currentMin) {
+        minPendingSequenceByContract.set(row.contract_id, row.sequence_order)
+      }
+    }
+
+    const actionableContractIds = new Set<string>()
+    if (actorEmployeeId) {
+      for (const row of typedPendingRows) {
+        if (
+          row.approver_employee_id === actorEmployeeId &&
+          row.sequence_order === minPendingSequenceByContract.get(row.contract_id)
+        ) {
+          actionableContractIds.add(row.contract_id)
+        }
+      }
+    }
+
+    const { data: rejectionData, error: rejectionError } = rejectionResult
 
     let rejectionRows: Array<{ resource_id: string; note_text: string | null; created_at: string }> = []
-    const { data: rejectionData, error: rejectionError } = await supabase
-      .from('audit_logs')
-      .select('resource_id, note_text, created_at')
-      .eq('tenant_id', tenantId)
-      .eq('resource_type', 'contract')
-      .eq('action', 'contract.approver.rejected')
-      .in('resource_id', uniqueContractIds)
-      .order('created_at', { ascending: false })
 
     if (rejectionError) {
       if (
@@ -4722,11 +5213,6 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
           at: row.created_at,
         })
       }
-    }
-
-    let actionableContractIds = new Set<string>()
-    if (actorEmployeeId) {
-      actionableContractIds = new Set(await this.getActionableAdditionalApproverContractIds(tenantId, actorEmployeeId))
     }
 
     for (const contractId of uniqueContractIds) {
@@ -5296,6 +5782,80 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     }
   }
 
+  private resolveDepartmentName(department: RepositoryJoinedContractRow['department']): string | null {
+    if (!department) {
+      return null
+    }
+
+    if (Array.isArray(department)) {
+      return department[0]?.name ?? null
+    }
+
+    return department.name ?? null
+  }
+
+  private buildAssignmentMapFromJoinedRows(rows: RepositoryJoinedContractRow[], role?: string): Map<string, string[]> {
+    const assignmentMap = new Map<string, string[]>()
+
+    for (const row of rows) {
+      if (role === 'LEGAL_TEAM') {
+        const collaboratorEmails = (row.legal_collaborators ?? [])
+          .filter((item) => !item.deleted_at)
+          .map((item) => item.collaborator_email)
+
+        if (collaboratorEmails.length > 0) {
+          assignmentMap.set(row.id, Array.from(new Set(collaboratorEmails)))
+        }
+        continue
+      }
+
+      const assignmentEmails = (row.assignments ?? []).filter((item) => !item.deleted_at).map((item) => item.user_email)
+
+      if (assignmentEmails.length > 0) {
+        assignmentMap.set(row.id, Array.from(new Set(assignmentEmails)))
+      }
+    }
+
+    return assignmentMap
+  }
+
+  private buildAdditionalApproverContextFromJoinedRows(
+    rows: RepositoryJoinedContractRow[],
+    actorEmployeeId: string,
+    actionableContractIds: string[]
+  ): Map<string, AdditionalApproverContractContext> {
+    const actionableSet = new Set(actionableContractIds)
+    const contextMap = new Map<string, AdditionalApproverContractContext>()
+
+    for (const row of rows) {
+      const approvers = (row.additional_approvers ?? []).filter((item) => !item.deleted_at)
+      const hasPendingAdditionalApprovers = approvers.some((item) => item.status === 'PENDING')
+      const latestRejected = approvers
+        .filter((item) => item.status === 'REJECTED')
+        .sort((left, right) => {
+          const leftTs = left.approved_at ? new Date(left.approved_at).getTime() : 0
+          const rightTs = right.approved_at ? new Date(right.approved_at).getTime() : 0
+          return rightTs - leftTs
+        })[0]
+
+      const pendingApprovers = approvers
+        .filter((item) => item.status === 'PENDING')
+        .sort((left, right) => left.sequence_order - right.sequence_order)
+      const firstPendingApprover = pendingApprovers[0]
+      const isActionableInPayload =
+        Boolean(firstPendingApprover) && firstPendingApprover?.approver_employee_id === actorEmployeeId
+
+      contextMap.set(row.id, {
+        hasPendingAdditionalApprovers,
+        latestAdditionalApproverRejectionReason: null,
+        latestAdditionalApproverRejectionAt: latestRejected?.approved_at ?? null,
+        isAdditionalApproverActionable: actionableSet.has(row.id) || isActionableInPayload,
+      })
+    }
+
+    return contextMap
+  }
+
   private async getContractAssignmentEmailMap(
     tenantId: string,
     contractIds: string[],
@@ -5310,7 +5870,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     const supabase = createServiceSupabase()
     const { data, error } = await supabase
       .from('contract_repository_assignments')
-      .select('contract_id, user_email, deleted_at')
+      .select('contract_id, user_email')
       .eq('tenant_id', tenantId)
       .in('contract_id', contractIds)
       .is('deleted_at', null)
@@ -5635,6 +6195,30 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
   private encodeCursor(createdAt: string): string {
     return Buffer.from(createdAt).toString('base64')
+  }
+
+  private encodeTimestampIdCursor(createdAt: string, id: string): string {
+    return Buffer.from(`${createdAt}|${id}`).toString('base64')
+  }
+
+  private decodeTimestampIdCursor(cursor?: string): { createdAt: string; id?: string } | null {
+    const decoded = this.decodeCursor(cursor)
+    if (!decoded) {
+      return null
+    }
+
+    const [createdAt, id] = decoded.createdAt.split('|')
+    if (!createdAt) {
+      return null
+    }
+
+    const normalizedCreatedAt = createdAt.replace(/\+00:00$/, 'Z')
+
+    if (!id) {
+      return { createdAt: normalizedCreatedAt }
+    }
+
+    return { createdAt: normalizedCreatedAt, id }
   }
 
   private decodeCursor(cursor?: string): { createdAt: string } | null {

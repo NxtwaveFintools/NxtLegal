@@ -11,6 +11,21 @@ import { isAppError } from '@/core/http/errors'
 import { contractUploadModes, contractWorkflowRoles } from '@/core/constants/contracts'
 import { z } from 'zod'
 
+// Route segment config — extends the serverless function execution timeout
+// to 300 s (5 min) so large multipart uploads (up to 100 MB) have time to
+// be received, validated, and persisted to storage.
+export const maxDuration = 300
+
+const dispatchNotificationInBackground = (notification: Promise<unknown>, event: string, contractId: string): void => {
+  void notification.catch((error) => {
+    logger.warn('Contract upload notification dispatch failed', {
+      event,
+      contractId,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  })
+}
+
 const uploadContractFormSchema = z
   .object({
     title: z.string().trim().min(1, 'Contract title is required').max(200, 'Contract title exceeds maximum length'),
@@ -159,6 +174,35 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
       })
     }
 
+    const supportingUploadFiles = formData
+      .getAll('supportingFiles')
+      .filter((entry): entry is File => entry instanceof File)
+
+    if (parsedForm.data.counterparties && parsedForm.data.counterparties.length > 0) {
+      for (const counterparty of parsedForm.data.counterparties) {
+        const seen = new Set<number>()
+
+        for (const index of counterparty.supportingFileIndices) {
+          if (seen.has(index)) {
+            return NextResponse.json(
+              errorResponse('VALIDATION_ERROR', 'Duplicate supporting file index is not allowed'),
+              {
+                status: 400,
+              }
+            )
+          }
+
+          seen.add(index)
+
+          if (index < 0 || index >= supportingUploadFiles.length) {
+            return NextResponse.json(errorResponse('VALIDATION_ERROR', 'Supporting file index is out of range'), {
+              status: 400,
+            })
+          }
+        }
+      }
+    }
+
     const idempotencyService = getIdempotencyService()
     const claimResult = await idempotencyService.claimOrGet(idempotencyKey, session.tenantId)
     if (claimResult.status === 'cached') {
@@ -174,33 +218,16 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
 
     shouldReleaseClaim = true
 
-    const fileArrayBuffer = await uploadedFile.arrayBuffer()
-    const fileBytes = new Uint8Array(fileArrayBuffer)
-    const supportingUploadFiles = formData
-      .getAll('supportingFiles')
-      .filter((entry): entry is File => entry instanceof File)
-
-    const supportingFiles = await Promise.all(
-      supportingUploadFiles.map(async (file) => {
-        const arrayBuffer = await file.arrayBuffer()
-        return {
-          fileName: file.name,
-          fileSizeBytes: file.size,
-          fileMimeType: file.type || 'application/octet-stream',
-          fileBytes: new Uint8Array(arrayBuffer),
-        }
-      })
-    )
+    const supportingFiles = supportingUploadFiles.map((file) => ({
+      fileName: file.name,
+      fileSizeBytes: file.size,
+      fileMimeType: file.type || 'application/octet-stream',
+      fileBody: file as Blob,
+    }))
 
     const counterparties = parsedForm.data.counterparties?.map((counterparty) => ({
       counterpartyName: counterparty.counterpartyName,
-      supportingFiles: counterparty.supportingFileIndices.reduce<typeof supportingFiles>((accumulator, index) => {
-        const supportingFile = supportingFiles[index]
-        if (supportingFile) {
-          accumulator.push(supportingFile)
-        }
-        return accumulator
-      }, []),
+      supportingFiles: counterparty.supportingFileIndices.map((index) => supportingFiles[index]!),
     }))
 
     const isLegalSendForSigningMode = parsedForm.data.uploadMode === contractUploadModes.legalSendForSigning
@@ -255,18 +282,22 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
       fileName: uploadedFile.name,
       fileSizeBytes: uploadedFile.size,
       fileMimeType: uploadedFile.type || 'application/octet-stream',
-      fileBytes,
+      fileBody: uploadedFile as Blob,
       supportingFiles,
     })
 
     if (!parsedForm.data.bypassHodApproval) {
       const contractApprovalNotificationService = getContractApprovalNotificationService()
-      await contractApprovalNotificationService.notifyHodOnContractUpload({
-        tenantId: session.tenantId,
-        contractId: contract.id,
-        actorEmployeeId: session.employeeId,
-        actorRole: session.role,
-      })
+      dispatchNotificationInBackground(
+        contractApprovalNotificationService.notifyHodOnContractUpload({
+          tenantId: session.tenantId,
+          contractId: contract.id,
+          actorEmployeeId: session.employeeId,
+          actorRole: session.role,
+        }),
+        'HOD_UPLOAD_NOTIFICATION',
+        contract.id
+      )
     }
 
     logger.info('Contract uploaded successfully', {

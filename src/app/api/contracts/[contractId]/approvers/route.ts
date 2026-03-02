@@ -5,6 +5,16 @@ import { errorResponse, okResponse } from '@/core/http/response'
 import { isAppError } from '@/core/http/errors'
 import { getContractApprovalNotificationService, getContractQueryService } from '@/core/registry/service-registry'
 import { contractApproverSchema } from '@/core/domain/contracts/schemas'
+import { logger } from '@/core/infra/logging/logger'
+
+const dispatchNotificationInBackground = (notification: Promise<unknown>, contractId: string): void => {
+  void notification.catch((error) => {
+    logger.warn('Additional approver notification dispatch failed', {
+      contractId,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  })
+}
 
 const POSTHandler = withAuth(async (request: NextRequest, { session, params }) => {
   try {
@@ -29,13 +39,16 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
     })
 
     const contractApprovalNotificationService = getContractApprovalNotificationService()
-    await contractApprovalNotificationService.notifyAdditionalApproverAdded({
-      tenantId: session.tenantId,
-      contractId,
-      actorEmployeeId: session.employeeId,
-      actorRole: session.role,
-      approverEmail: payload.approverEmail,
-    })
+    dispatchNotificationInBackground(
+      contractApprovalNotificationService.notifyAdditionalApproverAdded({
+        tenantId: session.tenantId,
+        contractId,
+        actorEmployeeId: session.employeeId,
+        actorRole: session.role,
+        approverEmail: payload.approverEmail,
+      }),
+      contractId
+    )
 
     return NextResponse.json(okResponse(contractView))
   } catch (error) {

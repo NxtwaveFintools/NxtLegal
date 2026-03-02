@@ -57,6 +57,7 @@ const eventTemplates: Record<CanonicalContractLogEventType, string> = {
 }
 
 const actionMessageOverrides: Record<string, string> = {
+  'contract.legal.send_for_signing.initiated': '{actor} initiated Send for Signing workflow. Pending Legal HOD review.',
   'contract.signatory.added': '{actor} added a signatory.',
   'contract.signatory.sent': '{actor} sent the contract for signing.',
   'contract.signatory.delivered': '{actor} recorded signatory delivery.',

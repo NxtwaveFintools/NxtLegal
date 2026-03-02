@@ -133,6 +133,28 @@ const getCurrentTokenVersion = async (employeeId: string, tenantId: string): Pro
   return { state: 'ok', tokenVersion: Math.trunc(data.token_version) }
 }
 
+// Deduplicate concurrent token-version lookups that arrive in parallel (e.g.,
+// when several API calls fire simultaneously for the same user on a single page
+// load).  Only ONE DB round-trip is issued per user regardless of concurrency;
+// once the shared promise settles every subsequent call goes to the DB fresh
+// so there is no stale-data window.
+const inFlightTokenVersionLookups = new Map<string, Promise<TokenVersionLookupResult>>()
+
+const deduplicatedGetCurrentTokenVersion = (
+  employeeId: string,
+  tenantId: string
+): Promise<TokenVersionLookupResult> => {
+  const key = `${tenantId}:${employeeId}`
+  const inflight = inFlightTokenVersionLookups.get(key)
+  if (inflight) return inflight
+
+  const lookupPromise = getCurrentTokenVersion(employeeId, tenantId).finally(() => {
+    inFlightTokenVersionLookups.delete(key)
+  })
+  inFlightTokenVersionLookups.set(key, lookupPromise)
+  return lookupPromise
+}
+
 const signToken = async (data: SessionData, type: TokenType): Promise<{ token: string; expiresAtMs: number }> => {
   const jti = uuidv4() // Unique token ID for revocation tracking
 
@@ -251,7 +273,7 @@ export const getSession = async (): Promise<SessionData | null> => {
     }
 
     const jwtTokenVersion = getNormalizedTokenVersion(payload.tokenVersion)
-    const tokenVersionLookup = await getCurrentTokenVersion(payload.employeeId, payload.tenantId)
+    const tokenVersionLookup = await deduplicatedGetCurrentTokenVersion(payload.employeeId, payload.tenantId)
 
     if (tokenVersionLookup.state === 'missing') {
       logger.warn('Session rejected due to token version mismatch', {
@@ -339,7 +361,7 @@ export const refreshSession = async (): Promise<SessionData | null> => {
     }
 
     const jwtTokenVersion = getNormalizedTokenVersion(payload.tokenVersion)
-    const tokenVersionLookup = await getCurrentTokenVersion(payload.employeeId, payload.tenantId)
+    const tokenVersionLookup = await deduplicatedGetCurrentTokenVersion(payload.employeeId, payload.tenantId)
 
     if (tokenVersionLookup.state === 'service_unavailable') {
       throw new ExternalServiceError('supabase', 'Session validation temporarily unavailable', undefined, {

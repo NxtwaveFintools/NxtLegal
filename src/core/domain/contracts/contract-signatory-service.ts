@@ -826,7 +826,7 @@ export class ContractSignatoryService {
 
     await this.uploadCompletionArtifactSafely({
       path: executedPath,
-      fileBytes: artifacts.executedPdf,
+      fileBody: artifacts.executedPdf,
       contentType: 'application/pdf',
       tenantId: params.tenantId,
       contractId: params.contractId,
@@ -836,7 +836,7 @@ export class ContractSignatoryService {
 
     await this.uploadCompletionArtifactSafely({
       path: certificatePath,
-      fileBytes: artifacts.certificatePdf,
+      fileBody: artifacts.certificatePdf,
       contentType: 'application/pdf',
       tenantId: params.tenantId,
       contractId: params.contractId,
@@ -881,7 +881,7 @@ export class ContractSignatoryService {
 
   private async uploadCompletionArtifactSafely(params: {
     path: string
-    fileBytes: Uint8Array
+    fileBody: Blob | Uint8Array
     contentType: string
     tenantId: string
     contractId: string
@@ -891,7 +891,7 @@ export class ContractSignatoryService {
     try {
       await this.contractStorageRepository.upload({
         path: params.path,
-        fileBytes: params.fileBytes,
+        fileBody: params.fileBody,
         contentType: params.contentType,
       })
     } catch (error) {

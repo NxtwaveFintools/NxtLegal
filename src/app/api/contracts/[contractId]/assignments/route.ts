@@ -5,6 +5,16 @@ import { errorResponse, okResponse } from '@/core/http/response'
 import { isAppError } from '@/core/http/errors'
 import { getContractApprovalNotificationService, getContractQueryService } from '@/core/registry/service-registry'
 import { contractLegalAssignmentSchema } from '@/core/domain/contracts/schemas'
+import { logger } from '@/core/infra/logging/logger'
+
+const dispatchNotificationInBackground = (notification: Promise<unknown>, contractId: string): void => {
+  void notification.catch((error) => {
+    logger.warn('Legal assignment notification dispatch failed', {
+      contractId,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  })
+}
 
 const POSTHandler = withAuth(async (request: NextRequest, { session, params }) => {
   try {
@@ -31,13 +41,16 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
 
     const contractApprovalNotificationService = getContractApprovalNotificationService()
     if (payload.operation === 'add_collaborator') {
-      await contractApprovalNotificationService.notifyInternalAssignment({
-        tenantId: session.tenantId,
-        contractId,
-        actorEmployeeId: session.employeeId,
-        actorRole: session.role,
-        assignedEmail: payload.collaboratorEmail,
-      })
+      dispatchNotificationInBackground(
+        contractApprovalNotificationService.notifyInternalAssignment({
+          tenantId: session.tenantId,
+          contractId,
+          actorEmployeeId: session.employeeId,
+          actorRole: session.role,
+          assignedEmail: payload.collaboratorEmail,
+        }),
+        contractId
+      )
     }
 
     return NextResponse.json(okResponse(contractView))

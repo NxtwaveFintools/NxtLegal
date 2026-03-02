@@ -211,7 +211,7 @@ describe('ContractUploadService signing source regression', () => {
         fileName: 'contract.docx',
         fileSizeBytes: 1024,
         fileMimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        fileBytes: new Uint8Array([1, 2, 3]),
+        fileBody: new Blob([new Uint8Array([1, 2, 3])]),
       })
     ).rejects.toMatchObject<Partial<AuthorizationError>>({
       code: 'CONTRACT_UPLOAD_DEPARTMENT_FORBIDDEN',
@@ -255,11 +255,12 @@ describe('ContractUploadService signing source regression', () => {
         backgroundOfRequest: 'Need legal review',
         departmentId: 'dept-unassigned',
         budgetApproved: false,
+        uploadMode: contractUploadModes.default,
         counterpartyName: 'NA',
         fileName: 'contract.docx',
         fileSizeBytes: 1024,
         fileMimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        fileBytes: new Uint8Array([1, 2, 3]),
+        fileBody: new Blob([new Uint8Array([1, 2, 3])]),
       })
     ).rejects.toMatchObject<Partial<AuthorizationError>>({
       code: 'CONTRACT_UPLOAD_DEPARTMENT_FORBIDDEN',
@@ -332,11 +333,12 @@ describe('ContractUploadService signing source regression', () => {
         backgroundOfRequest: 'Need legal review',
         departmentId: 'dept-1',
         budgetApproved: false,
+        uploadMode: contractUploadModes.default,
         counterpartyName: 'NA',
         fileName: 'contract.docx',
         fileSizeBytes: 1024,
         fileMimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-        fileBytes: new Uint8Array([1, 2, 3]),
+        fileBody: new Blob([new Uint8Array([1, 2, 3])]),
       })
     ).resolves.toBeDefined()
 
@@ -371,7 +373,7 @@ describe('ContractUploadService legal send-for-signing validations', () => {
     fileName: 'agreement.pdf',
     fileSizeBytes: 1024,
     fileMimeType: 'application/pdf',
-    fileBytes: new Uint8Array([1, 2, 3]),
+    fileBody: new Blob([new Uint8Array([1, 2, 3])]),
     supportingFiles: [],
     ...overrides,
   })

@@ -68,6 +68,70 @@
   gap: 10px;
 }
 
+.loadingSkeleton {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 220px;
+}
+
+.skeletonItem {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface-muted);
+  padding: 12px;
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.skeletonMain {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  flex: 1;
+}
+
+.skeletonRight {
+  display: flex;
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 100px;
+}
+
+.shimmerLine,
+.shimmerBadge,
+.shimmerButton {
+  border-radius: var(--radius-sm);
+  background: linear-gradient(
+    90deg,
+    var(--color-surface-muted) 25%,
+    var(--color-border) 37%,
+    var(--color-surface-muted) 63%
+  );
+  background-size: 800px 100%;
+  animation: shimmer 1.6s ease-in-out infinite;
+}
+
+.shimmerLine {
+  height: 14px;
+  width: 70%;
+}
+
+.shimmerBadge {
+  width: 86px;
+  height: 22px;
+  border-radius: var(--radius-pill);
+}
+
+.shimmerButton {
+  width: 74px;
+  height: 30px;
+  border-radius: var(--radius-md);
+}
+
 .item {
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
@@ -184,4 +248,14 @@
 .pageButton:disabled {
   opacity: 0.55;
   cursor: not-allowed;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -400px 0;
+  }
+
+  100% {
+    background-position: 400px 0;
+  }
 }

@@ -1,6 +1,16 @@
 import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
+  // Framework-level body size & timeout configuration.
+  // Route Handlers using request.formData() are not capped by Next.js in Node.js runtime,
+  // but Server Actions ARE limited to 1 MB by default. This raises that ceiling to match
+  // the domain-level maxUploadSizeMb (100 MB) defined in src/core/constants/limits.ts.
+  experimental: {
+    serverActions: {
+      bodySizeLimit: '100mb',
+    },
+  },
+
   // Security headers for production
   async headers() {
     return [

@@ -42,9 +42,26 @@ export const dashboardContractsFilterValues = [
 
 export const dashboardContractsQuerySchema = z.object({
   filter: z.enum(dashboardContractsFilterValues),
+  scope: z.enum(['default', 'personal']).optional().default('default'),
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(limits.paginationPageSize).default(limits.dashboardContractsPageSize),
   includeExtras: z.coerce.boolean().optional().default(false),
+})
+
+export const dashboardCountsQuerySchema = z.object({
+  // Comma-separated list of filter values to batch-count in one request.
+  filters: z
+    .string()
+    .min(1)
+    .transform((val) =>
+      val
+        .split(',')
+        .map((f) => f.trim())
+        .filter((f): f is (typeof dashboardContractsFilterValues)[number] =>
+          (dashboardContractsFilterValues as readonly string[]).includes(f)
+        )
+    )
+    .pipe(z.array(z.enum(dashboardContractsFilterValues)).min(1).max(10)),
 })
 
 export const additionalApproverHistoryQuerySchema = z.object({
@@ -85,6 +102,8 @@ export const repositoryContractsQuerySchema = z.object({
   datePreset: z.enum(repositoryDatePresetValues).optional(),
   fromDate: z.string().date().optional(),
   toDate: z.string().date().optional(),
+  // When true, the response also includes the reporting aggregates (avoids a second round-trip).
+  includeReport: z.coerce.boolean().optional().default(false),
 })
 
 const repositoryExportColumnValues = Object.values(contractRepositoryExportColumns) as [

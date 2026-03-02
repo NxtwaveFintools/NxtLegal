@@ -19,6 +19,7 @@ import type {
   ContractSignatoryField,
   ContractDocument,
   DashboardContractFilter,
+  DashboardContractScope,
   ContractDetail,
   ContractDetailView,
   ContractLegalMetadata,
@@ -29,6 +30,7 @@ import type {
   RepositoryExportColumn,
   RepositoryReport,
   RepositoryExportRow,
+  RepositoryExportRowsChunk,
   RepositorySortBy,
   RepositorySortDirection,
   ContractTimelineEvent,
@@ -62,10 +64,21 @@ export class ContractQueryService {
     employeeId: string
     role?: string
     filter: DashboardContractFilter
+    scope?: DashboardContractScope
     cursor?: string
     limit: number
   }): Promise<{ items: ContractListItem[]; nextCursor?: string; total: number }> {
     return this.contractRepository.getDashboardContracts(params)
+  }
+
+  async getDashboardFilterCount(params: {
+    tenantId: string
+    employeeId: string
+    role?: string
+    filter: DashboardContractFilter
+    scope?: DashboardContractScope
+  }): Promise<number> {
+    return this.contractRepository.getDashboardFilterCount(params)
   }
 
   async getActionableAdditionalApprovals(params: {
@@ -145,6 +158,24 @@ export class ContractQueryService {
     columns: RepositoryExportColumn[]
   }): Promise<RepositoryExportRow[]> {
     return this.contractRepository.listRepositoryExportRows(params)
+  }
+
+  async listRepositoryExportRowsChunk(params: {
+    tenantId: string
+    employeeId: string
+    role?: string
+    cursor?: string
+    limit: number
+    search?: string
+    status?: ContractStatus
+    repositoryStatus?: ContractRepositoryStatus
+    dateBasis?: RepositoryDateBasis
+    datePreset?: RepositoryDatePreset
+    fromDate?: string
+    toDate?: string
+    columns: RepositoryExportColumn[]
+  }): Promise<RepositoryExportRowsChunk> {
+    return this.contractRepository.listRepositoryExportRowsChunk(params)
   }
 
   async getContractDetail(params: {
