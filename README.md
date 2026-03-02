@@ -54,6 +54,14 @@ AUTH_ALLOWED_DOMAINS=yourcompany.com
 NEXT_PUBLIC_SITE_URL=http://localhost:3000
 NODE_ENV=development
 FEATURE_MICROSOFT_OAUTH=true
+
+# Zoho Sign (India DC) OAuth + Webhook
+ZOHO_SIGN_API_BASE_URL=https://sign.zoho.in/api/v1
+ZOHO_SIGN_OAUTH_BASE_URL=https://accounts.zoho.in
+ZOHO_SIGN_CLIENT_ID=your-zoho-sign-client-id
+ZOHO_SIGN_CLIENT_SECRET=your-zoho-sign-client-secret
+ZOHO_SIGN_REFRESH_TOKEN=your-zoho-sign-refresh-token
+ZOHO_SIGN_WEBHOOK_SECRET=your-zoho-sign-webhook-secret
 ```
 
 ### Database Setup
@@ -68,6 +76,14 @@ npm run seed:test-employee
 # Verify setup
 npm run test:login
 ```
+
+### Migration Governance (Mandatory)
+
+- All schema changes must be committed as SQL files in [supabase/migrations](supabase/migrations).
+- Manual DDL in Supabase Studio, SQL editor, or ad-hoc scripts is forbidden for production changes.
+- If drift is detected (`supabase_migrations.schema_migrations` contains versions not in repo), first reconstruct the exact migration SQL into version-matched files, then continue feature work.
+- Every migration must be deterministic and replayable via `npx supabase db reset` followed by `npx supabase db push`.
+- PRs that introduce schema changes without corresponding migration files are invalid.
 
 ### Start Development
 

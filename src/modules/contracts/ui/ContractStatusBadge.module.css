@@ -1,0 +1,61 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: var(--radius-pill);
+  padding: 2px 8px;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+  border: none;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+/* Neutral / Draft / Uploaded */
+.uploaded,
+.draft {
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+}
+
+/* Pending states */
+.hodPending,
+.pendingExternal {
+  background: var(--color-accent-soft);
+  color: var(--color-accent);
+}
+
+/* Under review / pending internal */
+.underReview,
+.pendingInternal {
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+}
+
+/* Offline execution */
+.offlineExecution {
+  background: var(--color-warning-soft);
+  color: var(--color-warning);
+}
+
+/* On hold */
+.onHold {
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+}
+
+/* Completed / executed */
+.completed,
+.executed {
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+
+/* Voided / rejected */
+.voided,
+.rejected {
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
+}

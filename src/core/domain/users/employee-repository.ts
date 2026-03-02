@@ -4,9 +4,12 @@ export type EmployeeRecord = {
   tenantId: string
   email: string
   fullName?: string | null
+  teamId?: string | null
+  teamName?: string | null
   isActive: boolean
   passwordHash?: string | null
   role: string
+  tokenVersion: number
   createdAt: string
   updatedAt: string
   deletedAt: string | null
@@ -25,6 +28,9 @@ export type EmployeeByEmail = {
 export interface EmployeeRepository {
   findByEmployeeId: (lookup: EmployeeLookup) => Promise<EmployeeRecord | null>
   findByEmail: (lookup: EmployeeByEmail) => Promise<EmployeeRecord | null>
+  findMappedTeamRolesByEmail: (lookup: EmployeeByEmail) => Promise<Array<'POC' | 'HOD'>>
+  hasAdditionalApproverParticipation: (lookup: EmployeeByEmail) => Promise<boolean>
+  hasActionableAdditionalApproverAssignments: (lookup: EmployeeByEmail) => Promise<boolean>
   create: (employee: Omit<EmployeeRecord, 'createdAt' | 'updatedAt' | 'deletedAt'>) => Promise<EmployeeRecord>
   softDelete: (id: string, tenantId: string) => Promise<void>
   restore: (id: string, tenantId: string) => Promise<void>

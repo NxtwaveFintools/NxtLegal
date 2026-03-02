@@ -15,7 +15,7 @@ export async function register() {
       logger.info('🚀 Starting NXT Legal CLM System...')
 
       // ✅ CRITICAL: Validate all configuration before accepting requests
-      requireValidConfiguration()
+      await requireValidConfiguration()
 
       logger.info('✅ Configuration validation passed')
       logger.info('✅ Server ready to accept requests')

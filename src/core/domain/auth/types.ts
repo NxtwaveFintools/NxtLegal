@@ -1,11 +1,15 @@
 export type AuthenticatedEmployee = {
+  id: string
   employeeId: string
-  email?: string
+  tenantId: string
+  email: string
   fullName?: string
+  role?: string
+  team?: string | null
 }
 
 export type LoginRequest = {
-  employeeId: string
+  email: string
   password: string
 }
 
@@ -15,5 +19,5 @@ export type OAuthProfile = {
 }
 
 export type AuthResult = {
-  employee: AuthenticatedEmployee
+  user: AuthenticatedEmployee
 }

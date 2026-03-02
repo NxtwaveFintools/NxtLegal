@@ -1,8 +1,10 @@
-import { createClient } from '@/lib/supabase/client'
+import 'server-only'
+
+import { createServiceSupabase } from '@/lib/supabase/service'
 import type { IIdempotencyRepository, IdempotencyRecord } from '@/core/domain/idempotency/idempotency-service'
 
 class SupabaseIdempotencyRepository implements IIdempotencyRepository {
-  private supabase = createClient()
+  private supabase = createServiceSupabase()
 
   async get(key: string, tenantId: string): Promise<IdempotencyRecord | null> {
     const { data, error } = await this.supabase
@@ -46,6 +48,27 @@ class SupabaseIdempotencyRepository implements IIdempotencyRepository {
     )
 
     if (error) throw error
+  }
+
+  async tryCreate(record: IdempotencyRecord): Promise<boolean> {
+    const { error } = await this.supabase.from('idempotency_keys').insert([
+      {
+        key: record.key,
+        tenant_id: record.tenantId,
+        response_data: record.responseData,
+        status_code: record.statusCode,
+        expires_at: record.expiresAt,
+      },
+    ])
+
+    if (error) {
+      if (error.code === '23505') {
+        return false
+      }
+      throw error
+    }
+
+    return true
   }
 
   async delete(key: string, tenantId: string): Promise<void> {

@@ -13,14 +13,23 @@ export type IdempotencyRecord = {
   createdAt?: string
 }
 
+export const IDEMPOTENCY_IN_PROGRESS_STATE = 'IN_PROGRESS' as const
+
+type ClaimResult = { status: 'claimed' } | { status: 'cached'; record: IdempotencyRecord } | { status: 'in-progress' }
+
 export interface IIdempotencyRepository {
   get(key: string, tenantId: string): Promise<IdempotencyRecord | null>
   set(record: IdempotencyRecord): Promise<void>
+  tryCreate(record: IdempotencyRecord): Promise<boolean>
   delete(key: string, tenantId: string): Promise<void>
 }
 
 export class IdempotencyService {
   constructor(private idempotencyRepository: IIdempotencyRepository) {}
+
+  private isInProgress(record: IdempotencyRecord): boolean {
+    return record.responseData.__idempotency_state === IDEMPOTENCY_IN_PROGRESS_STATE
+  }
 
   /**
    * Check if an idempotency key has been seen before
@@ -44,6 +53,40 @@ export class IdempotencyService {
     return record
   }
 
+  async claimOrGet(key: string, tenantId: string): Promise<ClaimResult> {
+    const existingRecord = await this.getIfExists(key, tenantId)
+    if (existingRecord) {
+      if (this.isInProgress(existingRecord)) {
+        return { status: 'in-progress' }
+      }
+      return { status: 'cached', record: existingRecord }
+    }
+
+    const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString()
+    const created = await this.idempotencyRepository.tryCreate({
+      key,
+      tenantId,
+      responseData: { __idempotency_state: IDEMPOTENCY_IN_PROGRESS_STATE },
+      statusCode: 409,
+      expiresAt,
+    })
+
+    if (created) {
+      return { status: 'claimed' }
+    }
+
+    const latest = await this.getIfExists(key, tenantId)
+    if (!latest) {
+      return { status: 'claimed' }
+    }
+
+    if (this.isInProgress(latest)) {
+      return { status: 'in-progress' }
+    }
+
+    return { status: 'cached', record: latest }
+  }
+
   /**
    * Store successful operation response for idempotency
    * @param key Idempotency key from client
@@ -62,5 +105,9 @@ export class IdempotencyService {
       statusCode,
       expiresAt,
     })
+  }
+
+  async releaseClaim(key: string, tenantId: string): Promise<void> {
+    await this.idempotencyRepository.delete(key, tenantId)
   }
 }

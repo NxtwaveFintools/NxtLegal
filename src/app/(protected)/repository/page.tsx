@@ -1,0 +1,18 @@
+import { getAuthenticatedEmployeeViewWithApproverHistoryAccess } from '@/core/presenters/auth-presenter'
+import RepositoryWorkspace from '@/modules/contracts/ui/RepositoryWorkspace'
+
+export default async function RepositoryPage() {
+  const session = await getAuthenticatedEmployeeViewWithApproverHistoryAccess()
+
+  return (
+    <RepositoryWorkspace
+      session={{
+        fullName: session.fullName,
+        email: session.email,
+        team: session.team,
+        role: session.role,
+        canAccessApproverHistory: session.canAccessApproverHistory,
+      }}
+    />
+  )
+}

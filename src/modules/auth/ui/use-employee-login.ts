@@ -2,83 +2,80 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { toast } from 'sonner'
 import { authClient } from '@/core/client/auth-client'
 import { authErrorMessages } from '@/core/constants/auth-errors'
 import { limits } from '@/core/constants/limits'
 import { routeRegistry } from '@/core/config/route-registry'
 
 type EmployeeLoginState = {
-  employeeId: string
+  email: string
   password: string
-  error: string
   loading: boolean
-  setEmployeeId: (value: string) => void
+  setEmail: (value: string) => void
   setPassword: (value: string) => void
   submit: () => Promise<void>
 }
 
 export const useEmployeeLogin = (): EmployeeLoginState => {
   const router = useRouter()
-  const [employeeId, setEmployeeId] = useState('')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
-  const [error, setError] = useState('')
 
   const submit = async () => {
-    setError('')
-
-    if (!employeeId.trim()) {
-      setError('Please enter your Employee ID')
+    if (!email.trim()) {
+      toast.error('Please enter your work email')
       return
     }
 
     if (!password) {
-      setError('Please enter your password')
+      toast.error('Please enter your password')
       return
     }
 
     if (password.length > limits.passwordMaxLength) {
-      setError(`Password exceeds maximum length of ${limits.passwordMaxLength} characters`)
+      toast.error(`Password exceeds maximum length of ${limits.passwordMaxLength} characters`)
       return
     }
 
     setLoading(true)
 
     try {
-      const response = await authClient.login(employeeId.toUpperCase(), password)
+      const response = await authClient.login(email.trim().toLowerCase(), password)
 
       if (!response || typeof response.ok !== 'boolean') {
-        setError(authErrorMessages.auth_failed)
-        setLoading(false)
+        toast.error(authErrorMessages.auth_failed)
         return
       }
 
       if (!response.ok) {
-        setError(response.error?.message ?? authErrorMessages.auth_failed)
-        setLoading(false)
+        const message = response.error?.message ?? authErrorMessages.auth_failed
+        toast.error(message)
         return
       }
 
-      if (!response.data?.employee?.employeeId) {
-        setError(authErrorMessages.auth_failed)
-        setLoading(false)
+      if (!response.data?.user?.email) {
+        toast.error(authErrorMessages.auth_failed)
         return
       }
 
+      toast.success('Login successful')
       router.push(routeRegistry.protected.dashboard)
       router.refresh()
-    } catch {
-      setError(authErrorMessages.auth_failed)
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : authErrorMessages.auth_failed
+      toast.error(errorMessage)
+    } finally {
       setLoading(false)
     }
   }
 
   return {
-    employeeId,
+    email,
     password,
-    error,
     loading,
-    setEmployeeId,
+    setEmail,
     setPassword,
     submit,
   }

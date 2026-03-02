@@ -17,6 +17,8 @@ const eslintConfig = defineConfig([
     // Jest configuration (requires CommonJS)
     'jest.config.js',
     'jest.setup.js',
+    // Playwright E2E tests (have their own tsconfig)
+    'tests/e2e/**',
   ]),
 ])
 

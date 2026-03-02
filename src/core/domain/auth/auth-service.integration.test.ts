@@ -6,8 +6,8 @@
 import { describe, it, expect, beforeEach, afterEach, jest } from '@jest/globals'
 import { AuthService } from './auth-service'
 import { createClient } from '@supabase/supabase-js'
-import type { Database } from '@/types/database'
 import { envServer } from '@/core/config/env.server'
+import type { Database } from '@/types/database'
 import { hashPassword } from '@/lib/auth/password'
 import { authErrorCodes } from '@/core/constants/auth-errors'
 import { DEFAULT_TENANT_ID } from '@/core/constants/tenants'
@@ -26,7 +26,7 @@ const mockLogger: Logger = {
 describe('AuthService Integration Tests', () => {
   let authService: AuthService
   let supabaseClient: ReturnType<typeof createClient<Database>>
-  let testEmployeeId: string
+  let testUserId: string
   let testEmail: string
 
   beforeEach(async () => {
@@ -42,9 +42,9 @@ describe('AuthService Integration Tests', () => {
     const employeeRepository = {
       findByEmployeeId: async ({ employeeId, tenantId }: { employeeId: string; tenantId: string }) => {
         const { data, error } = await supabaseClient
-          .from('employees')
+          .from('users')
           .select('*')
-          .eq('employee_id', employeeId)
+          .eq('id', employeeId)
           .eq('tenant_id', tenantId)
           .is('deleted_at', null)
           .single()
@@ -53,12 +53,13 @@ describe('AuthService Integration Tests', () => {
         const record = (data || {}) as Record<string, unknown>
         return {
           id: record.id as string,
-          employeeId: record.employee_id as string,
+          employeeId: record.id as string,
           email: record.email as string,
           fullName: record.full_name as string,
           passwordHash: (record.password_hash as string) || null,
           isActive: record.is_active as boolean,
           role: record.role as string,
+          tokenVersion: (record.token_version as number) ?? 0,
           tenantId: record.tenant_id as string,
           createdAt: (record.created_at as string) || new Date().toISOString(),
           updatedAt: (record.updated_at as string) || new Date().toISOString(),
@@ -68,7 +69,7 @@ describe('AuthService Integration Tests', () => {
 
       findByEmail: async ({ email, tenantId }: { email: string; tenantId: string }) => {
         const { data, error } = await supabaseClient
-          .from('employees')
+          .from('users')
           .select('*')
           .eq('email', email)
           .eq('tenant_id', tenantId)
@@ -79,12 +80,13 @@ describe('AuthService Integration Tests', () => {
         const record = (data || {}) as Record<string, unknown>
         return {
           id: record.id as string,
-          employeeId: record.employee_id as string,
+          employeeId: record.id as string,
           email: record.email as string,
           fullName: record.full_name as string,
           passwordHash: (record.password_hash as string) || null,
           isActive: record.is_active as boolean,
           role: record.role as string,
+          tokenVersion: (record.token_version as number) ?? 0,
           tenantId: record.tenant_id as string,
           createdAt: (record.created_at as string) || new Date().toISOString(),
           updatedAt: (record.updated_at as string) || new Date().toISOString(),
@@ -92,19 +94,43 @@ describe('AuthService Integration Tests', () => {
         }
       },
 
+      findMappedTeamRolesByEmail: async ({ email, tenantId }: { email: string; tenantId: string }) => {
+        const normalizedEmail = email.trim().toLowerCase()
+        const { data } = await supabaseClient
+          .from('team_role_mappings')
+          .select('role_type')
+          .eq('tenant_id', tenantId)
+          .eq('email', normalizedEmail)
+          .eq('active_flag', true)
+          .is('deleted_at', null)
+
+        const roleSet = new Set<'POC' | 'HOD'>()
+        for (const row of (data ?? []) as Array<{ role_type: string }>) {
+          if (row.role_type === 'POC' || row.role_type === 'HOD') {
+            roleSet.add(row.role_type)
+          }
+        }
+
+        return Array.from(roleSet)
+      },
+
+      hasAdditionalApproverParticipation: async () => false,
+
+      hasActionableAdditionalApproverAssignments: async () => false,
+
       create: async (
         employee: Omit<EmployeeRecord, 'createdAt' | 'updatedAt' | 'deletedAt'>
       ): Promise<EmployeeRecord> => {
         const { data, error } = await supabaseClient
-          .from('employees')
+          .from('users')
           .insert({
             id: employee.id,
-            employee_id: employee.employeeId,
             email: employee.email,
             tenant_id: employee.tenantId,
             full_name: employee.fullName,
             is_active: employee.isActive,
             role: employee.role,
+            token_version: employee.tokenVersion,
             password_hash: employee.passwordHash,
           })
           .select()
@@ -113,12 +139,13 @@ describe('AuthService Integration Tests', () => {
         // data is now properly typed as employees.Row | null
         return {
           id: data!.id as string,
-          employeeId: data!.employee_id as string,
+          employeeId: data!.id as string,
           email: data!.email as string,
           fullName: data!.full_name as string,
           passwordHash: (data!.password_hash as string) || null,
           isActive: data!.is_active as boolean,
           role: data!.role as string,
+          tokenVersion: (data!.token_version as number) ?? 0,
           tenantId: data!.tenant_id as string,
           createdAt: (data!.created_at as string) || new Date().toISOString(),
           updatedAt: (data!.updated_at as string) || new Date().toISOString(),
@@ -135,14 +162,14 @@ describe('AuthService Integration Tests', () => {
 
     // Generate unique test identifiers
     const timestamp = Date.now()
-    testEmployeeId = `TEST${timestamp}`
-    testEmail = `test${timestamp}@example.com`
+    testUserId = crypto.randomUUID()
+    testEmail = `test${timestamp}@nxtwave.co.in`
   })
 
   afterEach(async () => {
     // Cleanup: Delete test employee if created
-    if (testEmployeeId) {
-      await supabaseClient.from('employees').delete().eq('employee_id', testEmployeeId)
+    if (testEmail) {
+      await supabaseClient.from('users').delete().eq('email', testEmail)
     }
   })
 
@@ -150,20 +177,20 @@ describe('AuthService Integration Tests', () => {
     it('should successfully login with valid credentials', async () => {
       // Arrange: Create test employee
       const passwordHash = await hashPassword('TestPassword123!')
-      await supabaseClient.from('employees').insert({
-        id: crypto.randomUUID(),
-        employee_id: testEmployeeId,
+      await supabaseClient.from('users').insert({
+        id: testUserId,
         email: testEmail,
         tenant_id: DEFAULT_TENANT_ID,
         full_name: 'Test Employee',
         is_active: true,
-        role: 'viewer',
+        role: 'POC',
+        token_version: 0,
         password_hash: passwordHash,
       })
       // Act: Attempt login
       const result = await authService.loginWithPassword(
         {
-          employeeId: testEmployeeId.toLowerCase(), // Test case-insensitive
+          email: testEmail.toUpperCase(),
           password: 'TestPassword123!',
         },
         DEFAULT_TENANT_ID
@@ -171,22 +198,22 @@ describe('AuthService Integration Tests', () => {
 
       // Assert
       expect(result).toBeDefined()
-      expect(result.employee.employeeId).toBe(testEmployeeId)
-      expect(result.employee.email).toBe(testEmail)
+      expect(result.user.email).toBe(testEmail)
+      expect(result.user.role).toBe('POC')
       expect(mockLogger.debug).toHaveBeenCalled()
     })
 
     it('should reject login with incorrect password', async () => {
       // Arrange: Create test employee
       const passwordHash = await hashPassword('CorrectPassword123!')
-      await supabaseClient.from('employees').insert({
+      await supabaseClient.from('users').insert({
         id: crypto.randomUUID(),
-        employee_id: testEmployeeId,
         email: testEmail,
         tenant_id: DEFAULT_TENANT_ID,
         full_name: 'Test Employee',
         is_active: true,
-        role: 'viewer',
+        role: 'POC',
+        token_version: 0,
         password_hash: passwordHash,
       })
 
@@ -194,7 +221,7 @@ describe('AuthService Integration Tests', () => {
       await expect(
         authService.loginWithPassword(
           {
-            employeeId: testEmployeeId,
+            email: testEmail,
             password: 'WrongPassword123!',
           },
           DEFAULT_TENANT_ID
@@ -205,21 +232,21 @@ describe('AuthService Integration Tests', () => {
     it('should reject login for inactive account', async () => {
       // Arrange: Create inactive test employee
       const passwordHash = await hashPassword('TestPassword123!')
-      await supabaseClient.from('employees').insert({
+      await supabaseClient.from('users').insert({
         id: crypto.randomUUID(),
-        employee_id: testEmployeeId,
         email: testEmail,
         tenant_id: DEFAULT_TENANT_ID,
         full_name: 'Test Employee',
         is_active: false, // Inactive account
-        role: 'viewer',
+        role: 'POC',
+        token_version: 0,
         password_hash: passwordHash,
       })
       // Act & Assert: Should throw authorization error
       await expect(
         authService.loginWithPassword(
           {
-            employeeId: testEmployeeId,
+            email: testEmail,
             password: 'TestPassword123!',
           },
           DEFAULT_TENANT_ID
@@ -229,14 +256,14 @@ describe('AuthService Integration Tests', () => {
 
     it('should reject login for OAuth-only account (no password)', async () => {
       // Arrange: Create OAuth-only employee (no password hash)
-      await supabaseClient.from('employees').insert({
+      await supabaseClient.from('users').insert({
         id: crypto.randomUUID(),
-        employee_id: testEmployeeId,
         email: testEmail,
         tenant_id: DEFAULT_TENANT_ID,
         full_name: 'Test Employee',
         is_active: true,
-        role: 'viewer',
+        role: 'POC',
+        token_version: 0,
         password_hash: null, // No password set (OAuth only)
       })
 
@@ -244,7 +271,7 @@ describe('AuthService Integration Tests', () => {
       await expect(
         authService.loginWithPassword(
           {
-            employeeId: testEmployeeId,
+            email: testEmail,
             password: 'AnyPassword123!',
           },
           DEFAULT_TENANT_ID
@@ -263,14 +290,14 @@ describe('AuthService Integration Tests', () => {
         name: 'Test Tenant',
       })
 
-      await supabaseClient.from('employees').insert({
+      await supabaseClient.from('users').insert({
         id: crypto.randomUUID(),
-        employee_id: testEmployeeId,
         email: testEmail,
         tenant_id: otherTenantId, // Different tenant
         full_name: 'Test Employee',
         is_active: true,
-        role: 'viewer',
+        role: 'POC',
+        token_version: 0,
         password_hash: passwordHash,
       })
 
@@ -278,7 +305,7 @@ describe('AuthService Integration Tests', () => {
       await expect(
         authService.loginWithPassword(
           {
-            employeeId: testEmployeeId,
+            email: testEmail,
             password: 'TestPassword123!',
           },
           DEFAULT_TENANT_ID // Wrong tenant
@@ -293,7 +320,7 @@ describe('AuthService Integration Tests', () => {
       await expect(
         authService.loginWithPassword(
           {
-            employeeId: '',
+            email: '',
             password: 'password',
           },
           DEFAULT_TENANT_ID
@@ -303,7 +330,7 @@ describe('AuthService Integration Tests', () => {
       await expect(
         authService.loginWithPassword(
           {
-            employeeId: 'TEST123',
+            email: testEmail,
             password: '',
           },
           DEFAULT_TENANT_ID
@@ -313,7 +340,68 @@ describe('AuthService Integration Tests', () => {
   })
 
   describe('loginWithOAuth', () => {
+    it('should reject unmapped OAuth login for non-admin user', async () => {
+      await supabaseClient.from('users').insert({
+        id: testUserId,
+        email: testEmail,
+        tenant_id: DEFAULT_TENANT_ID,
+        full_name: 'Unmapped OAuth User',
+        is_active: true,
+        role: 'USER',
+        token_version: 0,
+        password_hash: null,
+      })
+
+      await expect(
+        authService.loginWithOAuth(
+          {
+            email: testEmail,
+            name: 'Unmapped OAuth User',
+          },
+          DEFAULT_TENANT_ID
+        )
+      ).rejects.toThrow(AuthorizationError)
+    })
+
+    it('should allow existing admin OAuth login without mapping', async () => {
+      await supabaseClient.from('users').insert({
+        id: testUserId,
+        email: testEmail,
+        tenant_id: DEFAULT_TENANT_ID,
+        full_name: 'Existing Admin OAuth',
+        is_active: true,
+        role: 'ADMIN',
+        token_version: 0,
+        password_hash: null,
+      })
+
+      const result = await authService.loginWithOAuth(
+        {
+          email: testEmail,
+          name: 'Existing Admin OAuth',
+        },
+        DEFAULT_TENANT_ID
+      )
+
+      expect(result.user.role).toBe('ADMIN')
+      expect(result.user.email).toBe(testEmail)
+    })
+
     it('should create new employee on first OAuth login', async () => {
+      const oauthTeamId = crypto.randomUUID()
+      await supabaseClient.from('teams').insert({
+        id: oauthTeamId,
+        tenant_id: DEFAULT_TENANT_ID,
+        name: `OAuth Team ${Date.now()}`,
+      })
+      await supabaseClient.from('team_role_mappings').insert({
+        tenant_id: DEFAULT_TENANT_ID,
+        team_id: oauthTeamId,
+        email: testEmail,
+        role_type: 'POC',
+        active_flag: true,
+      })
+
       // Arrange: OAuth profile for new user
       const oauthProfile = {
         email: testEmail,
@@ -325,12 +413,12 @@ describe('AuthService Integration Tests', () => {
 
       // Assert
       expect(result).toBeDefined()
-      expect(result.employee.email).toBe(testEmail)
-      expect(result.employee.fullName).toBe('Test OAuth User')
+      expect(result.user.email).toBe(testEmail)
+      expect(result.user.fullName).toBe('Test OAuth User')
 
       // Verify employee was created in database
       const { data } = await supabaseClient
-        .from('employees')
+        .from('users')
         .select('*')
         .eq('email', testEmail)
         .eq('tenant_id', DEFAULT_TENANT_ID)
@@ -340,21 +428,32 @@ describe('AuthService Integration Tests', () => {
       const record = (data || {}) as Record<string, unknown>
       expect(record?.password_hash).toBeNull() // OAuth users don't have passwords
       expect(record?.is_active).toBe(true)
-
-      // Set testEmployeeId for cleanup
-      testEmployeeId = (record?.employee_id as string) || testEmployeeId
     })
 
     it('should login existing OAuth user', async () => {
+      const oauthTeamId = crypto.randomUUID()
+      await supabaseClient.from('teams').insert({
+        id: oauthTeamId,
+        tenant_id: DEFAULT_TENANT_ID,
+        name: `OAuth Existing Team ${Date.now()}`,
+      })
+      await supabaseClient.from('team_role_mappings').insert({
+        tenant_id: DEFAULT_TENANT_ID,
+        team_id: oauthTeamId,
+        email: testEmail,
+        role_type: 'POC',
+        active_flag: true,
+      })
+
       // Arrange: Create existing OAuth employee
-      await supabaseClient.from('employees').insert({
-        id: crypto.randomUUID(),
-        employee_id: testEmployeeId,
+      await supabaseClient.from('users').insert({
+        id: testUserId,
         email: testEmail,
         tenant_id: DEFAULT_TENANT_ID,
         full_name: 'Existing OAuth User',
         is_active: true,
-        role: 'https://nxt-legal.example.com',
+        role: 'POC',
+        token_version: 0,
         password_hash: null, // OAuth user
       })
 
@@ -368,20 +467,34 @@ describe('AuthService Integration Tests', () => {
 
       // Assert
       expect(result).toBeDefined()
-      expect(result.employee.email).toBe(testEmail)
-      expect(result.employee.employeeId).toBe(testEmployeeId)
+      expect(result.user.email).toBe(testEmail)
+      expect(result.user.employeeId).toBe(testUserId)
     })
 
     it('should reject OAuth login for inactive account', async () => {
+      const oauthTeamId = crypto.randomUUID()
+      await supabaseClient.from('teams').insert({
+        id: oauthTeamId,
+        tenant_id: DEFAULT_TENANT_ID,
+        name: `OAuth Inactive Team ${Date.now()}`,
+      })
+      await supabaseClient.from('team_role_mappings').insert({
+        tenant_id: DEFAULT_TENANT_ID,
+        team_id: oauthTeamId,
+        email: testEmail,
+        role_type: 'POC',
+        active_flag: true,
+      })
+
       // Arrange: Create inactive OAuth employee
-      await supabaseClient.from('employees').insert({
+      await supabaseClient.from('users').insert({
         id: crypto.randomUUID(),
-        employee_id: testEmployeeId,
         email: testEmail,
         tenant_id: DEFAULT_TENANT_ID,
         full_name: 'Inactive OAuth User',
         is_active: false, // Inactive
-        role: 'viewer',
+        role: 'POC',
+        token_version: 0,
         password_hash: null,
       })
 
