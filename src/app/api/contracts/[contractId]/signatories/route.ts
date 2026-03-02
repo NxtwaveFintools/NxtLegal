@@ -54,7 +54,7 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
 
     if (
       error instanceof Error &&
-      (error.message.includes('DocuSign config is incomplete') || error.message.includes('Brevo config is incomplete'))
+      (error.message.includes('Zoho Sign config is incomplete') || error.message.includes('Brevo config is incomplete'))
     ) {
       return NextResponse.json(
         errorResponse('SIGNATORY_PROVIDER_NOT_CONFIGURED', 'Signatory provider integration is not configured'),

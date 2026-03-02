@@ -29,7 +29,7 @@ import { supabaseTeamGovernanceRepository } from '@/core/infra/repositories/supa
 import { supabaseSystemConfigurationRepository } from '@/core/infra/repositories/supabase-system-configuration-repository'
 import { supabaseAdminAuditViewerRepository } from '@/core/infra/repositories/supabase-admin-audit-viewer-repository'
 import { logger } from '@/core/infra/logging/logger'
-import { DocusignClient } from '@/core/infra/integrations/docusign/docusign-client'
+import { ZohoSignClient } from '@/core/infra/integrations/zoho-sign/zoho-sign-client'
 import { BrevoSmtpSender } from '@/core/infra/integrations/email/brevo-smtp-sender'
 import { appConfig } from '@/core/config/app-config'
 import type { EmployeeRepository } from '@/core/domain/users/employee-repository'
@@ -108,18 +108,11 @@ export function getContractSignatoryService(): ContractSignatoryService {
   const shouldRefreshInDev = process.env.NODE_ENV !== 'production'
 
   if (!contractSignatoryService || shouldRefreshInDev) {
-    const docusignConfig = appConfig.docusign
+    const zohoSignConfig = appConfig.zohoSign
     const mailConfig = appConfig.mail
 
-    if (
-      !docusignConfig.authBaseUrl ||
-      !docusignConfig.apiBaseUrl ||
-      !docusignConfig.accountId ||
-      !docusignConfig.userId ||
-      !docusignConfig.integrationKey ||
-      !docusignConfig.rsaPrivateKey
-    ) {
-      throw new Error('DocuSign config is incomplete. Please set required DOCUSIGN_* environment variables.')
+    if (!zohoSignConfig.apiBaseUrl || !zohoSignConfig.accessToken || !zohoSignConfig.webhookSecret) {
+      throw new Error('Zoho Sign config is incomplete. Please set required ZOHO_SIGN_* environment variables.')
     }
 
     const apiKey = typeof mailConfig.brevoApiKey === 'string' ? mailConfig.brevoApiKey.trim() : ''
@@ -139,13 +132,9 @@ export function getContractSignatoryService(): ContractSignatoryService {
       mailConfig.fromEmail
     )
 
-    const docusignClient = new DocusignClient({
-      authBaseUrl: docusignConfig.authBaseUrl,
-      apiBaseUrl: docusignConfig.apiBaseUrl,
-      accountId: docusignConfig.accountId,
-      userId: docusignConfig.userId,
-      integrationKey: docusignConfig.integrationKey,
-      rsaPrivateKey: docusignConfig.rsaPrivateKey,
+    const zohoSignClient = new ZohoSignClient({
+      apiBaseUrl: zohoSignConfig.apiBaseUrl,
+      accessToken: zohoSignConfig.accessToken,
     })
 
     const isProduction = process.env.NODE_ENV === 'production'
@@ -193,7 +182,7 @@ export function getContractSignatoryService(): ContractSignatoryService {
       getContractUploadService(),
       supabaseContractRepository,
       supabaseContractStorageRepository,
-      docusignClient,
+      zohoSignClient,
       brevoSmtpSender,
       {
         signatoryLinkTemplateId,

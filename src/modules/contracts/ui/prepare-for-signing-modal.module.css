@@ -181,9 +181,19 @@
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  position: relative;
   background: var(--color-surface-muted);
   padding: 12px;
+}
+
+.pageSurface {
+  position: relative;
+  display: inline-block;
+  line-height: 0;
+}
+
+.pageRender {
+  position: relative;
+  display: inline-block;
 }
 
 .placeholder {
@@ -197,15 +207,18 @@
 
 .fieldChip {
   position: absolute;
-  transform: translate(-50%, -50%);
   border: 1px solid var(--color-accent);
   border-radius: var(--radius-sm);
   background: var(--color-accent-soft);
   color: var(--color-accent);
   font-size: 10px;
   font-weight: 700;
-  padding: 2px 6px;
+  padding: 2px 4px;
   cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
 }
 
 .reviewBox {

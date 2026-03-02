@@ -341,13 +341,28 @@ export const contractSignatorySchema = z
     })
   })
 
-export const docusignWebhookSchema = z.object({
-  envelopeId: z.string().trim().min(1, 'Envelope ID is required'),
-  recipientEmail: z.string().trim().toLowerCase().email('Valid recipient email is required').optional(),
-  status: z.string().trim().min(1, 'Status is required'),
-  signedAt: z.string().datetime().optional(),
-  eventId: z.string().trim().min(1).optional(),
-  signerIp: z.string().trim().min(1).optional(),
+export const zohoSignWebhookSchema = z.object({
+  notifications: z.object({
+    operation_type: z.string().trim().min(1, 'Operation type is required'),
+    action_id: z.string().trim().min(1).optional(),
+    performed_by_email: z.string().trim().optional(),
+    performed_at: z.coerce.number().int().optional(),
+    ip_address: z.string().trim().min(1).optional(),
+  }),
+  requests: z.object({
+    request_id: z.string().trim().min(1, 'Request ID is required'),
+    request_status: z.string().trim().optional(),
+    action_time: z.coerce.number().int().optional(),
+    actions: z
+      .array(
+        z.object({
+          action_id: z.string().trim().min(1).optional(),
+          recipient_email: z.string().trim().toLowerCase().email('Valid signer email is required'),
+          action_status: z.string().trim().optional(),
+        })
+      )
+      .optional(),
+  }),
 })
 
 export type ContractActionName = (typeof contractActionNames)[number]

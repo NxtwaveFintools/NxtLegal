@@ -49,6 +49,15 @@ type PreflightCheck = {
 const fieldPalette: FieldType[] = ['SIGNATURE', 'INITIAL', 'STAMP', 'NAME', 'DATE', 'TIME', 'TEXT']
 
 const createDraftId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`
+const fieldDimensionsByType: Record<FieldType, { width: number; height: number }> = {
+  SIGNATURE: { width: 12, height: 4 },
+  INITIAL: { width: 12, height: 4 },
+  STAMP: { width: 12, height: 4 },
+  NAME: { width: 12, height: 4 },
+  DATE: { width: 12, height: 4 },
+  TIME: { width: 12, height: 4 },
+  TEXT: { width: 12, height: 4 },
+}
 
 export default function PrepareForSigningModal({
   isOpen,
@@ -68,8 +77,13 @@ export default function PrepareForSigningModal({
   const [selectedRecipientEmail, setSelectedRecipientEmail] = useState('')
   const [recipients, setRecipients] = useState<DraftRecipient[]>([])
   const [fields, setFields] = useState<DraftField[]>([])
+  const [pageMetricsByNumber, setPageMetricsByNumber] = useState<Record<number, { width: number; height: number }>>({})
+  const [pageRenderBoxByNumber, setPageRenderBoxByNumber] = useState<
+    Record<number, { widthPx: number; heightPx: number }>
+  >({})
 
-  const pageContainerRef = useRef<HTMLDivElement | null>(null)
+  const pageSurfaceRef = useRef<HTMLDivElement | null>(null)
+  const pageRenderRef = useRef<HTMLDivElement | null>(null)
 
   const isLocked = contractStatus === contractStatuses.pendingExternal
   const canEdit = !isLocked && !isSending
@@ -214,6 +228,42 @@ export default function PrepareForSigningModal({
 
   const blockingPreflightChecks = preflightChecks.filter((check) => !check.isReady)
 
+  const getPageMetrics = (pageNumber: number) => pageMetricsByNumber[pageNumber]
+  const getPageRenderBox = (pageNumber: number) => pageRenderBoxByNumber[pageNumber]
+
+  const measureRenderBox = (pageNumber: number) => {
+    const el = pageRenderRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    setPageRenderBoxByNumber((current) => ({
+      ...current,
+      [pageNumber]: { widthPx: rect.width, heightPx: rect.height },
+    }))
+  }
+
+  const normalizeFieldToPoints = (field: DraftField): DraftField => {
+    const pageNumber = field.pageNumber ?? 1
+    const metrics = getPageMetrics(pageNumber)
+    if (!metrics || typeof field.xPosition !== 'number' || typeof field.yPosition !== 'number') {
+      return field
+    }
+
+    // If the value looks like a percentage (<= 100), convert it to PDF-space points using page metrics.
+    const isPercent = field.xPosition <= 100 && field.yPosition <= 100
+    if (!isPercent) {
+      return field
+    }
+
+    const x = (field.xPosition / 100) * metrics.width
+    const y = (field.yPosition / 100) * metrics.height
+
+    return {
+      ...field,
+      xPosition: Number(x.toFixed(2)),
+      yPosition: Number(y.toFixed(2)),
+    }
+  }
+
   const fieldsForCurrentPage = useMemo(
     () => fields.filter((field) => (field.pageNumber ?? 1) === currentPage),
     [currentPage, fields]
@@ -301,14 +351,23 @@ export default function PrepareForSigningModal({
       return
     }
 
-    const container = pageContainerRef.current
-    if (!container) {
+    const pageSurface = pageSurfaceRef.current
+    if (!pageSurface) {
       return
     }
 
-    const rect = container.getBoundingClientRect()
-    const x = ((event.clientX - rect.left) / rect.width) * 100
-    const y = ((event.clientY - rect.top) / rect.height) * 100
+    const renderBox = getPageRenderBox(currentPage)
+    const metrics = getPageMetrics(currentPage)
+    const rect = pageRenderRef.current?.getBoundingClientRect()
+
+    if (!renderBox || !metrics || !rect) {
+      return
+    }
+
+    const clickX = event.clientX - rect.left
+    const clickY = event.clientY - rect.top
+    const xInPdfSpace = (Math.max(0, Math.min(renderBox.widthPx, clickX)) / renderBox.widthPx) * metrics.width
+    const yInPdfSpace = (Math.max(0, Math.min(renderBox.heightPx, clickY)) / renderBox.heightPx) * metrics.height
 
     setFields((current) => [
       ...current,
@@ -316,11 +375,38 @@ export default function PrepareForSigningModal({
         id: createDraftId(),
         fieldType: selectedFieldType,
         pageNumber: currentPage,
-        xPosition: Number(x.toFixed(2)),
-        yPosition: Number(y.toFixed(2)),
+        xPosition: Number(xInPdfSpace.toFixed(2)),
+        yPosition: Number(yInPdfSpace.toFixed(2)),
         assignedSignerEmail: activeRecipientEmail.trim().toLowerCase(),
       },
     ])
+  }
+
+  const resolveFieldChipStyle = (field: DraftField): { left: string; top: string; width: string; height: string } => {
+    const pageNumber = field.pageNumber ?? 1
+    const metrics = getPageMetrics(pageNumber)
+    const x = field.xPosition ?? 0
+    const y = field.yPosition ?? 0
+    const dimensions = fieldDimensionsByType[field.fieldType]
+
+    if (!metrics) {
+      return {
+        left: `${Math.max(0, Math.min(100, x))}%`,
+        top: `${Math.max(0, Math.min(100, y))}%`,
+        width: `${dimensions.width}%`,
+        height: `${dimensions.height}%`,
+      }
+    }
+
+    const left = (x / metrics.width) * 100
+    const top = (y / metrics.height) * 100
+
+    return {
+      left: `${Math.max(0, Math.min(100, left))}%`,
+      top: `${Math.max(0, Math.min(100, top))}%`,
+      width: `${dimensions.width}%`,
+      height: `${dimensions.height}%`,
+    }
   }
 
   const handleSaveDraft = async () => {
@@ -336,6 +422,8 @@ export default function PrepareForSigningModal({
 
     setIsSavingDraft(true)
 
+    const normalizedFields = fields.map(normalizeFieldToPoints)
+
     const draftPayload = {
       recipients: recipients.map((recipient) => ({
         name: recipient.name.trim(),
@@ -343,7 +431,7 @@ export default function PrepareForSigningModal({
         recipient_type: recipient.recipientType,
         routing_order: recipient.routingOrder,
       })),
-      fields: fields.map((field) => ({
+      fields: normalizedFields.map((field) => ({
         field_type: field.fieldType,
         page_number: field.pageNumber,
         x_position: field.xPosition,
@@ -381,6 +469,8 @@ export default function PrepareForSigningModal({
 
     setIsSending(true)
 
+    const normalizedFields = fields.map(normalizeFieldToPoints)
+
     const draftPayload = {
       recipients: recipients.map((recipient) => ({
         name: recipient.name.trim(),
@@ -388,7 +478,7 @@ export default function PrepareForSigningModal({
         recipient_type: recipient.recipientType,
         routing_order: recipient.routingOrder,
       })),
-      fields: fields.map((field) => ({
+      fields: normalizedFields.map((field) => ({
         field_type: field.fieldType,
         page_number: field.pageNumber,
         x_position: field.xPosition,
@@ -563,44 +653,62 @@ export default function PrepareForSigningModal({
               </button>
             </div>
 
-            <div ref={pageContainerRef} className={styles.pageContainer} onClick={handlePageClick}>
+            <div className={styles.pageContainer}>
               {isLoadingDraft ? (
                 <div className={styles.placeholder}>Loading draft…</div>
               ) : (
-                <Document
-                  file={pdfUrl}
-                  loading={<div className={styles.placeholder}>Loading PDF…</div>}
-                  error={<div className={styles.placeholder}>Unable to preview PDF</div>}
-                  onLoadSuccess={(result) => {
-                    setNumPages(result.numPages)
-                    setCurrentPage((page) => Math.min(page, result.numPages))
-                  }}
-                >
-                  <Page pageNumber={currentPage} renderTextLayer={false} renderAnnotationLayer={false} width={720} />
-                </Document>
-              )}
+                <div ref={pageSurfaceRef} className={styles.pageSurface} onClick={handlePageClick}>
+                  <Document
+                    file={pdfUrl}
+                    loading={<div className={styles.placeholder}>Loading PDF…</div>}
+                    error={<div className={styles.placeholder}>Unable to preview PDF</div>}
+                    onLoadSuccess={(result) => {
+                      setNumPages(result.numPages)
+                      setCurrentPage((page) => Math.min(page, result.numPages))
+                    }}
+                  >
+                    <div ref={pageRenderRef} className={styles.pageRender}>
+                      <Page
+                        pageNumber={currentPage}
+                        renderTextLayer={false}
+                        renderAnnotationLayer={false}
+                        width={720}
+                        onLoadSuccess={(page) => {
+                          const viewport = page.getViewport({ scale: 1 })
+                          setPageMetricsByNumber((current) => ({
+                            ...current,
+                            [currentPage]: {
+                              width: viewport.width,
+                              height: viewport.height,
+                            },
+                          }))
 
-              {fieldsForCurrentPage.map((field) => (
-                <button
-                  key={field.id}
-                  type="button"
-                  className={styles.fieldChip}
-                  style={{
-                    left: `${field.xPosition ?? 0}%`,
-                    top: `${field.yPosition ?? 0}%`,
-                  }}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    if (!canEdit) {
-                      return
-                    }
-                    setFields((current) => current.filter((item) => item.id !== field.id))
-                  }}
-                  title={`${field.fieldType} → ${field.assignedSignerEmail}`}
-                >
-                  {field.fieldType}
-                </button>
-              ))}
+                          requestAnimationFrame(() => measureRenderBox(currentPage))
+                        }}
+                      />
+                    </div>
+                  </Document>
+
+                  {fieldsForCurrentPage.map((field) => (
+                    <button
+                      key={field.id}
+                      type="button"
+                      className={styles.fieldChip}
+                      style={resolveFieldChipStyle(field)}
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        if (!canEdit) {
+                          return
+                        }
+                        setFields((current) => current.filter((item) => item.id !== field.id))
+                      }}
+                      title={`${field.fieldType} → ${field.assignedSignerEmail}`}
+                    >
+                      {field.fieldType}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           </main>
         </div>

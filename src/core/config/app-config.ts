@@ -44,17 +44,13 @@ const requireConfigGroup = (params: {
   return params.values
 }
 
-const docusignConfig = requireConfigGroup({
+const zohoSignConfig = requireConfigGroup({
   enabled: featureFlags.enableContractWorkflow,
-  groupName: 'DocuSign',
+  groupName: 'Zoho Sign',
   values: {
-    DOCUSIGN_AUTH_BASE_URL: envServer.docusignAuthBaseUrl,
-    DOCUSIGN_API_BASE_URL: envServer.docusignApiBaseUrl,
-    DOCUSIGN_ACCOUNT_ID: envServer.docusignAccountId,
-    DOCUSIGN_USER_ID: envServer.docusignUserId,
-    DOCUSIGN_INTEGRATION_KEY: envServer.docusignIntegrationKey,
-    DOCUSIGN_RSA_PRIVATE_KEY: envServer.docusignRsaPrivateKey,
-    DOCUSIGN_CONNECT_KEY: envServer.docusignConnectKey,
+    ZOHO_SIGN_API_BASE_URL: envServer.zohoSignApiBaseUrl,
+    ZOHO_SIGN_ACCESS_TOKEN: envServer.zohoSignAccessToken,
+    ZOHO_SIGN_WEBHOOK_SECRET: envServer.zohoSignWebhookSecret,
   },
 })
 
@@ -94,14 +90,10 @@ export const appConfig = {
   security: {
     jwtSecretKey: envServer.jwtSecretKey,
   },
-  docusign: {
-    authBaseUrl: docusignConfig.DOCUSIGN_AUTH_BASE_URL,
-    apiBaseUrl: docusignConfig.DOCUSIGN_API_BASE_URL,
-    accountId: docusignConfig.DOCUSIGN_ACCOUNT_ID,
-    userId: docusignConfig.DOCUSIGN_USER_ID,
-    integrationKey: docusignConfig.DOCUSIGN_INTEGRATION_KEY,
-    rsaPrivateKey: docusignConfig.DOCUSIGN_RSA_PRIVATE_KEY,
-    connectKey: docusignConfig.DOCUSIGN_CONNECT_KEY,
+  zohoSign: {
+    apiBaseUrl: zohoSignConfig.ZOHO_SIGN_API_BASE_URL,
+    accessToken: zohoSignConfig.ZOHO_SIGN_ACCESS_TOKEN,
+    webhookSecret: zohoSignConfig.ZOHO_SIGN_WEBHOOK_SECRET,
   },
   mail: {
     brevoApiBaseUrl: envServer.brevoApiBaseUrl ?? 'https://api.brevo.com/v3',

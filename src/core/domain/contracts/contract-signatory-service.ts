@@ -1,4 +1,5 @@
 import { AuthorizationError, BusinessRuleError, ExternalServiceError } from '@/core/http/errors'
+import { createSignatoryLinkToken } from '@/core/infra/security/signatory-link-token'
 import {
   contractNotificationChannels,
   contractNotificationPolicy,
@@ -208,7 +209,7 @@ export class ContractSignatoryService {
         returnUrl: `${this.appSiteUrl}/contracts/${params.contractId}`,
       })
     } catch (error) {
-      throw new ExternalServiceError('DOCUSIGN', 'Failed to create DocuSign envelope', error as Error)
+      throw new ExternalServiceError('DOCUSIGN', 'Failed to create Zoho Sign request', error as Error)
     }
 
     if (!envelope?.envelopeId) {
@@ -219,34 +220,14 @@ export class ContractSignatoryService {
       (envelope.recipients ?? []).map((recipient) => [recipient.email, recipient])
     )
 
-    for (const recipient of normalizedRecipients) {
-      const envelopeRecipient = envelopeRecipientByEmail.get(recipient.signatoryEmail)
-      if (!envelopeRecipient) {
-        throw new ExternalServiceError('DOCUSIGN', `Missing recipient view URL for ${recipient.signatoryEmail}`)
-      }
-
-      if (recipient.recipientType === contractSignatoryRecipientTypes.external) {
-        await this.dispatchTemplateNotificationWithRetry({
-          tenantId: params.tenantId,
-          contractId: params.contractId,
-          envelopeId: envelope.envelopeId,
-          recipientEmail: recipient.signatoryEmail,
-          templateId: this.notificationTemplates.signatoryLinkTemplateId,
-          notificationType: contractNotificationTypes.signatoryLink,
-          templateParams: {
-            contract_title: contractView.contract.title,
-            signing_url: envelopeRecipient.signingUrl,
-          },
-          strictFailure: true,
-        })
-      }
-    }
-
     let updatedView: ContractDetailView | null = null
     for (const recipient of normalizedRecipients) {
       const envelopeRecipient = envelopeRecipientByEmail.get(recipient.signatoryEmail)
       if (!envelopeRecipient) {
-        continue
+        throw new ExternalServiceError(
+          'DOCUSIGN',
+          `Zoho Sign response missing recipient mapping for ${recipient.signatoryEmail}`
+        )
       }
 
       updatedView = await this.contractQueryService.addSignatory({
@@ -267,6 +248,36 @@ export class ContractSignatoryService {
 
     if (!updatedView) {
       throw new BusinessRuleError('SIGNATORY_ASSIGNMENT_FAILED', 'No signatory recipient was persisted')
+    }
+
+    for (const recipient of normalizedRecipients) {
+      if (recipient.recipientType !== contractSignatoryRecipientTypes.internal) {
+        continue
+      }
+      const envelopeRecipient = envelopeRecipientByEmail.get(recipient.signatoryEmail)
+      if (!envelopeRecipient) {
+        throw new ExternalServiceError('DOCUSIGN', `Missing recipient view URL for ${recipient.signatoryEmail}`)
+      }
+
+      const signingUrl = await this.buildSignatoryRedirectLink({
+        envelopeId: envelope.envelopeId,
+        recipientEmail: recipient.signatoryEmail,
+        recipientId: envelopeRecipient.recipientId,
+      })
+
+      await this.dispatchTemplateNotificationWithRetry({
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        envelopeId: envelope.envelopeId,
+        recipientEmail: recipient.signatoryEmail,
+        templateId: this.notificationTemplates.signatoryLinkTemplateId,
+        notificationType: contractNotificationTypes.signatoryLink,
+        templateParams: {
+          contract_title: contractView.contract.title,
+          signing_url: signingUrl,
+        },
+        strictFailure: true,
+      })
     }
 
     this.logger.info('Contract signatory assigned', {
@@ -395,7 +406,7 @@ export class ContractSignatoryService {
     }
   }
 
-  async handleDocusignSignedWebhook(params: {
+  async handleZohoSignWebhook(params: {
     envelopeId: string
     recipientEmail?: string
     status: string
@@ -511,6 +522,18 @@ export class ContractSignatoryService {
         })
       }
     }
+  }
+
+  async handleDocusignSignedWebhook(params: {
+    envelopeId: string
+    recipientEmail?: string
+    status: string
+    signedAt?: string
+    eventId?: string
+    signerIp?: string
+    payload: Record<string, unknown>
+  }): Promise<void> {
+    await this.handleZohoSignWebhook(params)
   }
 
   private async sendCompletionNotifications(params: {
@@ -671,16 +694,22 @@ export class ContractSignatoryService {
       normalizedToken === 'COMPLETED' ||
       normalizedToken === 'ENVELOPE_COMPLETED' ||
       normalizedToken === 'RECIPIENT_COMPLETED' ||
-      normalizedToken === 'DOCUMENT_COMPLETED'
+      normalizedToken === 'DOCUMENT_COMPLETED' ||
+      normalizedToken === 'REQUEST_COMPLETED'
     ) {
       return 'COMPLETED'
     }
 
-    if (normalizedToken === 'SIGNED' || normalizedToken === 'RECIPIENT_SIGNED') {
+    if (
+      normalizedToken === 'SIGNED' ||
+      normalizedToken === 'RECIPIENT_SIGNED' ||
+      normalizedToken === 'REQUEST_SIGNING_SUCCESS' ||
+      normalizedToken === 'REQUEST_APPROVED'
+    ) {
       return 'SIGNED'
     }
 
-    if (normalizedToken === 'SENT') {
+    if (normalizedToken === 'SENT' || normalizedToken === 'REQUEST_SUBMITTED') {
       return 'SENT'
     }
 
@@ -688,15 +717,15 @@ export class ContractSignatoryService {
       return 'DELIVERED'
     }
 
-    if (normalizedToken === 'VIEWED') {
+    if (normalizedToken === 'VIEWED' || normalizedToken === 'REQUEST_VIEWED') {
       return 'VIEWED'
     }
 
-    if (normalizedToken === 'DECLINED') {
+    if (normalizedToken === 'DECLINED' || normalizedToken === 'REQUEST_REJECTED') {
       return 'DECLINED'
     }
 
-    if (normalizedToken === 'EXPIRED') {
+    if (normalizedToken === 'EXPIRED' || normalizedToken === 'REQUEST_EXPIRED') {
       return 'EXPIRED'
     }
 
@@ -936,5 +965,19 @@ export class ContractSignatoryService {
 
     const message = typed?.message?.toLowerCase() ?? String(error).toLowerCase()
     return message.includes('duplicate key') || message.includes('unique constraint')
+  }
+
+  private async buildSignatoryRedirectLink(params: {
+    envelopeId: string
+    recipientEmail: string
+    recipientId: string
+  }): Promise<string> {
+    const token = await createSignatoryLinkToken({
+      envelopeId: params.envelopeId,
+      recipientEmail: params.recipientEmail,
+      recipientId: params.recipientId,
+    })
+
+    return `${this.appSiteUrl}/api/contracts/signatories/docusign/redirect?token=${encodeURIComponent(token)}`
   }
 }

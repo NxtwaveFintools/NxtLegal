@@ -537,6 +537,8 @@ export interface ContractQueryRepository {
     tenantId: string
     contractId: string
     signatoryEmail: string
+    signatoryStatus: ContractSignatoryStatus
+    contractStatus: ContractStatus
     recipientType: ContractSignatoryRecipientType
     routingOrder: number
   } | null>
