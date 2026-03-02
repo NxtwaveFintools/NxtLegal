@@ -35,7 +35,10 @@ const GETHandler = withAuth(async (_request: NextRequest, { session, params }) =
       actorRole: session.role,
     })
 
-    return new NextResponse(result.fileBytes, {
+    const normalizedBytes = new Uint8Array(result.fileBytes)
+    const fileBlob = new Blob([normalizedBytes], { type: result.contentType })
+
+    return new NextResponse(fileBlob, {
       status: 200,
       headers: {
         'Content-Type': result.contentType,
