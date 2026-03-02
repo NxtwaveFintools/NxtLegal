@@ -14,6 +14,7 @@ import {
   type ContractTimelineEvent,
 } from '@/core/client/contracts-client'
 import {
+  contractDocumentKinds,
   contractLegalAssignmentEditableStatuses,
   contractStatuses,
   contractTransitionActions,
@@ -53,15 +54,7 @@ type ContractsWorkspaceProps = {
 }
 
 export default function ContractsWorkspace({ session, initialContractId }: ContractsWorkspaceProps) {
-  const tabs = [
-    { id: 'overview', label: 'Overview' },
-    { id: 'activity', label: 'Activity' },
-    { id: 'notes', label: 'Notes' },
-    { id: 'documents', label: 'Documents' },
-    { id: 'approvals', label: 'Approvals' },
-  ] as const
-
-  type TabId = (typeof tabs)[number]['id']
+  type TabId = 'overview' | 'activity' | 'notes' | 'documents' | 'approvals' | 'signed-docs'
 
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -89,6 +82,9 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const [legalAutoRenewal, setLegalAutoRenewal] = useState<'unknown' | 'yes' | 'no'>('unknown')
   const [isGeneratingLinkFor, setIsGeneratingLinkFor] = useState<string | null>(null)
   const [copiedSigningLinkFor, setCopiedSigningLinkFor] = useState<string | null>(null)
+  const [isDownloadingSignatoryId, setIsDownloadingSignatoryId] = useState<string | null>(null)
+  const [isDownloadingFinalSignedDoc, setIsDownloadingFinalSignedDoc] = useState(false)
+  const [isDownloadingCompletionCertificate, setIsDownloadingCompletionCertificate] = useState(false)
   const [activeTab, setActiveTab] = useState<TabId>('overview')
   const [isActivityComposerOpen, setIsActivityComposerOpen] = useState(false)
   const [isSubmittingActivity, setIsSubmittingActivity] = useState(false)
@@ -123,6 +119,19 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const pendingCompletedCelebrationContractIdRef = useRef<string | null>(null)
   const copiedSigningLinkResetTimerRef = useRef<number | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const canViewSignedDocsTab = session.role === 'LEGAL_TEAM' || session.role === 'ADMIN'
+  const tabs = useMemo(
+    () =>
+      [
+        { id: 'overview', label: 'Overview' },
+        { id: 'activity', label: 'Activity' },
+        { id: 'notes', label: 'Notes' },
+        { id: 'documents', label: 'Documents' },
+        { id: 'approvals', label: 'Approvals' },
+        ...(canViewSignedDocsTab ? [{ id: 'signed-docs', label: 'Signed Docs' }] : []),
+      ] as Array<{ id: TabId; label: string }>,
+    [canViewSignedDocsTab]
+  )
 
   const PAGE_SIZE = 15
 
@@ -310,6 +319,12 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   }, [])
 
   useEffect(() => {
+    if (!canViewSignedDocsTab && activeTab === 'signed-docs') {
+      setActiveTab('overview')
+    }
+  }, [activeTab, canViewSignedDocsTab])
+
+  useEffect(() => {
     if (!selectedContractId) {
       return
     }
@@ -375,7 +390,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     (tabId: TabId) => {
       setActiveTab(tabId)
 
-      if (tabId === 'documents' && selectedContractId) {
+      if ((tabId === 'documents' || tabId === 'signed-docs') && selectedContractId) {
         void loadContractContext(selectedContractId)
       }
     },
@@ -610,6 +625,30 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     window.open(response.data.signedUrl, '_blank', 'noopener,noreferrer')
   }
 
+  const handleDownloadFinalSignedDocument = async () => {
+    const executedDocument = completionArtifactsByKind.executedDocument
+    if (!executedDocument) {
+      toast.error('Final signed document is still being prepared. Please try again shortly.')
+      return
+    }
+
+    setIsDownloadingFinalSignedDoc(true)
+    await handleDownload(executedDocument)
+    setIsDownloadingFinalSignedDoc(false)
+  }
+
+  const handleDownloadCompletionCertificate = async () => {
+    const completionCertificate = completionArtifactsByKind.completionCertificate
+    if (!completionCertificate) {
+      toast.error('Completion certificate is still being prepared. Please try again shortly.')
+      return
+    }
+
+    setIsDownloadingCompletionCertificate(true)
+    await handleDownload(completionCertificate)
+    setIsDownloadingCompletionCertificate(false)
+  }
+
   const handleViewDocument = async (document?: ContractDocument) => {
     if (!selectedContractId) {
       return
@@ -674,6 +713,19 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     setViewerExternalUrl(null)
     setViewerMimeType('')
     setViewerFileName('')
+  }, [])
+
+  const triggerBlobDownload = useCallback((blob: Blob, fileName: string) => {
+    const objectUrl = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = objectUrl
+    anchor.download = fileName
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    window.setTimeout(() => {
+      URL.revokeObjectURL(objectUrl)
+    }, 0)
   }, [])
 
   useEffect(() => {
@@ -766,6 +818,23 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     } finally {
       setIsGeneratingLinkFor(null)
     }
+  }
+
+  const handleDownloadSignatorySignedDocument = async (signatoryId: string) => {
+    if (!selectedContractId) {
+      return
+    }
+
+    setIsDownloadingSignatoryId(signatoryId)
+    const response = await contractsClient.downloadSignatorySignedDocument(selectedContractId, signatoryId)
+    setIsDownloadingSignatoryId(null)
+
+    if (!response.ok || !response.data) {
+      toast.error(response.error?.message ?? 'Failed to download signer document')
+      return
+    }
+
+    triggerBlobDownload(response.data.blob, response.data.fileName)
   }
 
   const handleRemindApprover = async (approverEmailToRemind?: string) => {
@@ -981,6 +1050,33 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
     return formattedLogs.slice(0, 5)
   }, [formattedLogs, showAllLogs])
+  const orderedSignatories = useMemo(
+    () =>
+      [...signatories].sort((left, right) => {
+        if (left.routingOrder !== right.routingOrder) {
+          return left.routingOrder - right.routingOrder
+        }
+        return left.signatoryEmail.localeCompare(right.signatoryEmail)
+      }),
+    [signatories]
+  )
+  const allSignatoriesSigned = useMemo(
+    () => orderedSignatories.length > 0 && orderedSignatories.every((signatory) => signatory.status === 'SIGNED'),
+    [orderedSignatories]
+  )
+  const completionArtifactsByKind = useMemo(() => {
+    const executedDocuments = documents
+      .filter((document) => document.documentKind === contractDocumentKinds.executedContract)
+      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
+    const certificateDocuments = documents
+      .filter((document) => document.documentKind === contractDocumentKinds.auditCertificate)
+      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())
+
+    return {
+      executedDocument: executedDocuments[0],
+      completionCertificate: certificateDocuments[0],
+    }
+  }, [documents])
   const quickMetadata = useMemo(() => {
     const metadata: Array<{ label: string; value: string }> = [
       {
@@ -1779,6 +1875,106 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                       onRemindApprover={handleRemindApprover}
                       onBypassApprover={handleBypassApprover}
                     />
+                  )}
+
+                  {activeTab === 'signed-docs' && canViewSignedDocsTab && (
+                    <div className={styles.tabSection}>
+                      <div className={styles.card}>
+                        <div className={styles.sectionHeaderRow}>
+                          <div className={styles.sectionTitle}>Signed Docs</div>
+                          {allSignatoriesSigned ? (
+                            <div className={styles.actions}>
+                              <button
+                                type="button"
+                                className={styles.button}
+                                onClick={() => void handleDownloadFinalSignedDocument()}
+                                disabled={
+                                  isDownloadingFinalSignedDoc ||
+                                  isDownloadingCompletionCertificate ||
+                                  !selectedContractId
+                                }
+                              >
+                                <span className={styles.buttonContent}>
+                                  {isDownloadingFinalSignedDoc ? <Spinner size={14} /> : null}
+                                  {isDownloadingFinalSignedDoc ? 'Preparing…' : 'Download Signed Document'}
+                                </span>
+                              </button>
+                              <button
+                                type="button"
+                                className={`${styles.button} ${styles.buttonGhost}`}
+                                onClick={() => void handleDownloadCompletionCertificate()}
+                                disabled={
+                                  isDownloadingCompletionCertificate ||
+                                  isDownloadingFinalSignedDoc ||
+                                  !selectedContractId
+                                }
+                              >
+                                <span className={styles.buttonContent}>
+                                  {isDownloadingCompletionCertificate ? <Spinner size={14} /> : null}
+                                  {isDownloadingCompletionCertificate
+                                    ? 'Preparing…'
+                                    : 'Download Completion Certificate'}
+                                </span>
+                              </button>
+                            </div>
+                          ) : null}
+                        </div>
+
+                        {orderedSignatories.length === 0 ? (
+                          <div className={styles.placeholderRow}>No signatories configured yet.</div>
+                        ) : (
+                          <div className={styles.timeline}>
+                            {orderedSignatories.map((signatory) => (
+                              <div key={signatory.id} className={styles.event}>
+                                <div className={styles.signatoryHeader}>
+                                  <div>
+                                    {signatory.signatoryEmail} · {signatory.recipientType} · Step{' '}
+                                    {signatory.routingOrder}
+                                  </div>
+                                  <span
+                                    className={`${styles.signatoryStatusBadge} ${
+                                      signatory.status === 'SIGNED'
+                                        ? styles.signatoryStatusSigned
+                                        : styles.signatoryStatusPending
+                                    }`}
+                                  >
+                                    {signatory.status}
+                                  </span>
+                                </div>
+                                <div className={styles.signatoryActionRow}>
+                                  <button
+                                    type="button"
+                                    className={`${styles.button} ${styles.buttonGhost} ${styles.signatoryLinkButton}`}
+                                    onClick={() => void handleDownloadSignatorySignedDocument(signatory.id)}
+                                    disabled={
+                                      signatory.status !== 'SIGNED' || isDownloadingSignatoryId === signatory.id
+                                    }
+                                  >
+                                    <span className={styles.buttonContent}>
+                                      {isDownloadingSignatoryId === signatory.id ? <Spinner size={14} /> : null}
+                                      {isDownloadingSignatoryId === signatory.id ? 'Preparing…' : 'Download Signed PDF'}
+                                    </span>
+                                  </button>
+                                  <span className={styles.signatoryActionHint}>
+                                    {signatory.status === 'SIGNED'
+                                      ? 'Downloads recipient signed PDF when available, otherwise the final executed PDF.'
+                                      : 'Available after this signer completes signing.'}
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+
+                        {allSignatoriesSigned &&
+                        (!completionArtifactsByKind.executedDocument ||
+                          !completionArtifactsByKind.completionCertificate) ? (
+                          <div className={styles.eventMeta}>
+                            Final artifacts are being synced from Zoho. Buttons will work once artifacts are ready.
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
                   )}
                 </div>
               </div>

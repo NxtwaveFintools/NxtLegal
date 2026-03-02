@@ -504,6 +504,10 @@ function resolveContractPath(template: string, contractId: string): string {
   return template.replace(':contractId', contractId)
 }
 
+function resolveContractSignatoryPath(template: string, contractId: string, signatoryId: string): string {
+  return template.replace(':contractId', contractId).replace(':signatoryId', signatoryId)
+}
+
 function resolveProtectedContractPath(
   contractId: string,
   options?: {
@@ -1135,6 +1139,71 @@ export const contractsClient = {
       method: 'GET',
       credentials: 'include',
     })
+  },
+
+  async downloadSignatorySignedDocument(
+    contractId: string,
+    signatoryId: string
+  ): Promise<ApiResponse<{ blob: Blob; fileName: string; contentType: string }>> {
+    try {
+      const url = resolveContractSignatoryPath(
+        routeRegistry.api.contracts.signatorySignedDocumentDownload,
+        contractId,
+        signatoryId
+      )
+      const response = await fetch(url, {
+        method: 'GET',
+        credentials: 'include',
+        cache: 'no-store',
+      })
+
+      if (!response.ok) {
+        try {
+          const parsedError = (await response.json()) as ApiResponse<unknown>
+          return {
+            ok: false,
+            error: {
+              code: parsedError.error?.code ?? 'download_failed',
+              message: parsedError.error?.message ?? 'Failed to download signer document',
+            },
+          }
+        } catch {
+          return {
+            ok: false,
+            error: {
+              code: 'download_failed',
+              message: 'Failed to download signer document',
+            },
+          }
+        }
+      }
+
+      const blob = await response.blob()
+      const contentType = response.headers.get('content-type') ?? 'application/pdf'
+      const contentDisposition = response.headers.get('content-disposition') ?? ''
+      const fileNameMatch = contentDisposition.match(/filename\*?=(?:UTF-8''|")?([^";\n]+)/i)
+      const rawFileName = fileNameMatch?.[1]?.replace(/"/g, '')
+      const resolvedFileName = rawFileName
+        ? (() => {
+            try {
+              return decodeURIComponent(rawFileName)
+            } catch {
+              return rawFileName
+            }
+          })()
+        : 'signed.pdf'
+
+      return {
+        ok: true,
+        data: {
+          blob,
+          fileName: resolvedFileName,
+          contentType,
+        },
+      }
+    } catch {
+      return networkErrorResponse<{ blob: Blob; fileName: string; contentType: string }>()
+    }
   },
 
   previewUrl(contractId: string, options?: { documentId?: string; renderAs?: 'binary' | 'html' }): string {

@@ -1,6 +1,7 @@
-import { AuthorizationError, BusinessRuleError, ExternalServiceError } from '@/core/http/errors'
+import { AuthorizationError, BusinessRuleError, ExternalServiceError, NotFoundError } from '@/core/http/errors'
 import { createSignatoryLinkToken } from '@/core/infra/security/signatory-link-token'
 import {
+  contractDocumentKinds,
   contractNotificationChannels,
   contractNotificationPolicy,
   contractNotificationStatuses,
@@ -9,6 +10,7 @@ import {
   contractAuditEvents,
   contractSignatoryRecipientTypes,
   contractStatuses,
+  contractWorkflowRoles,
 } from '@/core/constants/contracts'
 import type { ContractDetailView } from '@/core/domain/contracts/contract-query-repository'
 import type { ContractRepository } from '@/core/domain/contracts/contract-repository'
@@ -58,6 +60,7 @@ type SignatureProvider = {
   downloadCompletedEnvelopeDocuments(params: {
     envelopeId: string
   }): Promise<{ executedPdf: Uint8Array; certificatePdf: Uint8Array }>
+  downloadRecipientSignedDocument?: (params: { envelopeId: string; recipientId: string }) => Promise<Uint8Array>
 }
 
 type SignatoryMailer = {
@@ -403,6 +406,110 @@ export class ContractSignatoryService {
     return {
       envelopeId,
       contractView,
+    }
+  }
+
+  async downloadSignedDocumentForSignatory(params: {
+    tenantId: string
+    contractId: string
+    signatoryId: string
+    actorEmployeeId: string
+    actorRole?: string
+  }): Promise<{ fileName: string; contentType: string; fileBytes: Uint8Array }> {
+    if (!params.actorRole) {
+      throw new AuthorizationError('CONTRACT_SIGNATORY_FORBIDDEN', 'User role is required for signed document download')
+    }
+
+    if (params.actorRole !== contractWorkflowRoles.legalTeam && params.actorRole !== contractWorkflowRoles.admin) {
+      throw new AuthorizationError(
+        'CONTRACT_SIGNATORY_FORBIDDEN',
+        'Only LEGAL_TEAM or ADMIN can download signed signatory documents'
+      )
+    }
+
+    const contractView = await this.contractQueryService.getContractDetail({
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      employeeId: params.actorEmployeeId,
+      role: params.actorRole,
+    })
+
+    const signatory = contractView.signatories.find((item) => item.id === params.signatoryId)
+    if (!signatory) {
+      throw new NotFoundError('Signatory', params.signatoryId)
+    }
+
+    if (signatory.status !== 'SIGNED') {
+      throw new BusinessRuleError(
+        'SIGNATORY_DOCUMENT_NOT_AVAILABLE',
+        'Signed document is available only after this signatory signs'
+      )
+    }
+
+    const fallbackExecutedDocument = contractView.documents
+      .filter((document) => document.documentKind === contractDocumentKinds.executedContract)
+      .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0]
+
+    if (this.signatureProvider.downloadRecipientSignedDocument) {
+      try {
+        const recipientPdf = await this.signatureProvider.downloadRecipientSignedDocument({
+          envelopeId: signatory.zohoSignEnvelopeId,
+          recipientId: signatory.zohoSignRecipientId,
+        })
+
+        return {
+          fileName: this.buildRecipientSignedDocumentFileName(signatory.signatoryEmail, signatory.zohoSignEnvelopeId),
+          contentType: 'application/pdf',
+          fileBytes: recipientPdf,
+        }
+      } catch (error) {
+        if (!fallbackExecutedDocument) {
+          throw new ExternalServiceError(
+            'ZOHO_SIGN',
+            'Failed to download recipient-specific signed PDF and no executed fallback is available',
+            error as Error
+          )
+        }
+      }
+    } else if (!fallbackExecutedDocument) {
+      throw new BusinessRuleError(
+        'SIGNATORY_DOCUMENT_NOT_AVAILABLE',
+        'Recipient-specific signed PDF is unavailable and no executed fallback document exists yet'
+      )
+    }
+
+    const fallbackDownload = await this.contractDocumentDownloadService.createSignedDownloadUrl({
+      contractId: params.contractId,
+      tenantId: params.tenantId,
+      requestorEmployeeId: params.actorEmployeeId,
+      requestorRole: params.actorRole,
+      documentId: fallbackExecutedDocument.id,
+    })
+
+    try {
+      const documentResponse = await fetch(fallbackDownload.signedUrl)
+      if (!documentResponse.ok) {
+        throw new BusinessRuleError(
+          'SIGNATORY_DOCUMENT_FALLBACK_FETCH_FAILED',
+          'Failed to fetch fallback executed document'
+        )
+      }
+
+      const fallbackBytes = new Uint8Array(await documentResponse.arrayBuffer())
+      return {
+        fileName: fallbackDownload.fileName,
+        contentType: documentResponse.headers.get('content-type') ?? 'application/pdf',
+        fileBytes: fallbackBytes,
+      }
+    } catch (error) {
+      if (error instanceof BusinessRuleError) {
+        throw error
+      }
+
+      throw new BusinessRuleError(
+        'SIGNATORY_DOCUMENT_FALLBACK_FETCH_FAILED',
+        'Failed to fetch fallback executed document'
+      )
     }
   }
 
@@ -979,5 +1086,13 @@ export class ContractSignatoryService {
     })
 
     return `${this.appSiteUrl}/api/contracts/signatories/zoho-sign/redirect?token=${encodeURIComponent(token)}`
+  }
+
+  private buildRecipientSignedDocumentFileName(signatoryEmail: string, envelopeId: string): string {
+    const safeSigner = signatoryEmail
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, '-')
+    return `signed-${safeSigner}-${envelopeId}.pdf`
   }
 }
