@@ -292,7 +292,8 @@ GRANT EXECUTE ON FUNCTION public.create_contract_with_audit(
   TEXT, TEXT, TEXT, TEXT, UUID, BOOLEAN
 ) TO service_role;
 
-CREATE OR REPLACE VIEW public.contracts_repository_view AS
+DROP VIEW IF EXISTS public.contracts_repository_view;
+CREATE VIEW public.contracts_repository_view AS
 SELECT
   c.id,
   c.tenant_id,

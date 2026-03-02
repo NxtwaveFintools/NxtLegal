@@ -84,7 +84,8 @@ WHERE tenant_id = '00000000-0000-0000-0000-000000000000'::UUID
   AND to_status = 'LEGAL_QUERY'
   AND is_active = TRUE;
 
-CREATE OR REPLACE VIEW public.contracts_repository_view AS
+DROP VIEW IF EXISTS public.contracts_repository_view;
+CREATE VIEW public.contracts_repository_view AS
 SELECT
   c.id,
   c.tenant_id,
