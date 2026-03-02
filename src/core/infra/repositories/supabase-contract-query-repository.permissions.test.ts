@@ -127,8 +127,8 @@ describe('supabaseContractQueryRepository action permissions', () => {
         recipientType: 'EXTERNAL',
         routingOrder: 1,
         fieldConfig: [],
-        docusignEnvelopeId: 'env-1',
-        docusignRecipientId: '1',
+        zohoSignEnvelopeId: 'env-1',
+        zohoSignRecipientId: '1',
         envelopeSourceDocumentId: 'document-1',
       })
     ).rejects.toMatchObject<Partial<AuthorizationError>>({
@@ -159,7 +159,7 @@ describe('supabaseContractQueryRepository action permissions', () => {
 
     expect(from).toHaveBeenCalledWith('contract_signatories')
     expect(eq).toHaveBeenCalledWith('tenant_id', 'tenant-1')
-    expect(eq).toHaveBeenCalledWith('docusign_envelope_id', 'env-1')
+    expect(eq).toHaveBeenCalledWith('zoho_sign_envelope_id', 'env-1')
     expect(eq).toHaveBeenCalledWith('status', 'PENDING')
     expect(eq).toHaveBeenCalledWith('signatory_email', 'signer@nxtwave.co.in')
     expect(is).toHaveBeenCalledWith('deleted_at', null)

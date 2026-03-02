@@ -223,8 +223,8 @@ type ContractSignatory = {
   }>
   status: 'PENDING' | 'SIGNED'
   signedAt: string | null
-  docusignEnvelopeId: string
-  docusignRecipientId: string
+  zohoSignEnvelopeId: string
+  zohoSignRecipientId: string
   createdAt: string
 }
 

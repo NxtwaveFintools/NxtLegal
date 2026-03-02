@@ -4,7 +4,10 @@ import type { ContractSignatoryFieldType, ContractSignatoryRecipientType } from 
 
 type ZohoSignClientConfig = {
   apiBaseUrl: string
-  accessToken: string
+  oauthBaseUrl: string
+  clientId: string
+  clientSecret: string
+  refreshToken: string
 }
 
 type CreateSigningEnvelopeInput = {
@@ -53,6 +56,9 @@ type ZohoCreateRequestResponse = {
 }
 
 export class ZohoSignClient {
+  private cachedAccessToken: string | null = null
+  private cachedAccessTokenExpiresAt = 0
+
   constructor(private readonly config: ZohoSignClientConfig) {}
 
   async createSigningEnvelope(input: CreateSigningEnvelopeInput): Promise<CreateSigningEnvelopeResult> {
@@ -176,7 +182,7 @@ export class ZohoSignClient {
     const response = await fetch(`${this.config.apiBaseUrl}/requests`, {
       method: 'POST',
       headers: {
-        ...this.createAuthHeaders(),
+        ...(await this.createAuthHeaders()),
         Accept: 'application/json',
       },
       body: form,
@@ -234,7 +240,7 @@ export class ZohoSignClient {
     const response = await fetch(`${this.config.apiBaseUrl}/requests/${params.requestId}/submit`, {
       method: 'POST',
       headers: {
-        ...this.createAuthHeaders(),
+        ...(await this.createAuthHeaders()),
         'Content-Type': 'application/x-www-form-urlencoded',
       },
       body,
@@ -253,7 +259,7 @@ export class ZohoSignClient {
       )}`,
       {
         method: 'POST',
-        headers: this.createAuthHeaders(),
+        headers: await this.createAuthHeaders(),
       }
     )
 
@@ -279,7 +285,7 @@ export class ZohoSignClient {
     const response = await fetch(`${this.config.apiBaseUrl}${path}`, {
       method: 'GET',
       headers: {
-        ...this.createAuthHeaders(),
+        ...(await this.createAuthHeaders()),
         Accept: 'application/pdf',
       },
     })
@@ -292,15 +298,58 @@ export class ZohoSignClient {
     return new Uint8Array(await response.arrayBuffer())
   }
 
-  private createAuthHeaders(): Record<string, string> {
-    const token = this.config.accessToken.trim()
-    if (!token) {
-      throw new Error('Zoho Sign access token is missing')
-    }
-
+  private async createAuthHeaders(): Promise<Record<string, string>> {
+    const token = await this.getAccessToken()
     return {
       Authorization: `Zoho-oauthtoken ${token}`,
     }
+  }
+
+  private async getAccessToken(): Promise<string> {
+    const now = Date.now()
+    const refreshSkewMs = 60_000
+    if (this.cachedAccessToken && now < this.cachedAccessTokenExpiresAt - refreshSkewMs) {
+      return this.cachedAccessToken
+    }
+
+    const oauthBaseUrl = this.config.oauthBaseUrl.trim().replace(/\/+$/, '')
+    const body = new URLSearchParams({
+      refresh_token: this.config.refreshToken.trim(),
+      client_id: this.config.clientId.trim(),
+      client_secret: this.config.clientSecret.trim(),
+      grant_type: 'refresh_token',
+    })
+
+    const response = await fetch(`${oauthBaseUrl}/oauth/v2/token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body,
+    })
+
+    if (!response.ok) {
+      const errorBody = await response.text()
+      throw new Error(`Zoho Sign auth failed: ${errorBody}`)
+    }
+
+    const payload = (await response.json()) as { access_token?: string; expires_in?: number; expires_in_sec?: number }
+    const accessToken = payload.access_token?.trim()
+    if (!accessToken) {
+      throw new Error('Zoho Sign auth response missing access_token')
+    }
+
+    const expiresInSeconds =
+      typeof payload.expires_in_sec === 'number'
+        ? payload.expires_in_sec
+        : typeof payload.expires_in === 'number'
+          ? payload.expires_in
+          : 3600
+
+    this.cachedAccessToken = accessToken
+    this.cachedAccessTokenExpiresAt = now + Math.max(60, expiresInSeconds) * 1000
+
+    return accessToken
   }
 
   private resolveEmbeddedHost(returnUrl: string): string {

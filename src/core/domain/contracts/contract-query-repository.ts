@@ -229,8 +229,8 @@ export type ContractSignatory = {
   fieldConfig: ContractSignatoryField[]
   status: ContractSignatoryStatus
   signedAt: string | null
-  docusignEnvelopeId: string
-  docusignRecipientId: string
+  zohoSignEnvelopeId: string
+  zohoSignRecipientId: string
   createdAt: string
 }
 
@@ -508,8 +508,8 @@ export interface ContractQueryRepository {
     recipientType: ContractSignatoryRecipientType
     routingOrder: number
     fieldConfig: ContractSignatoryField[]
-    docusignEnvelopeId: string
-    docusignRecipientId: string
+    zohoSignEnvelopeId: string
+    zohoSignRecipientId: string
     envelopeSourceDocumentId: string
   }): Promise<void>
   saveSigningPreparationDraft(params: {
@@ -542,7 +542,7 @@ export interface ContractQueryRepository {
     recipientType: ContractSignatoryRecipientType
     routingOrder: number
   } | null>
-  recordDocusignWebhookEvent(params: {
+  recordZohoSignWebhookEvent(params: {
     tenantId: string
     contractId: string
     envelopeId: string

@@ -111,7 +111,14 @@ export function getContractSignatoryService(): ContractSignatoryService {
     const zohoSignConfig = appConfig.zohoSign
     const mailConfig = appConfig.mail
 
-    if (!zohoSignConfig.apiBaseUrl || !zohoSignConfig.accessToken || !zohoSignConfig.webhookSecret) {
+    if (
+      !zohoSignConfig.apiBaseUrl ||
+      !zohoSignConfig.oauthBaseUrl ||
+      !zohoSignConfig.clientId ||
+      !zohoSignConfig.clientSecret ||
+      !zohoSignConfig.refreshToken ||
+      !zohoSignConfig.webhookSecret
+    ) {
       throw new Error('Zoho Sign config is incomplete. Please set required ZOHO_SIGN_* environment variables.')
     }
 
@@ -134,7 +141,10 @@ export function getContractSignatoryService(): ContractSignatoryService {
 
     const zohoSignClient = new ZohoSignClient({
       apiBaseUrl: zohoSignConfig.apiBaseUrl,
-      accessToken: zohoSignConfig.accessToken,
+      oauthBaseUrl: zohoSignConfig.oauthBaseUrl,
+      clientId: zohoSignConfig.clientId,
+      clientSecret: zohoSignConfig.clientSecret,
+      refreshToken: zohoSignConfig.refreshToken,
     })
 
     const isProduction = process.env.NODE_ENV === 'production'

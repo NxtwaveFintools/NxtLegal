@@ -45,17 +45,17 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       )
     }
 
-    if (!signatory.docusignEnvelopeId || !signatory.docusignRecipientId) {
+    if (!signatory.zohoSignEnvelopeId || !signatory.zohoSignRecipientId) {
       throw new BusinessRuleError('SIGNATORY_LINK_UNAVAILABLE', 'Signing link is not available yet for this recipient')
     }
 
     const token = await createSignatoryLinkToken({
-      envelopeId: signatory.docusignEnvelopeId,
+      envelopeId: signatory.zohoSignEnvelopeId,
       recipientEmail: signatory.signatoryEmail,
-      recipientId: signatory.docusignRecipientId,
+      recipientId: signatory.zohoSignRecipientId,
     })
 
-    const redirectUrl = `${appConfig.auth.siteUrl}/api/contracts/signatories/docusign/redirect?token=${encodeURIComponent(
+    const redirectUrl = `${appConfig.auth.siteUrl}/api/contracts/signatories/zoho-sign/redirect?token=${encodeURIComponent(
       token
     )}`
 

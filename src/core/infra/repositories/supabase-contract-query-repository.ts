@@ -191,8 +191,8 @@ type SignatoryEntity = {
   }> | null
   status: 'PENDING' | 'SIGNED'
   signed_at: string | null
-  docusign_envelope_id: string
-  docusign_recipient_id: string
+  zoho_sign_envelope_id: string
+  zoho_sign_recipient_id: string
   created_at: string
 }
 
@@ -2177,7 +2177,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     const { data, error } = await supabase
       .from('contract_signatories')
       .select(
-        'id, signatory_email, recipient_type, routing_order, field_config, status, signed_at, docusign_envelope_id, docusign_recipient_id, created_at'
+        'id, signatory_email, recipient_type, routing_order, field_config, status, signed_at, zoho_sign_envelope_id, zoho_sign_recipient_id, created_at'
       )
       .eq('tenant_id', tenantId)
       .eq('contract_id', contractId)
@@ -2192,7 +2192,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       if (error.code === '42703') {
         const { data: legacyData, error: legacyError } = await supabase
           .from('contract_signatories')
-          .select('id, signatory_email, status, signed_at, docusign_envelope_id, docusign_recipient_id, created_at')
+          .select('id, signatory_email, status, signed_at, zoho_sign_envelope_id, zoho_sign_recipient_id, created_at')
           .eq('tenant_id', tenantId)
           .eq('contract_id', contractId)
           .is('deleted_at', null)
@@ -2212,8 +2212,8 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
           fieldConfig: [],
           status: row.status,
           signedAt: row.signed_at,
-          docusignEnvelopeId: row.docusign_envelope_id,
-          docusignRecipientId: row.docusign_recipient_id,
+          zohoSignEnvelopeId: row.zoho_sign_envelope_id,
+          zohoSignRecipientId: row.zoho_sign_recipient_id,
           createdAt: row.created_at,
         }))
       }
@@ -2231,8 +2231,8 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       fieldConfig: row.field_config ?? [],
       status: row.status,
       signedAt: row.signed_at,
-      docusignEnvelopeId: row.docusign_envelope_id,
-      docusignRecipientId: row.docusign_recipient_id,
+      zohoSignEnvelopeId: row.zoho_sign_envelope_id,
+      zohoSignRecipientId: row.zoho_sign_recipient_id,
       createdAt: row.created_at,
     }))
   }
@@ -2533,7 +2533,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         resource_type: 'contract',
         resource_id: params.contractId,
         metadata: {
-          docusign_envelope_id: params.envelopeId,
+          zoho_sign_envelope_id: params.envelopeId,
         },
       },
     ])
@@ -3496,8 +3496,8 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       anchorString: string | null
       assignedSignerEmail: string
     }>
-    docusignEnvelopeId: string
-    docusignRecipientId: string
+    zohoSignEnvelopeId: string
+    zohoSignRecipientId: string
     envelopeSourceDocumentId: string
   }): Promise<void> {
     this.assertActorMetadata({
@@ -3538,8 +3538,8 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         routing_order: params.routingOrder,
         field_config: params.fieldConfig,
         status: contractSignatoryStatuses.pending,
-        docusign_envelope_id: params.docusignEnvelopeId,
-        docusign_recipient_id: params.docusignRecipientId,
+        zoho_sign_envelope_id: params.zohoSignEnvelopeId,
+        zoho_sign_recipient_id: params.zohoSignRecipientId,
         envelope_source_document_id: params.envelopeSourceDocumentId,
         created_by_employee_id: params.actorEmployeeId,
       },
@@ -3563,8 +3563,8 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         resource_id: params.contractId,
         target_email: params.signatoryEmail,
         metadata: {
-          docusign_envelope_id: params.docusignEnvelopeId,
-          docusign_recipient_id: params.docusignRecipientId,
+          zoho_sign_envelope_id: params.zohoSignEnvelopeId,
+          zoho_sign_recipient_id: params.zohoSignRecipientId,
           envelope_source_document_id: params.envelopeSourceDocumentId,
           recipient_type: params.recipientType,
           routing_order: params.routingOrder,
@@ -3592,7 +3592,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     let query = supabase
       .from('contract_signatories')
       .select('tenant_id, contract_id, signatory_email, status, recipient_type, routing_order')
-      .eq('docusign_envelope_id', params.envelopeId)
+      .eq('zoho_sign_envelope_id', params.envelopeId)
       .is('deleted_at', null)
       .limit(1)
 
@@ -3652,7 +3652,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     }
   }
 
-  async recordDocusignWebhookEvent(params: {
+  async recordZohoSignWebhookEvent(params: {
     tenantId: string
     contractId: string
     envelopeId: string
@@ -3664,7 +3664,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
   }): Promise<{ inserted: boolean }> {
     const supabase = createServiceSupabase()
     const { data, error } = await supabase
-      .from('docusign_webhook_events')
+      .from('zoho_sign_webhook_events')
       .insert({
         tenant_id: params.tenantId,
         contract_id: params.contractId,
@@ -3683,7 +3683,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         return { inserted: false }
       }
 
-      throw new DatabaseError('Failed to record DocuSign webhook event', new Error(error.message), {
+      throw new DatabaseError('Failed to record Zoho Sign webhook event', new Error(error.message), {
         code: error.code,
       })
     }
@@ -3736,7 +3736,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         signed_at: params.signedAt ?? new Date().toISOString(),
       })
       .eq('tenant_id', params.tenantId)
-      .eq('docusign_envelope_id', params.envelopeId)
+      .eq('zoho_sign_envelope_id', params.envelopeId)
       .eq('status', contractSignatoryStatuses.pending)
       .is('deleted_at', null)
 
@@ -3797,7 +3797,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
             metadata: {
               from_status: contractStatuses.pendingExternal,
               to_status: contractStatuses.executed,
-              docusign_envelope_id: params.envelopeId,
+              zoho_sign_envelope_id: params.envelopeId,
             },
           },
         ])
@@ -3827,7 +3827,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         target_email: updated.signatory_email,
         metadata: {
           signatory_id: updated.id,
-          docusign_envelope_id: params.envelopeId,
+          zoho_sign_envelope_id: params.envelopeId,
         },
       },
     ])
@@ -3966,7 +3966,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       .select('signatory_email')
       .eq('tenant_id', params.tenantId)
       .eq('contract_id', params.contractId)
-      .eq('docusign_envelope_id', params.envelopeId)
+      .eq('zoho_sign_envelope_id', params.envelopeId)
       .is('deleted_at', null)
 
     if (recipientsError) {

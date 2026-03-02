@@ -74,7 +74,7 @@ type Logger = {
   error: (message: string, context?: Record<string, unknown>) => void
 }
 
-type DocusignCanonicalStatus =
+type SignatureCanonicalStatus =
   | 'SENT'
   | 'DELIVERED'
   | 'VIEWED'
@@ -209,7 +209,7 @@ export class ContractSignatoryService {
         returnUrl: `${this.appSiteUrl}/contracts/${params.contractId}`,
       })
     } catch (error) {
-      throw new ExternalServiceError('DOCUSIGN', 'Failed to create Zoho Sign request', error as Error)
+      throw new ExternalServiceError('ZOHO_SIGN', 'Failed to create Zoho Sign request', error as Error)
     }
 
     if (!envelope?.envelopeId) {
@@ -225,7 +225,7 @@ export class ContractSignatoryService {
       const envelopeRecipient = envelopeRecipientByEmail.get(recipient.signatoryEmail)
       if (!envelopeRecipient) {
         throw new ExternalServiceError(
-          'DOCUSIGN',
+          'ZOHO_SIGN',
           `Zoho Sign response missing recipient mapping for ${recipient.signatoryEmail}`
         )
       }
@@ -240,8 +240,8 @@ export class ContractSignatoryService {
         recipientType: recipient.recipientType,
         routingOrder: recipient.routingOrder,
         fieldConfig: recipient.fields,
-        docusignEnvelopeId: envelope.envelopeId,
-        docusignRecipientId: envelopeRecipient.recipientId,
+        zohoSignEnvelopeId: envelope.envelopeId,
+        zohoSignRecipientId: envelopeRecipient.recipientId,
         envelopeSourceDocumentId: contractView.contract.currentDocumentId,
       })
     }
@@ -256,7 +256,7 @@ export class ContractSignatoryService {
       }
       const envelopeRecipient = envelopeRecipientByEmail.get(recipient.signatoryEmail)
       if (!envelopeRecipient) {
-        throw new ExternalServiceError('DOCUSIGN', `Missing recipient view URL for ${recipient.signatoryEmail}`)
+        throw new ExternalServiceError('ZOHO_SIGN', `Missing recipient view URL for ${recipient.signatoryEmail}`)
       }
 
       const signingUrl = await this.buildSignatoryRedirectLink({
@@ -370,7 +370,7 @@ export class ContractSignatoryService {
     const envelopeIds = new Set(
       updatedContractView.signatories
         .filter((signatory) => recipientEmailSet.has(signatory.signatoryEmail))
-        .map((signatory) => signatory.docusignEnvelopeId)
+        .map((signatory) => signatory.zohoSignEnvelopeId)
         .filter((envelopeId) => envelopeId.trim().length > 0)
     )
 
@@ -422,7 +422,7 @@ export class ContractSignatoryService {
     })
 
     if (!envelopeContext) {
-      this.logger.warn('DocuSign webhook ignored: envelope context not found', {
+      this.logger.warn('Zoho Sign webhook ignored: envelope context not found', {
         envelopeId: params.envelopeId,
         recipientEmail: params.recipientEmail,
       })
@@ -431,7 +431,7 @@ export class ContractSignatoryService {
 
     const eventKey = `${params.envelopeId}:${params.recipientEmail ?? 'ALL'}:${normalizedStatus}:${params.eventId ?? 'NO_EVENT_ID'}`
 
-    const webhookInsert = await this.contractQueryService.recordDocusignWebhookEvent({
+    const webhookInsert = await this.contractQueryService.recordZohoSignWebhookEvent({
       tenantId: envelopeContext.tenantId,
       contractId: envelopeContext.contractId,
       envelopeId: params.envelopeId,
@@ -443,7 +443,7 @@ export class ContractSignatoryService {
     })
 
     if (!webhookInsert.inserted) {
-      this.logger.info('DocuSign webhook deduped', {
+      this.logger.info('Zoho Sign webhook deduped', {
         envelopeId: params.envelopeId,
         recipientEmail: params.recipientEmail,
         status: normalizedStatus,
@@ -479,7 +479,7 @@ export class ContractSignatoryService {
     })
 
     if (normalizedStatus === 'COMPLETED') {
-      this.logger.info('DOCUSIGN_COMPLETION_EVALUATION', {
+      this.logger.info('ZOHO_SIGN_COMPLETION_EVALUATION', {
         tenantId: envelopeContext.tenantId,
         contractId: envelopeContext.contractId,
         envelopeId: params.envelopeId,
@@ -493,7 +493,7 @@ export class ContractSignatoryService {
         envelopeContext.contractId
       )
 
-      this.logger.info('DOCUSIGN_COMPLETION_IDEMPOTENCY_CHECK', {
+      this.logger.info('ZOHO_SIGN_COMPLETION_IDEMPOTENCY_CHECK', {
         tenantId: envelopeContext.tenantId,
         contractId: envelopeContext.contractId,
         envelopeId: params.envelopeId,
@@ -501,7 +501,7 @@ export class ContractSignatoryService {
       })
 
       if (artifactsExist) {
-        this.logger.info('DOCUSIGN_ARTIFACT_ALREADY_EXISTS', {
+        this.logger.info('ZOHO_SIGN_ARTIFACT_ALREADY_EXISTS', {
           tenantId: envelopeContext.tenantId,
           contractId: envelopeContext.contractId,
           envelopeId: params.envelopeId,
@@ -524,7 +524,7 @@ export class ContractSignatoryService {
     }
   }
 
-  async handleDocusignSignedWebhook(params: {
+  async handleZohoSignSignedWebhook(params: {
     envelopeId: string
     recipientEmail?: string
     status: string
@@ -659,7 +659,7 @@ export class ContractSignatoryService {
     }
   }
 
-  private mapWebhookStatusToAudit(status: DocusignCanonicalStatus): {
+  private mapWebhookStatusToAudit(status: SignatureCanonicalStatus): {
     eventType: string
     action: string
   } | null {
@@ -683,7 +683,7 @@ export class ContractSignatoryService {
     }
   }
 
-  private normalizeWebhookStatus(status: string): DocusignCanonicalStatus {
+  private normalizeWebhookStatus(status: string): SignatureCanonicalStatus {
     const normalizedToken = status
       .trim()
       .toUpperCase()
@@ -796,7 +796,7 @@ export class ContractSignatoryService {
     contractId: string
     envelopeId: string
   }): Promise<void> {
-    this.logger.info('DOCUSIGN_ARTIFACT_PERSIST_START', {
+    this.logger.info('ZOHO_SIGN_ARTIFACT_PERSIST_START', {
       tenantId: params.tenantId,
       contractId: params.contractId,
       envelopeId: params.envelopeId,
@@ -863,7 +863,7 @@ export class ContractSignatoryService {
         tenantId: params.tenantId,
         contractId: params.contractId,
         documentKind: 'AUDIT_CERTIFICATE',
-        displayName: 'DocuSign Completion Certificate',
+        displayName: 'Zoho Sign Completion Certificate',
         fileName: expectedCertificateFileName,
         filePath: certificatePath,
         fileSizeBytes: artifacts.certificatePdf.byteLength,
@@ -872,7 +872,7 @@ export class ContractSignatoryService {
       })
     }
 
-    this.logger.info('DOCUSIGN_ARTIFACT_PERSIST_SUCCESS', {
+    this.logger.info('ZOHO_SIGN_ARTIFACT_PERSIST_SUCCESS', {
       tenantId: params.tenantId,
       contractId: params.contractId,
       envelopeId: params.envelopeId,
@@ -896,7 +896,7 @@ export class ContractSignatoryService {
       })
     } catch (error) {
       if (this.isStorageAlreadyExistsError(error)) {
-        this.logger.info('DOCUSIGN_ARTIFACT_ALREADY_EXISTS', {
+        this.logger.info('ZOHO_SIGN_ARTIFACT_ALREADY_EXISTS', {
           tenantId: params.tenantId,
           contractId: params.contractId,
           envelopeId: params.envelopeId,
@@ -937,7 +937,7 @@ export class ContractSignatoryService {
       })
     } catch (error) {
       if (this.isDuplicateKeyError(error)) {
-        this.logger.info('DOCUSIGN_ARTIFACT_ALREADY_EXISTS', {
+        this.logger.info('ZOHO_SIGN_ARTIFACT_ALREADY_EXISTS', {
           tenantId: params.tenantId,
           contractId: params.contractId,
           envelopeId: params.envelopeId,
@@ -978,6 +978,6 @@ export class ContractSignatoryService {
       recipientId: params.recipientId,
     })
 
-    return `${this.appSiteUrl}/api/contracts/signatories/docusign/redirect?token=${encodeURIComponent(token)}`
+    return `${this.appSiteUrl}/api/contracts/signatories/zoho-sign/redirect?token=${encodeURIComponent(token)}`
   }
 }

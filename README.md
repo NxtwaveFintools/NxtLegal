@@ -55,8 +55,13 @@ NEXT_PUBLIC_SITE_URL=http://localhost:3000
 NODE_ENV=development
 FEATURE_MICROSOFT_OAUTH=true
 
-# DocuSign Connect Webhook Security
-DOCUSIGN_CONNECT_KEY=your-docusign-connect-hmac-key
+# Zoho Sign (India DC) OAuth + Webhook
+ZOHO_SIGN_API_BASE_URL=https://sign.zoho.in/api/v1
+ZOHO_SIGN_OAUTH_BASE_URL=https://accounts.zoho.in
+ZOHO_SIGN_CLIENT_ID=your-zoho-sign-client-id
+ZOHO_SIGN_CLIENT_SECRET=your-zoho-sign-client-secret
+ZOHO_SIGN_REFRESH_TOKEN=your-zoho-sign-refresh-token
+ZOHO_SIGN_WEBHOOK_SECRET=your-zoho-sign-webhook-secret
 ```
 
 ### Database Setup

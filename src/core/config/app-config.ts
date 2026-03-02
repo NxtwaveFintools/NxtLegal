@@ -49,7 +49,10 @@ const zohoSignConfig = requireConfigGroup({
   groupName: 'Zoho Sign',
   values: {
     ZOHO_SIGN_API_BASE_URL: envServer.zohoSignApiBaseUrl,
-    ZOHO_SIGN_ACCESS_TOKEN: envServer.zohoSignAccessToken,
+    ZOHO_SIGN_OAUTH_BASE_URL: envServer.zohoSignOauthBaseUrl,
+    ZOHO_SIGN_CLIENT_ID: envServer.zohoSignClientId,
+    ZOHO_SIGN_CLIENT_SECRET: envServer.zohoSignClientSecret,
+    ZOHO_SIGN_REFRESH_TOKEN: envServer.zohoSignRefreshToken,
     ZOHO_SIGN_WEBHOOK_SECRET: envServer.zohoSignWebhookSecret,
   },
 })
@@ -92,7 +95,10 @@ export const appConfig = {
   },
   zohoSign: {
     apiBaseUrl: zohoSignConfig.ZOHO_SIGN_API_BASE_URL,
-    accessToken: zohoSignConfig.ZOHO_SIGN_ACCESS_TOKEN,
+    oauthBaseUrl: zohoSignConfig.ZOHO_SIGN_OAUTH_BASE_URL,
+    clientId: zohoSignConfig.ZOHO_SIGN_CLIENT_ID,
+    clientSecret: zohoSignConfig.ZOHO_SIGN_CLIENT_SECRET,
+    refreshToken: zohoSignConfig.ZOHO_SIGN_REFRESH_TOKEN,
     webhookSecret: zohoSignConfig.ZOHO_SIGN_WEBHOOK_SECRET,
   },
   mail: {

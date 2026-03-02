@@ -130,7 +130,7 @@ describe('ContractSignatoryService', () => {
         recipientEmail: 'founder@nxtwave.co.in',
         templateId: 101,
         templateParams: expect.objectContaining({
-          signing_url: expect.stringContaining('/api/contracts/signatories/docusign/redirect?token='),
+          signing_url: expect.stringContaining('/api/contracts/signatories/zoho-sign/redirect?token='),
         }),
       })
     )
@@ -142,7 +142,7 @@ describe('ContractSignatoryService', () => {
       addSignatory: jest.fn().mockResolvedValue({ ...mockContractView, signatories: [{ id: 'sig-1' }] }),
       markSignatoryAsSigned: jest.fn(),
       resolveEnvelopeContext: jest.fn(),
-      recordDocusignWebhookEvent: jest.fn(),
+      recordZohoSignWebhookEvent: jest.fn(),
       addSignatoryWebhookAuditEvent: jest.fn(),
       recordContractNotificationDelivery: jest.fn().mockResolvedValue(undefined),
       getEnvelopeNotificationProfile: jest.fn().mockResolvedValue({
@@ -242,8 +242,8 @@ describe('ContractSignatoryService', () => {
       recipientType: 'EXTERNAL',
       routingOrder: 1,
       fieldConfig: [],
-      docusignEnvelopeId: 'env-1',
-      docusignRecipientId: '1',
+      zohoSignEnvelopeId: 'env-1',
+      zohoSignRecipientId: '1',
       envelopeSourceDocumentId: 'document-primary-1',
     })
     expect(result.signatories).toEqual([{ id: 'sig-1' }])
@@ -262,7 +262,7 @@ describe('ContractSignatoryService', () => {
         recipientType: 'EXTERNAL',
         routingOrder: 1,
       }),
-      recordDocusignWebhookEvent: jest.fn().mockResolvedValue({ inserted: true }),
+      recordZohoSignWebhookEvent: jest.fn().mockResolvedValue({ inserted: true }),
       addSignatoryWebhookAuditEvent: jest.fn().mockResolvedValue(undefined),
       recordContractNotificationDelivery: jest.fn().mockResolvedValue(undefined),
       getEnvelopeNotificationProfile: jest.fn().mockResolvedValue({
@@ -300,7 +300,7 @@ describe('ContractSignatoryService', () => {
       { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
     )
 
-    await service.handleDocusignSignedWebhook({
+    await service.handleZohoSignSignedWebhook({
       envelopeId: 'env-1',
       recipientEmail: 'signatory@nxtwave.co.in',
       status: 'completed',
@@ -310,7 +310,7 @@ describe('ContractSignatoryService', () => {
       },
     })
 
-    expect(contractQueryService.recordDocusignWebhookEvent).toHaveBeenCalled()
+    expect(contractQueryService.recordZohoSignWebhookEvent).toHaveBeenCalled()
     expect(contractQueryService.addSignatoryWebhookAuditEvent).toHaveBeenCalled()
     expect(contractQueryService.markSignatoryAsSigned).toHaveBeenCalledWith({
       tenantId: 'tenant-1',
@@ -337,7 +337,7 @@ describe('ContractSignatoryService', () => {
         recipientType: 'EXTERNAL',
         routingOrder: 1,
       }),
-      recordDocusignWebhookEvent: jest.fn().mockResolvedValue({ inserted: false }),
+      recordZohoSignWebhookEvent: jest.fn().mockResolvedValue({ inserted: false }),
       addSignatoryWebhookAuditEvent: jest.fn().mockResolvedValue(undefined),
       recordContractNotificationDelivery: jest.fn().mockResolvedValue(undefined),
       getEnvelopeNotificationProfile: jest.fn().mockResolvedValue({
@@ -375,7 +375,7 @@ describe('ContractSignatoryService', () => {
       { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
     )
 
-    await service.handleDocusignSignedWebhook({
+    await service.handleZohoSignSignedWebhook({
       envelopeId: 'env-1',
       recipientEmail: 'signatory@nxtwave.co.in',
       status: 'completed',
@@ -403,7 +403,7 @@ describe('ContractSignatoryService', () => {
         recipientType: 'EXTERNAL',
         routingOrder: 1,
       }),
-      recordDocusignWebhookEvent: jest.fn().mockResolvedValue({ inserted: true }),
+      recordZohoSignWebhookEvent: jest.fn().mockResolvedValue({ inserted: true }),
       addSignatoryWebhookAuditEvent: jest.fn().mockResolvedValue(undefined),
       recordContractNotificationDelivery: jest.fn().mockResolvedValue(undefined),
       getEnvelopeNotificationProfile: jest.fn().mockResolvedValue({
@@ -441,7 +441,7 @@ describe('ContractSignatoryService', () => {
       { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
     )
 
-    await service.handleDocusignSignedWebhook({
+    await service.handleZohoSignSignedWebhook({
       envelopeId: 'env-1',
       recipientEmail: 'signatory@nxtwave.co.in',
       status: 'envelope-completed',
@@ -456,13 +456,13 @@ describe('ContractSignatoryService', () => {
     expect(contractRepository.createDocument).toHaveBeenCalledTimes(2)
   })
 
-  it('raises external service error when docusign envelope creation fails', async () => {
+  it('raises external service error when zoho sign request creation fails', async () => {
     const contractQueryService = {
       getContractDetail: jest.fn().mockResolvedValue(mockContractView),
       addSignatory: jest.fn(),
       markSignatoryAsSigned: jest.fn(),
       resolveEnvelopeContext: jest.fn(),
-      recordDocusignWebhookEvent: jest.fn(),
+      recordZohoSignWebhookEvent: jest.fn(),
       addSignatoryWebhookAuditEvent: jest.fn(),
       recordContractNotificationDelivery: jest.fn().mockResolvedValue(undefined),
       getEnvelopeNotificationProfile: jest.fn(),
@@ -479,7 +479,7 @@ describe('ContractSignatoryService', () => {
       { createDocument: jest.fn() } as never,
       { upload: jest.fn() } as never,
       {
-        createSigningEnvelope: jest.fn().mockRejectedValue(new Error('DocuSign down')),
+        createSigningEnvelope: jest.fn().mockRejectedValue(new Error('Zoho Sign down')),
         downloadCompletedEnvelopeDocuments: jest.fn(),
       },
       { sendTemplateEmail: jest.fn() },
@@ -528,7 +528,7 @@ describe('ContractSignatoryService', () => {
       addSignatory: jest.fn(),
       markSignatoryAsSigned: jest.fn(),
       resolveEnvelopeContext: jest.fn(),
-      recordDocusignWebhookEvent: jest.fn(),
+      recordZohoSignWebhookEvent: jest.fn(),
       addSignatoryWebhookAuditEvent: jest.fn(),
       recordContractNotificationDelivery: jest.fn().mockResolvedValue(undefined),
       getEnvelopeNotificationProfile: jest.fn(),
@@ -769,8 +769,8 @@ describe('ContractSignatoryService', () => {
               fieldConfig: [],
               status: 'PENDING',
               signedAt: null,
-              docusignEnvelopeId: 'env-1',
-              docusignRecipientId: '1',
+              zohoSignEnvelopeId: 'env-1',
+              zohoSignRecipientId: '1',
               createdAt: new Date().toISOString(),
             },
             {
@@ -781,8 +781,8 @@ describe('ContractSignatoryService', () => {
               fieldConfig: [],
               status: 'PENDING',
               signedAt: null,
-              docusignEnvelopeId: 'env-1',
-              docusignRecipientId: '2',
+              zohoSignEnvelopeId: 'env-1',
+              zohoSignRecipientId: '2',
               createdAt: new Date().toISOString(),
             },
           ],
@@ -800,8 +800,8 @@ describe('ContractSignatoryService', () => {
               fieldConfig: [],
               status: 'PENDING',
               signedAt: null,
-              docusignEnvelopeId: 'env-1',
-              docusignRecipientId: '1',
+              zohoSignEnvelopeId: 'env-1',
+              zohoSignRecipientId: '1',
               createdAt: new Date().toISOString(),
             },
           ],
@@ -817,8 +817,8 @@ describe('ContractSignatoryService', () => {
               fieldConfig: [],
               status: 'PENDING',
               signedAt: null,
-              docusignEnvelopeId: 'env-1',
-              docusignRecipientId: '1',
+              zohoSignEnvelopeId: 'env-1',
+              zohoSignRecipientId: '1',
               createdAt: new Date().toISOString(),
             },
             {
@@ -829,8 +829,8 @@ describe('ContractSignatoryService', () => {
               fieldConfig: [],
               status: 'PENDING',
               signedAt: null,
-              docusignEnvelopeId: 'env-1',
-              docusignRecipientId: '2',
+              zohoSignEnvelopeId: 'env-1',
+              zohoSignRecipientId: '2',
               createdAt: new Date().toISOString(),
             },
           ],
@@ -838,7 +838,7 @@ describe('ContractSignatoryService', () => {
       moveContractToInSignature: jest.fn().mockResolvedValue(undefined),
       deleteSigningPreparationDraft: jest.fn().mockResolvedValue(undefined),
       resolveEnvelopeContext: jest.fn(),
-      recordDocusignWebhookEvent: jest.fn(),
+      recordZohoSignWebhookEvent: jest.fn(),
       addSignatoryWebhookAuditEvent: jest.fn(),
       recordContractNotificationDelivery: jest.fn().mockResolvedValue(undefined),
       getEnvelopeNotificationProfile: jest.fn(),
@@ -852,13 +852,13 @@ describe('ContractSignatoryService', () => {
             email: 'internal@nxtwave.co.in',
             recipientId: '1',
             clientUserId: 'c1',
-            signingUrl: 'https://docusign.example/internal',
+            signingUrl: 'https://zoho-sign.example/internal',
           },
           {
             email: 'external@nxtwave.co.in',
             recipientId: '2',
             clientUserId: 'c2',
-            signingUrl: 'https://docusign.example/external',
+            signingUrl: 'https://zoho-sign.example/external',
           },
         ],
       }),
@@ -967,8 +967,8 @@ describe('ContractSignatoryService', () => {
             fieldConfig: [],
             status: 'PENDING',
             signedAt: null,
-            docusignEnvelopeId: 'env-123',
-            docusignRecipientId: 'a1',
+            zohoSignEnvelopeId: 'env-123',
+            zohoSignRecipientId: 'a1',
             createdAt: new Date().toISOString(),
           },
           {
@@ -979,8 +979,8 @@ describe('ContractSignatoryService', () => {
             fieldConfig: [],
             status: 'PENDING',
             signedAt: null,
-            docusignEnvelopeId: 'env-123',
-            docusignRecipientId: 'a2',
+            zohoSignEnvelopeId: 'env-123',
+            zohoSignRecipientId: 'a2',
             createdAt: new Date().toISOString(),
           },
           {
@@ -991,8 +991,8 @@ describe('ContractSignatoryService', () => {
             fieldConfig: [],
             status: 'PENDING',
             signedAt: null,
-            docusignEnvelopeId: 'env-123',
-            docusignRecipientId: 'a3',
+            zohoSignEnvelopeId: 'env-123',
+            zohoSignRecipientId: 'a3',
             createdAt: new Date().toISOString(),
           },
         ],
@@ -1000,7 +1000,7 @@ describe('ContractSignatoryService', () => {
       moveContractToInSignature: jest.fn().mockResolvedValue(undefined),
       deleteSigningPreparationDraft: jest.fn().mockResolvedValue(undefined),
       resolveEnvelopeContext: jest.fn(),
-      recordDocusignWebhookEvent: jest.fn(),
+      recordZohoSignWebhookEvent: jest.fn(),
       addSignatoryWebhookAuditEvent: jest.fn(),
       recordContractNotificationDelivery: jest.fn().mockResolvedValue(undefined),
       getEnvelopeNotificationProfile: jest.fn(),
@@ -1057,19 +1057,19 @@ describe('ContractSignatoryService', () => {
     expect(contractQueryService.addSignatory).toHaveBeenCalledWith(
       expect.objectContaining({
         signatoryEmail: 'ext1@example.com',
-        docusignRecipientId: 'a1',
+        zohoSignRecipientId: 'a1',
       })
     )
     expect(contractQueryService.addSignatory).toHaveBeenCalledWith(
       expect.objectContaining({
         signatoryEmail: 'int@example.com',
-        docusignRecipientId: 'a2',
+        zohoSignRecipientId: 'a2',
       })
     )
     expect(contractQueryService.addSignatory).toHaveBeenCalledWith(
       expect.objectContaining({
         signatoryEmail: 'ext2@example.com',
-        docusignRecipientId: 'a3',
+        zohoSignRecipientId: 'a3',
       })
     )
   })
@@ -1110,7 +1110,7 @@ describe('ContractSignatoryService', () => {
       moveContractToInSignature: jest.fn().mockResolvedValue(undefined),
       deleteSigningPreparationDraft: jest.fn().mockResolvedValue(undefined),
       resolveEnvelopeContext: jest.fn(),
-      recordDocusignWebhookEvent: jest.fn(),
+      recordZohoSignWebhookEvent: jest.fn(),
       addSignatoryWebhookAuditEvent: jest.fn(),
       recordContractNotificationDelivery: jest.fn().mockResolvedValue(undefined),
       getEnvelopeNotificationProfile: jest.fn(),
@@ -1232,7 +1232,7 @@ describe('ContractSignatoryService', () => {
       moveContractToInSignature: jest.fn(),
       deleteSigningPreparationDraft: jest.fn(),
       resolveEnvelopeContext: jest.fn(),
-      recordDocusignWebhookEvent: jest.fn(),
+      recordZohoSignWebhookEvent: jest.fn(),
       addSignatoryWebhookAuditEvent: jest.fn(),
       recordContractNotificationDelivery: jest.fn().mockResolvedValue(undefined),
       getEnvelopeNotificationProfile: jest.fn(),
@@ -1255,7 +1255,7 @@ describe('ContractSignatoryService', () => {
       { createDocument: jest.fn() } as never,
       { upload: jest.fn() } as never,
       {
-        createSigningEnvelope: jest.fn().mockRejectedValue(new Error('DocuSign unavailable')),
+        createSigningEnvelope: jest.fn().mockRejectedValue(new Error('Zoho Sign unavailable')),
         downloadCompletedEnvelopeDocuments: jest.fn(),
       },
       { sendTemplateEmail: jest.fn().mockResolvedValue({ providerMessageId: 'msg-1' }) },

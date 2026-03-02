@@ -73,7 +73,13 @@ export async function GET(request: NextRequest) {
     }
 
     const zohoConfig = appConfig.zohoSign
-    if (!zohoConfig.apiBaseUrl || !zohoConfig.accessToken) {
+    if (
+      !zohoConfig.apiBaseUrl ||
+      !zohoConfig.oauthBaseUrl ||
+      !zohoConfig.clientId ||
+      !zohoConfig.clientSecret ||
+      !zohoConfig.refreshToken
+    ) {
       return NextResponse.json(
         errorResponse('SIGNATORY_PROVIDER_NOT_CONFIGURED', 'Signatory provider integration is not configured'),
         { status: 503 }
@@ -82,7 +88,10 @@ export async function GET(request: NextRequest) {
 
     const zohoClient = new ZohoSignClient({
       apiBaseUrl: zohoConfig.apiBaseUrl,
-      accessToken: zohoConfig.accessToken,
+      oauthBaseUrl: zohoConfig.oauthBaseUrl,
+      clientId: zohoConfig.clientId,
+      clientSecret: zohoConfig.clientSecret,
+      refreshToken: zohoConfig.refreshToken,
     })
 
     const signingUrl = await zohoClient.createEmbeddedSigningUrl({

@@ -617,8 +617,8 @@ export class ContractQueryService {
     recipientType: ContractSignatoryRecipientType
     routingOrder: number
     fieldConfig: ContractSignatoryField[]
-    docusignEnvelopeId: string
-    docusignRecipientId: string
+    zohoSignEnvelopeId: string
+    zohoSignRecipientId: string
     envelopeSourceDocumentId: string
   }): Promise<ContractDetailView> {
     if (!params.actorRole) {
@@ -639,8 +639,8 @@ export class ContractQueryService {
       recipientType: params.recipientType,
       routingOrder: params.routingOrder,
       fieldConfig: params.fieldConfig,
-      docusignEnvelopeId: params.docusignEnvelopeId,
-      docusignRecipientId: params.docusignRecipientId,
+      zohoSignEnvelopeId: params.zohoSignEnvelopeId,
+      zohoSignRecipientId: params.zohoSignRecipientId,
       envelopeSourceDocumentId: params.envelopeSourceDocumentId,
     })
 
@@ -770,7 +770,7 @@ export class ContractQueryService {
     return this.contractRepository.resolveEnvelopeContext(params)
   }
 
-  async recordDocusignWebhookEvent(params: {
+  async recordZohoSignWebhookEvent(params: {
     tenantId: string
     contractId: string
     envelopeId: string
@@ -780,7 +780,7 @@ export class ContractQueryService {
     payload: Record<string, unknown>
     signerIp?: string
   }): Promise<{ inserted: boolean }> {
-    return this.contractRepository.recordDocusignWebhookEvent(params)
+    return this.contractRepository.recordZohoSignWebhookEvent(params)
   }
 
   async addSignatoryWebhookAuditEvent(params: {
