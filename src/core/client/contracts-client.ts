@@ -336,6 +336,10 @@ type ContractTypeOption = {
   name: string
 }
 
+type CounterpartyOption = {
+  name: string
+}
+
 type LegalTeamMemberOption = {
   id: string
   email: string
@@ -534,6 +538,10 @@ function resolveProtectedContractPath(
 export const contractsClient = {
   async contractTypes(): Promise<ApiResponse<{ contractTypes: ContractTypeOption[] }>> {
     return fetchGetJson<{ contractTypes: ContractTypeOption[] }>(routeRegistry.api.contracts.contractTypes)
+  },
+
+  async counterparties(): Promise<ApiResponse<{ counterparties: CounterpartyOption[] }>> {
+    return fetchGetJson<{ counterparties: CounterpartyOption[] }>(routeRegistry.api.contracts.counterparties)
   },
 
   async departments(): Promise<ApiResponse<{ departments: DepartmentOption[] }>> {

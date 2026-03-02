@@ -4,6 +4,7 @@
  */
 
 import { z } from 'zod'
+import { appConfig } from '@/core/config/app-config'
 
 /**
  * Login email validation
@@ -13,8 +14,8 @@ export const LoginEmailSchema = z
   .email('Invalid email address')
   .toLowerCase()
   .transform((value) => value.trim())
-  .refine((value) => value.endsWith('@nxtwave.co.in'), {
-    message: 'Only @nxtwave.co.in email addresses are allowed',
+  .refine((value) => appConfig.auth.allowedDomains.some((domain) => value.endsWith(domain)), {
+    message: `Only ${appConfig.auth.allowedDomains.map((domain) => `@${domain}`).join(', ')} email addresses are allowed`,
   })
 
 /**

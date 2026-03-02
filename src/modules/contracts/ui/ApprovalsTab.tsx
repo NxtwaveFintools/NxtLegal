@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import type { ContractDetailResponse } from '@/core/client/contracts-client'
+import { publicConfig } from '@/core/config/public-config'
 import Spinner from '@/components/ui/Spinner'
 import { toast } from 'sonner'
 import styles from './contracts-workspace.module.css'
@@ -106,6 +107,9 @@ function buildSteps(params: {
 
   return steps
 }
+
+const defaultDomain = publicConfig.auth.allowedDomains[0] ?? 'example.com'
+const approvalEmailPlaceholder = `approver@${defaultDomain}`
 
 function statusClass(status: ApprovalStatus): string {
   if (status === 'APPROVED') {
@@ -358,7 +362,7 @@ export default function ApprovalsTab({
             <input
               type="email"
               className={styles.input}
-              placeholder="approver@nxtwave.co.in"
+              placeholder={approvalEmailPlaceholder}
               value={approverEmail}
               onChange={(event) => onApproverEmailChange(event.target.value)}
             />

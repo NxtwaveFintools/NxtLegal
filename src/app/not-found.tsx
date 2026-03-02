@@ -1,4 +1,7 @@
 import Link from 'next/link'
+import { publicConfig } from '@/core/config/public-config'
+
+const supportEmail = `support@${publicConfig.auth.allowedDomains[0] ?? 'example.com'}`
 
 export default function NotFound() {
   return (
@@ -79,7 +82,7 @@ export default function NotFound() {
         <p className="mt-8 text-sm" style={{ color: 'var(--color-text-muted)' }}>
           If you think this is a mistake, please{' '}
           <a
-            href="mailto:support@nxtwave.co.in"
+            href={`mailto:${supportEmail}`}
             className="font-medium"
             style={{ color: 'var(--color-accent)', transition: 'opacity 0.2s ease' }}
           >

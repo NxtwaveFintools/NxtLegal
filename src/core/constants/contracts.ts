@@ -1,3 +1,5 @@
+import { publicConfig } from '@/core/config/public-config'
+
 export const contractStatuses = {
   draft: 'DRAFT',
   uploaded: 'UPLOADED',
@@ -54,7 +56,7 @@ export type ContractUploadMode = (typeof contractUploadModes)[keyof typeof contr
 
 export const contractWorkflowIdentities = {
   legalDepartmentName: 'Legal and Compliance',
-  legalHodEmail: 'legalhod@nxtwave.co.in',
+  legalHodEmail: `legalhod@${publicConfig.auth.allowedDomains[0] ?? 'example.com'}`,
 } as const
 
 export type ContractWorkflowRole = (typeof contractWorkflowRoles)[keyof typeof contractWorkflowRoles]

@@ -341,6 +341,50 @@ class SupabaseContractRepository implements ContractRepository {
     }))
   }
 
+  async listMasterCounterpartyNames(tenantId: string): Promise<string[]> {
+    const supabase = createServiceSupabase()
+    const { data, error } = await supabase
+      .from('master_counterparties')
+      .select('name')
+      .eq('tenant_id', tenantId)
+      .order('name', { ascending: true })
+
+    if (error) {
+      throw new DatabaseError('Failed to load master counterparties', new Error(error.message), {
+        code: error.code,
+      })
+    }
+
+    return ((data ?? []) as Array<{ name: string }>).map((row) => row.name)
+  }
+
+  async upsertMasterCounterpartyNames(params: { tenantId: string; names: string[] }): Promise<void> {
+    const normalizedNames = Array.from(
+      new Set(params.names.map((value) => value.trim()).filter((value) => value.length > 0))
+    )
+
+    if (normalizedNames.length === 0) {
+      return
+    }
+
+    const supabase = createServiceSupabase()
+    const payload = normalizedNames.map((name) => ({
+      tenant_id: params.tenantId,
+      name,
+    }))
+
+    const { error } = await supabase.from('master_counterparties').upsert(payload, {
+      onConflict: 'tenant_id,name',
+      ignoreDuplicates: true,
+    })
+
+    if (error) {
+      throw new DatabaseError('Failed to persist master counterparties', new Error(error.message), {
+        code: error.code,
+      })
+    }
+  }
+
   async setCounterpartyName(params: { tenantId: string; contractId: string; counterpartyName: string }): Promise<void> {
     const supabase = createServiceSupabase()
 

@@ -13,6 +13,7 @@ import {
   type ContractRecord,
   type ContractTimelineEvent,
 } from '@/core/client/contracts-client'
+import { publicConfig } from '@/core/config/public-config'
 import {
   contractDocumentKinds,
   contractLegalAssignmentEditableStatuses,
@@ -33,6 +34,8 @@ const PrepareForSigningModal = dynamic(() => import('@/modules/contracts/ui/Prep
 })
 
 const htmlPreviewExtensions = new Set(['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'csv', 'tsv', 'txt'])
+const defaultDomain = publicConfig.auth.allowedDomains[0] ?? 'example.com'
+const collaboratorEmailPlaceholder = `legalmember@${defaultDomain}`
 
 const resolveFileExtension = (fileName: string): string => {
   const normalizedName = fileName.trim().toLowerCase()
@@ -1605,7 +1608,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                             <input
                               type="email"
                               className={styles.input}
-                              placeholder="legalmember@nxtwave.co.in"
+                              placeholder={collaboratorEmailPlaceholder}
                               value={collaboratorEmail}
                               onChange={(event) => setCollaboratorEmail(event.target.value)}
                             />

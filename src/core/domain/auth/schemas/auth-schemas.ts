@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { limits } from '@/core/constants/limits'
+import { appConfig } from '@/core/config/app-config'
 
 export const LoginSchema = z.object({
   email: z
@@ -7,8 +8,8 @@ export const LoginSchema = z.object({
     .email('Valid email is required')
     .trim()
     .toLowerCase()
-    .refine((value) => value.endsWith('@nxtwave.co.in'), {
-      message: 'Only @nxtwave.co.in email addresses are allowed',
+    .refine((value) => appConfig.auth.allowedDomains.some((domain) => value.endsWith(domain)), {
+      message: `Only ${appConfig.auth.allowedDomains.map((domain) => `@${domain}`).join(', ')} email addresses are allowed`,
     }),
   password: z
     .string()

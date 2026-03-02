@@ -33,6 +33,7 @@ export const routeRegistry = {
     contracts: {
       list: '/api/contracts',
       contractTypes: '/api/contracts/contract-types',
+      counterparties: '/api/contracts/counterparties',
       departments: '/api/contracts/departments',
       legalTeamMembers: '/api/contracts/legal-team-members',
       pendingApprovals: '/api/contracts/pending-approvals',
