@@ -14,6 +14,8 @@ export interface ContractRepository {
   createWithAudit(input: CreateContractUploadInput): Promise<ContractRecord>
   createCounterparties(input: CreateContractCounterpartyInput[]): Promise<ContractCounterpartyRecord[]>
   listCounterparties(params: { tenantId: string; contractId: string }): Promise<ContractCounterpartyRecord[]>
+  listMasterCounterpartyNames(tenantId: string): Promise<string[]>
+  upsertMasterCounterpartyNames(params: { tenantId: string; names: string[] }): Promise<void>
   setCounterpartyName(params: { tenantId: string; contractId: string; counterpartyName: string }): Promise<void>
   createDocument(input: CreateContractDocumentInput): Promise<void>
   getForAccess(contractId: string, tenantId: string): Promise<ContractAccessRecord | null>

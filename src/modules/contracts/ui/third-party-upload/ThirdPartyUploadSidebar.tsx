@@ -25,7 +25,6 @@ type ThirdPartyUploadSidebarProps = {
   onUploaded?: () => Promise<void> | void
 }
 
-const COUNTERPARTIES = [contractCounterpartyValues.notApplicable, 'Acme Corp', 'Orion Systems', 'Northwind Traders']
 const ORGANIZATION_ENTITY = 'NxtWave Disruptive Technologies Pvt Ltd'
 
 type CounterpartyEntry = {
@@ -70,9 +69,7 @@ export default function ThirdPartyUploadSidebar({
   const [uploadProgress, setUploadProgress] = useState<number | null>(null)
   const uploadAbortRef = useRef<AbortController | null>(null)
 
-  const showCounterpartyModal = counterpartyEntries.some(
-    (entry) => entry.counterpartyName.trim() !== '' && !COUNTERPARTIES.includes(entry.counterpartyName.trim())
-  )
+  const showCounterpartyModal = false
   const isLegalActor = actorRole === contractWorkflowRoles.legalTeam
   const effectiveDepartmentId = departmentId
   const selectedDepartmentName = departments.find((item) => item.id === departmentId)?.name ?? ''
@@ -375,7 +372,7 @@ export default function ThirdPartyUploadSidebar({
           contractType={contractType}
           contractTypes={contractTypes}
           counterparties={counterpartyEntries}
-          counterpartyOptions={COUNTERPARTIES}
+          counterpartyOptions={[contractCounterpartyValues.notApplicable]}
           showCounterpartyModal={showCounterpartyModal}
           onContractTypeChange={(value) => {
             setContractType(value)

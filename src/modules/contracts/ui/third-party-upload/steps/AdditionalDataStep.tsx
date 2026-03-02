@@ -1,6 +1,7 @@
 'use client'
 
-import type { KeyboardEvent } from 'react'
+import { useEffect, useState, type KeyboardEvent } from 'react'
+import { contractsClient } from '@/core/client/contracts-client'
 import { contractCounterpartyValues } from '@/core/constants/contracts'
 import { formatFileSize } from '@/lib/format-file-size'
 import styles from '../third-party-upload.module.css'
@@ -77,6 +78,37 @@ export default function AdditionalDataStep({
   onSupportingFilesSelected,
   onSupportingFileRemoved,
 }: AdditionalDataStepProps) {
+  const [loadedCounterpartyOptions, setLoadedCounterpartyOptions] = useState<string[]>(counterpartyOptions)
+
+  useEffect(() => {
+    setLoadedCounterpartyOptions(counterpartyOptions)
+  }, [counterpartyOptions])
+
+  useEffect(() => {
+    if (isSendForSigningFlow) {
+      return
+    }
+
+    let isMounted = true
+
+    void (async () => {
+      const response = await contractsClient.counterparties()
+      if (!isMounted || !response.ok || !response.data?.counterparties) {
+        return
+      }
+
+      const names = response.data.counterparties
+        .map((item) => item.name.trim())
+        .filter((name) => name.length > 0 && name.toUpperCase() !== contractCounterpartyValues.notApplicable)
+
+      setLoadedCounterpartyOptions([contractCounterpartyValues.notApplicable, ...names])
+    })()
+
+    return () => {
+      isMounted = false
+    }
+  }, [isSendForSigningFlow])
+
   const isCounterpartyNa = (value: string) => value.trim().toUpperCase() === contractCounterpartyValues.notApplicable
 
   const canAddCounterparty = (index: number) => {
@@ -357,7 +389,7 @@ export default function AdditionalDataStep({
 
           {!isSendForSigningFlow ? (
             <datalist id="counterparty-options">
-              {counterpartyOptions.map((option) => (
+              {loadedCounterpartyOptions.map((option) => (
                 <option key={option} value={option} />
               ))}
             </datalist>

@@ -290,6 +290,13 @@ export class ContractUploadService {
           uploadedByEmail: input.uploadedByEmail,
         })
       }
+
+      await this.contractRepository.upsertMasterCounterpartyNames({
+        tenantId: input.tenantId,
+        names: normalizedCounterparties
+          .map((counterparty) => counterparty.counterpartyName)
+          .filter((name) => name.toUpperCase() !== contractCounterpartyValues.notApplicable),
+      })
     } catch (error) {
       this.logger.error('Contract document metadata persistence failed', {
         tenantId: input.tenantId,
