@@ -1,4 +1,4 @@
-import { AuthorizationError, BusinessRuleError, ExternalServiceError, NotFoundError } from '@/core/http/errors'
+import { AuthorizationError, BusinessRuleError, ExternalServiceError } from '@/core/http/errors'
 import { createSignatoryLinkToken } from '@/core/infra/security/signatory-link-token'
 import {
   contractDocumentKinds,
@@ -57,10 +57,8 @@ type SignatureProvider = {
       signingUrl: string
     }>
   }>
-  downloadCompletedEnvelopeDocuments(params: {
-    envelopeId: string
-  }): Promise<{ executedPdf: Uint8Array; certificatePdf: Uint8Array }>
-  downloadRecipientSignedDocument?: (params: { envelopeId: string; recipientId: string }) => Promise<Uint8Array>
+  downloadEnvelopePdf: (params: { envelopeId: string }) => Promise<Uint8Array>
+  downloadCompletionCertificate: (params: { envelopeId: string }) => Promise<Uint8Array>
 }
 
 type SignatoryMailer = {
@@ -409,21 +407,21 @@ export class ContractSignatoryService {
     }
   }
 
-  async downloadSignedDocumentForSignatory(params: {
+  async downloadFinalSigningArtifact(params: {
     tenantId: string
     contractId: string
-    signatoryId: string
     actorEmployeeId: string
     actorRole?: string
+    artifact: 'signed_document' | 'completion_certificate'
   }): Promise<{ fileName: string; contentType: string; fileBytes: Uint8Array }> {
     if (!params.actorRole) {
-      throw new AuthorizationError('CONTRACT_SIGNATORY_FORBIDDEN', 'User role is required for signed document download')
+      throw new AuthorizationError('CONTRACT_SIGNATORY_FORBIDDEN', 'User role is required for final artifact download')
     }
 
     if (params.actorRole !== contractWorkflowRoles.legalTeam && params.actorRole !== contractWorkflowRoles.admin) {
       throw new AuthorizationError(
         'CONTRACT_SIGNATORY_FORBIDDEN',
-        'Only LEGAL_TEAM or ADMIN can download signed signatory documents'
+        'Only LEGAL_TEAM or ADMIN can download final signing artifacts'
       )
     }
 
@@ -434,81 +432,87 @@ export class ContractSignatoryService {
       role: params.actorRole,
     })
 
-    const signatory = contractView.signatories.find((item) => item.id === params.signatoryId)
-    if (!signatory) {
-      throw new NotFoundError('Signatory', params.signatoryId)
+    const envelopeId = contractView.signatories[0]?.zohoSignEnvelopeId
+    if (!envelopeId?.trim()) {
+      throw new BusinessRuleError('SIGNATORY_DOCUMENT_NOT_AVAILABLE', 'Envelope is not available for this contract')
     }
 
-    if (signatory.status !== 'SIGNED') {
-      throw new BusinessRuleError(
-        'SIGNATORY_DOCUMENT_NOT_AVAILABLE',
-        'Signed document is available only after this signatory signs'
-      )
-    }
+    const isCompletionCertificate = params.artifact === 'completion_certificate'
+    const targetDocumentKind = isCompletionCertificate
+      ? contractDocumentKinds.auditCertificate
+      : contractDocumentKinds.executedContract
+    const targetDisplayName = isCompletionCertificate ? 'Zoho Sign Completion Certificate' : 'Executed Contract'
+    const targetFileName = isCompletionCertificate
+      ? `audit-certificate-${envelopeId}.pdf`
+      : `executed-${envelopeId}.pdf`
+    const targetFilePath = isCompletionCertificate
+      ? `${params.tenantId}/${params.contractId}/executed/${envelopeId}/audit-certificate.pdf`
+      : `${params.tenantId}/${params.contractId}/executed/${envelopeId}/executed-contract.pdf`
 
-    const fallbackExecutedDocument = contractView.documents
-      .filter((document) => document.documentKind === contractDocumentKinds.executedContract)
+    const localDocument = contractView.documents
+      .filter((document) => document.documentKind === targetDocumentKind)
       .sort((left, right) => new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime())[0]
 
-    if (this.signatureProvider.downloadRecipientSignedDocument) {
+    if (localDocument) {
       try {
-        const recipientPdf = await this.signatureProvider.downloadRecipientSignedDocument({
-          envelopeId: signatory.zohoSignEnvelopeId,
-          recipientId: signatory.zohoSignRecipientId,
+        const localDownload = await this.contractDocumentDownloadService.createSignedDownloadUrl({
+          contractId: params.contractId,
+          tenantId: params.tenantId,
+          requestorEmployeeId: params.actorEmployeeId,
+          requestorRole: params.actorRole,
+          documentId: localDocument.id,
         })
 
-        return {
-          fileName: this.buildRecipientSignedDocumentFileName(signatory.signatoryEmail, signatory.zohoSignEnvelopeId),
-          contentType: 'application/pdf',
-          fileBytes: recipientPdf,
+        const localDocumentResponse = await fetch(localDownload.signedUrl)
+        if (localDocumentResponse.ok) {
+          return {
+            fileName: localDownload.fileName,
+            contentType: localDocumentResponse.headers.get('content-type') ?? 'application/pdf',
+            fileBytes: new Uint8Array(await localDocumentResponse.arrayBuffer()),
+          }
         }
-      } catch (error) {
-        if (!fallbackExecutedDocument) {
-          throw new ExternalServiceError(
-            'ZOHO_SIGN',
-            'Failed to download recipient-specific signed PDF and no executed fallback is available',
-            error as Error
-          )
-        }
+      } catch {
+        // If local fetch fails, fallback to Zoho and repersist.
       }
-    } else if (!fallbackExecutedDocument) {
-      throw new BusinessRuleError(
-        'SIGNATORY_DOCUMENT_NOT_AVAILABLE',
-        'Recipient-specific signed PDF is unavailable and no executed fallback document exists yet'
-      )
     }
 
-    const fallbackDownload = await this.contractDocumentDownloadService.createSignedDownloadUrl({
-      contractId: params.contractId,
-      tenantId: params.tenantId,
-      requestorEmployeeId: params.actorEmployeeId,
-      requestorRole: params.actorRole,
-      documentId: fallbackExecutedDocument.id,
-    })
-
     try {
-      const documentResponse = await fetch(fallbackDownload.signedUrl)
-      if (!documentResponse.ok) {
-        throw new BusinessRuleError(
-          'SIGNATORY_DOCUMENT_FALLBACK_FETCH_FAILED',
-          'Failed to fetch fallback executed document'
-        )
-      }
+      const fileBytes = isCompletionCertificate
+        ? await this.signatureProvider.downloadCompletionCertificate({ envelopeId })
+        : await this.signatureProvider.downloadEnvelopePdf({ envelopeId })
 
-      const fallbackBytes = new Uint8Array(await documentResponse.arrayBuffer())
+      await this.uploadCompletionArtifactSafely({
+        path: targetFilePath,
+        fileBody: fileBytes,
+        contentType: 'application/pdf',
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        envelopeId,
+        artifactKind: targetDocumentKind,
+      })
+
+      await this.insertCompletionDocumentSafely({
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        documentKind: targetDocumentKind,
+        displayName: targetDisplayName,
+        fileName: targetFileName,
+        filePath: targetFilePath,
+        fileSizeBytes: fileBytes.byteLength,
+        fileMimeType: 'application/pdf',
+        envelopeId,
+      })
+
       return {
-        fileName: fallbackDownload.fileName,
-        contentType: documentResponse.headers.get('content-type') ?? 'application/pdf',
-        fileBytes: fallbackBytes,
+        fileName: targetFileName,
+        contentType: 'application/pdf',
+        fileBytes,
       }
     } catch (error) {
-      if (error instanceof BusinessRuleError) {
-        throw error
-      }
-
-      throw new BusinessRuleError(
-        'SIGNATORY_DOCUMENT_FALLBACK_FETCH_FAILED',
-        'Failed to fetch fallback executed document'
+      throw new ExternalServiceError(
+        'ZOHO_SIGN',
+        'Final signing artifact is still being prepared. Please try again shortly.',
+        error as Error
       )
     }
   }
@@ -593,33 +597,6 @@ export class ContractSignatoryService {
         recipientEmail: params.recipientEmail,
         insertedWebhookEvent: webhookInsert.inserted,
       })
-
-      const artifactsExist = await this.hasCompletionArtifacts(
-        params.envelopeId,
-        envelopeContext.tenantId,
-        envelopeContext.contractId
-      )
-
-      this.logger.info('ZOHO_SIGN_COMPLETION_IDEMPOTENCY_CHECK', {
-        tenantId: envelopeContext.tenantId,
-        contractId: envelopeContext.contractId,
-        envelopeId: params.envelopeId,
-        artifactsExist,
-      })
-
-      if (artifactsExist) {
-        this.logger.info('ZOHO_SIGN_ARTIFACT_ALREADY_EXISTS', {
-          tenantId: envelopeContext.tenantId,
-          contractId: envelopeContext.contractId,
-          envelopeId: params.envelopeId,
-        })
-      } else {
-        await this.persistCompletionArtifacts({
-          tenantId: envelopeContext.tenantId,
-          contractId: envelopeContext.contractId,
-          envelopeId: params.envelopeId,
-        })
-      }
 
       if (webhookInsert.inserted) {
         await this.sendCompletionNotifications({
@@ -839,25 +816,6 @@ export class ContractSignatoryService {
     return 'UNKNOWN'
   }
 
-  private async hasCompletionArtifacts(envelopeId: string, tenantId: string, contractId: string): Promise<boolean> {
-    const documents = await this.contractQueryService.getContractDocumentsBySystem({
-      tenantId,
-      contractId,
-    })
-
-    const expectedExecutedFileName = `executed-${envelopeId}.pdf`
-    const expectedCertificateFileName = `audit-certificate-${envelopeId}.pdf`
-
-    const hasExecuted = documents.some(
-      (document) => document.documentKind === 'EXECUTED_CONTRACT' && document.fileName === expectedExecutedFileName
-    )
-    const hasCertificate = documents.some(
-      (document) => document.documentKind === 'AUDIT_CERTIFICATE' && document.fileName === expectedCertificateFileName
-    )
-
-    return hasExecuted && hasCertificate
-  }
-
   private assertValidRoutingOrders(params: { email: string; routingOrder: number }[]): void {
     params.forEach((recipient) => {
       if (!Number.isInteger(recipient.routingOrder) || recipient.routingOrder < 1) {
@@ -895,94 +853,6 @@ export class ContractSignatoryService {
           `At least one SIGNATURE field is required for recipient ${normalized}`
         )
       }
-    })
-  }
-
-  private async persistCompletionArtifacts(params: {
-    tenantId: string
-    contractId: string
-    envelopeId: string
-  }): Promise<void> {
-    this.logger.info('ZOHO_SIGN_ARTIFACT_PERSIST_START', {
-      tenantId: params.tenantId,
-      contractId: params.contractId,
-      envelopeId: params.envelopeId,
-    })
-
-    const artifacts = await this.signatureProvider.downloadCompletedEnvelopeDocuments({
-      envelopeId: params.envelopeId,
-    })
-
-    const documents = await this.contractQueryService.getContractDocumentsBySystem({
-      tenantId: params.tenantId,
-      contractId: params.contractId,
-    })
-
-    const expectedExecutedFileName = `executed-${params.envelopeId}.pdf`
-    const expectedCertificateFileName = `audit-certificate-${params.envelopeId}.pdf`
-
-    const hasExecuted = documents.some(
-      (document) => document.documentKind === 'EXECUTED_CONTRACT' && document.fileName === expectedExecutedFileName
-    )
-    const hasCertificate = documents.some(
-      (document) => document.documentKind === 'AUDIT_CERTIFICATE' && document.fileName === expectedCertificateFileName
-    )
-
-    const executedPath = `${params.tenantId}/${params.contractId}/executed/${params.envelopeId}/executed-contract.pdf`
-    const certificatePath = `${params.tenantId}/${params.contractId}/executed/${params.envelopeId}/audit-certificate.pdf`
-
-    await this.uploadCompletionArtifactSafely({
-      path: executedPath,
-      fileBody: artifacts.executedPdf,
-      contentType: 'application/pdf',
-      tenantId: params.tenantId,
-      contractId: params.contractId,
-      envelopeId: params.envelopeId,
-      artifactKind: 'EXECUTED_CONTRACT',
-    })
-
-    await this.uploadCompletionArtifactSafely({
-      path: certificatePath,
-      fileBody: artifacts.certificatePdf,
-      contentType: 'application/pdf',
-      tenantId: params.tenantId,
-      contractId: params.contractId,
-      envelopeId: params.envelopeId,
-      artifactKind: 'AUDIT_CERTIFICATE',
-    })
-
-    if (!hasExecuted) {
-      await this.insertCompletionDocumentSafely({
-        tenantId: params.tenantId,
-        contractId: params.contractId,
-        documentKind: 'EXECUTED_CONTRACT',
-        displayName: 'Executed Contract',
-        fileName: expectedExecutedFileName,
-        filePath: executedPath,
-        fileSizeBytes: artifacts.executedPdf.byteLength,
-        fileMimeType: 'application/pdf',
-        envelopeId: params.envelopeId,
-      })
-    }
-
-    if (!hasCertificate) {
-      await this.insertCompletionDocumentSafely({
-        tenantId: params.tenantId,
-        contractId: params.contractId,
-        documentKind: 'AUDIT_CERTIFICATE',
-        displayName: 'Zoho Sign Completion Certificate',
-        fileName: expectedCertificateFileName,
-        filePath: certificatePath,
-        fileSizeBytes: artifacts.certificatePdf.byteLength,
-        fileMimeType: 'application/pdf',
-        envelopeId: params.envelopeId,
-      })
-    }
-
-    this.logger.info('ZOHO_SIGN_ARTIFACT_PERSIST_SUCCESS', {
-      tenantId: params.tenantId,
-      contractId: params.contractId,
-      envelopeId: params.envelopeId,
     })
   }
 
@@ -1086,13 +956,5 @@ export class ContractSignatoryService {
     })
 
     return `${this.appSiteUrl}/api/contracts/signatories/zoho-sign/redirect?token=${encodeURIComponent(token)}`
-  }
-
-  private buildRecipientSignedDocumentFileName(signatoryEmail: string, envelopeId: string): string {
-    const safeSigner = signatoryEmail
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9._-]+/g, '-')
-    return `signed-${safeSigner}-${envelopeId}.pdf`
   }
 }

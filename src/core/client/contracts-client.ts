@@ -228,6 +228,8 @@ type ContractSignatory = {
   createdAt: string
 }
 
+type FinalSigningArtifactType = 'signed_document' | 'completion_certificate'
+
 type ContractSigningPreparationDraft = {
   contractId: string
   recipients: Array<{
@@ -502,10 +504,6 @@ function fetchGetJson<T>(url: string): Promise<ApiResponse<T>> {
 
 function resolveContractPath(template: string, contractId: string): string {
   return template.replace(':contractId', contractId)
-}
-
-function resolveContractSignatoryPath(template: string, contractId: string, signatoryId: string): string {
-  return template.replace(':contractId', contractId).replace(':signatoryId', signatoryId)
 }
 
 function resolveProtectedContractPath(
@@ -1141,17 +1139,14 @@ export const contractsClient = {
     })
   },
 
-  async downloadSignatorySignedDocument(
+  async downloadFinalSigningArtifact(
     contractId: string,
-    signatoryId: string
+    artifact: FinalSigningArtifactType
   ): Promise<ApiResponse<{ blob: Blob; fileName: string; contentType: string }>> {
     try {
-      const url = resolveContractSignatoryPath(
-        routeRegistry.api.contracts.signatorySignedDocumentDownload,
-        contractId,
-        signatoryId
-      )
-      const response = await fetch(url, {
+      const path = resolveContractPath(routeRegistry.api.contracts.finalSignedArtifactDownload, contractId)
+      const query = new URLSearchParams({ artifact })
+      const response = await fetch(`${path}?${query.toString()}`, {
         method: 'GET',
         credentials: 'include',
         cache: 'no-store',
@@ -1164,7 +1159,7 @@ export const contractsClient = {
             ok: false,
             error: {
               code: parsedError.error?.code ?? 'download_failed',
-              message: parsedError.error?.message ?? 'Failed to download signer document',
+              message: parsedError.error?.message ?? 'Failed to download final signing artifact',
             },
           }
         } catch {
@@ -1172,7 +1167,7 @@ export const contractsClient = {
             ok: false,
             error: {
               code: 'download_failed',
-              message: 'Failed to download signer document',
+              message: 'Failed to download final signing artifact',
             },
           }
         }
@@ -1191,7 +1186,9 @@ export const contractsClient = {
               return rawFileName
             }
           })()
-        : 'signed.pdf'
+        : artifact === 'completion_certificate'
+          ? 'completion-certificate.pdf'
+          : 'signed-document.pdf'
 
       return {
         ok: true,
@@ -1236,6 +1233,7 @@ export type {
   ContractApproverReminderResponse,
   ContractLegalCollaborator,
   ContractSignatory,
+  FinalSigningArtifactType,
   ContractSigningPreparationDraft,
   AdditionalApproverDecisionHistoryRecord,
   AdditionalApproverHistoryResponse,

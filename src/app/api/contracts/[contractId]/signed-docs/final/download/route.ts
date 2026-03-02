@@ -5,7 +5,7 @@ import { isAppError } from '@/core/http/errors'
 import { getContractSignatoryService } from '@/core/registry/service-registry'
 import { logger } from '@/core/infra/logging/logger'
 
-const GETHandler = withAuth(async (_request: NextRequest, { session, params }) => {
+const GETHandler = withAuth(async (request: NextRequest, { session, params }) => {
   try {
     if (!session.tenantId) {
       return NextResponse.json(errorResponse('SESSION_INVALID', 'Session tenant is required'), { status: 401 })
@@ -16,23 +16,25 @@ const GETHandler = withAuth(async (_request: NextRequest, { session, params }) =
     }
 
     const contractId = params?.contractId
-    const signatoryId = params?.signatoryId
-
     if (!contractId || typeof contractId !== 'string') {
       return NextResponse.json(errorResponse('CONTRACT_ID_REQUIRED', 'Contract ID is required'), { status: 400 })
     }
 
-    if (!signatoryId || typeof signatoryId !== 'string') {
-      return NextResponse.json(errorResponse('SIGNATORY_ID_REQUIRED', 'Signatory ID is required'), { status: 400 })
+    const artifact = request.nextUrl.searchParams.get('artifact')
+    if (artifact !== 'signed_document' && artifact !== 'completion_certificate') {
+      return NextResponse.json(
+        errorResponse('INVALID_ARTIFACT', 'artifact must be signed_document or completion_certificate'),
+        { status: 400 }
+      )
     }
 
     const contractSignatoryService = getContractSignatoryService()
-    const result = await contractSignatoryService.downloadSignedDocumentForSignatory({
+    const result = await contractSignatoryService.downloadFinalSigningArtifact({
       tenantId: session.tenantId,
       contractId,
-      signatoryId,
       actorEmployeeId: session.employeeId,
       actorRole: session.role,
+      artifact,
     })
 
     const normalizedBytes = new Uint8Array(result.fileBytes)
@@ -47,14 +49,14 @@ const GETHandler = withAuth(async (_request: NextRequest, { session, params }) =
       },
     })
   } catch (error) {
-    logger.warn('Signatory signed document download failed', {
+    logger.warn('Final signing artifact download failed', {
       error: String(error),
       errorCode: isAppError(error) ? error.code : 'INTERNAL_ERROR',
     })
 
     const status = isAppError(error) ? error.statusCode : 500
     const code = isAppError(error) ? error.code : 'INTERNAL_ERROR'
-    const message = isAppError(error) ? error.message : 'Failed to download signatory signed document'
+    const message = isAppError(error) ? error.message : 'Failed to download final signing artifact'
     return NextResponse.json(errorResponse(code, message), { status })
   }
 })

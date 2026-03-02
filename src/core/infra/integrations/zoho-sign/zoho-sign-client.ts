@@ -137,11 +137,12 @@ export class ZohoSignClient {
     }
   }
 
-  async downloadRecipientSignedDocument(params: { envelopeId: string; recipientId: string }): Promise<Uint8Array> {
-    return this.downloadPdfFromKnownPaths([
-      `/requests/${params.envelopeId}/actions/${params.recipientId}/pdf`,
-      `/requests/${params.envelopeId}/actions/${params.recipientId}/document`,
-    ])
+  async downloadEnvelopePdf(params: { envelopeId: string }): Promise<Uint8Array> {
+    return this.downloadPdf(`/requests/${params.envelopeId}/pdf`)
+  }
+
+  async downloadCompletionCertificate(params: { envelopeId: string }): Promise<Uint8Array> {
+    return this.downloadPdf(`/requests/${params.envelopeId}/completioncertificate`)
   }
 
   private async createRequest(input: CreateSigningEnvelopeInput): Promise<ZohoCreateRequestResponse> {
@@ -303,20 +304,6 @@ export class ZohoSignClient {
     }
 
     return new Uint8Array(await response.arrayBuffer())
-  }
-
-  private async downloadPdfFromKnownPaths(paths: string[]): Promise<Uint8Array> {
-    let lastError: Error | null = null
-
-    for (const path of paths) {
-      try {
-        return await this.downloadPdf(path)
-      } catch (error) {
-        lastError = error instanceof Error ? error : new Error(String(error))
-      }
-    }
-
-    throw new Error(lastError?.message ?? 'Zoho Sign PDF download failed for all known paths')
   }
 
   private async createAuthHeaders(): Promise<Record<string, string>> {

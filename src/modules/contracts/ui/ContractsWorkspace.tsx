@@ -82,7 +82,6 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const [legalAutoRenewal, setLegalAutoRenewal] = useState<'unknown' | 'yes' | 'no'>('unknown')
   const [isGeneratingLinkFor, setIsGeneratingLinkFor] = useState<string | null>(null)
   const [copiedSigningLinkFor, setCopiedSigningLinkFor] = useState<string | null>(null)
-  const [isDownloadingSignatoryId, setIsDownloadingSignatoryId] = useState<string | null>(null)
   const [isDownloadingFinalSignedDoc, setIsDownloadingFinalSignedDoc] = useState(false)
   const [isDownloadingCompletionCertificate, setIsDownloadingCompletionCertificate] = useState(false)
   const [activeTab, setActiveTab] = useState<TabId>('overview')
@@ -626,26 +625,34 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   }
 
   const handleDownloadFinalSignedDocument = async () => {
-    const executedDocument = completionArtifactsByKind.executedDocument
-    if (!executedDocument) {
-      toast.error('Final signed document is still being prepared. Please try again shortly.')
+    if (!selectedContractId) {
       return
     }
 
     setIsDownloadingFinalSignedDoc(true)
-    await handleDownload(executedDocument)
+    const response = await contractsClient.downloadFinalSigningArtifact(selectedContractId, 'signed_document')
+    if (!response.ok || !response.data) {
+      toast.error(response.error?.message ?? 'Failed to download final signed document')
+      setIsDownloadingFinalSignedDoc(false)
+      return
+    }
+    triggerBlobDownload(response.data.blob, response.data.fileName)
     setIsDownloadingFinalSignedDoc(false)
   }
 
   const handleDownloadCompletionCertificate = async () => {
-    const completionCertificate = completionArtifactsByKind.completionCertificate
-    if (!completionCertificate) {
-      toast.error('Completion certificate is still being prepared. Please try again shortly.')
+    if (!selectedContractId) {
       return
     }
 
     setIsDownloadingCompletionCertificate(true)
-    await handleDownload(completionCertificate)
+    const response = await contractsClient.downloadFinalSigningArtifact(selectedContractId, 'completion_certificate')
+    if (!response.ok || !response.data) {
+      toast.error(response.error?.message ?? 'Failed to download completion certificate')
+      setIsDownloadingCompletionCertificate(false)
+      return
+    }
+    triggerBlobDownload(response.data.blob, response.data.fileName)
     setIsDownloadingCompletionCertificate(false)
   }
 
@@ -818,23 +825,6 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     } finally {
       setIsGeneratingLinkFor(null)
     }
-  }
-
-  const handleDownloadSignatorySignedDocument = async (signatoryId: string) => {
-    if (!selectedContractId) {
-      return
-    }
-
-    setIsDownloadingSignatoryId(signatoryId)
-    const response = await contractsClient.downloadSignatorySignedDocument(selectedContractId, signatoryId)
-    setIsDownloadingSignatoryId(null)
-
-    if (!response.ok || !response.data) {
-      toast.error(response.error?.message ?? 'Failed to download signer document')
-      return
-    }
-
-    triggerBlobDownload(response.data.blob, response.data.fileName)
   }
 
   const handleRemindApprover = async (approverEmailToRemind?: string) => {
@@ -1941,25 +1931,10 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                                     {signatory.status}
                                   </span>
                                 </div>
-                                <div className={styles.signatoryActionRow}>
-                                  <button
-                                    type="button"
-                                    className={`${styles.button} ${styles.buttonGhost} ${styles.signatoryLinkButton}`}
-                                    onClick={() => void handleDownloadSignatorySignedDocument(signatory.id)}
-                                    disabled={
-                                      signatory.status !== 'SIGNED' || isDownloadingSignatoryId === signatory.id
-                                    }
-                                  >
-                                    <span className={styles.buttonContent}>
-                                      {isDownloadingSignatoryId === signatory.id ? <Spinner size={14} /> : null}
-                                      {isDownloadingSignatoryId === signatory.id ? 'Preparing…' : 'Download Signed PDF'}
-                                    </span>
-                                  </button>
-                                  <span className={styles.signatoryActionHint}>
-                                    {signatory.status === 'SIGNED'
-                                      ? 'Downloads recipient signed PDF when available, otherwise the final executed PDF.'
-                                      : 'Available after this signer completes signing.'}
-                                  </span>
+                                <div className={styles.signatoryActionHint}>
+                                  {signatory.status === 'SIGNED'
+                                    ? 'This signer has completed signing.'
+                                    : 'Waiting for this signer to complete signing.'}
                                 </div>
                               </div>
                             ))}
@@ -1970,7 +1945,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                         (!completionArtifactsByKind.executedDocument ||
                           !completionArtifactsByKind.completionCertificate) ? (
                           <div className={styles.eventMeta}>
-                            Final artifacts are being synced from Zoho. Buttons will work once artifacts are ready.
+                            Final artifacts are syncing to local storage. Downloads use Zoho live fallback meanwhile.
                           </div>
                         ) : null}
                       </div>

@@ -59,7 +59,7 @@ export const routeRegistry = {
       signatories: '/api/contracts/:contractId/signatories',
       signingPreparationDraft: '/api/contracts/:contractId/signing-preparation-draft',
       signingPreparationSend: '/api/contracts/:contractId/signing-prep/send',
-      signatorySignedDocumentDownload: '/api/contracts/:contractId/signed-docs/:signatoryId/download',
+      finalSignedArtifactDownload: '/api/contracts/:contractId/signed-docs/final/download',
       signatoryWebhook: '/api/contracts/signatories/zoho-sign/webhook',
       signatoryRedirect: '/api/contracts/signatories/zoho-sign/redirect',
       notificationFailures: '/api/contracts/notifications/failed',
