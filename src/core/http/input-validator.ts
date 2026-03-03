@@ -5,6 +5,7 @@
 
 import { z } from 'zod'
 import { appConfig } from '@/core/config/app-config'
+import { isAllowedEmailDomain } from '@/core/config/allowed-domains'
 
 /**
  * Login email validation
@@ -14,7 +15,7 @@ export const LoginEmailSchema = z
   .email('Invalid email address')
   .toLowerCase()
   .transform((value) => value.trim())
-  .refine((value) => appConfig.auth.allowedDomains.some((domain) => value.endsWith(domain)), {
+  .refine((value) => isAllowedEmailDomain(value, appConfig.auth.allowedDomains), {
     message: `Only ${appConfig.auth.allowedDomains.map((domain) => `@${domain}`).join(', ')} email addresses are allowed`,
   })
 
