@@ -34,7 +34,7 @@ export class ContractApprovalNotificationService {
   ) {}
 
   private getContractLink(contractId: string): string {
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'http://nxt-legal.vercel.app'
     return `${baseUrl}/contracts/${contractId}`
   }
 
