@@ -944,90 +944,6 @@ export type Database = {
           },
         ]
       }
-      department_role_map: {
-        Row: {
-          created_at: string
-          created_by: string | null
-          deleted_at: string | null
-          department_id: string
-          effective_from: string
-          effective_to: string | null
-          id: string
-          is_active: boolean
-          mapping_version: number
-          role_id: string
-          tenant_id: string
-          updated_at: string
-          user_id: string | null
-        }
-        Insert: {
-          created_at?: string
-          created_by?: string | null
-          deleted_at?: string | null
-          department_id: string
-          effective_from?: string
-          effective_to?: string | null
-          id?: string
-          is_active?: boolean
-          mapping_version?: number
-          role_id: string
-          tenant_id: string
-          updated_at?: string
-          user_id?: string | null
-        }
-        Update: {
-          created_at?: string
-          created_by?: string | null
-          deleted_at?: string | null
-          department_id?: string
-          effective_from?: string
-          effective_to?: string | null
-          id?: string
-          is_active?: boolean
-          mapping_version?: number
-          role_id?: string
-          tenant_id?: string
-          updated_at?: string
-          user_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "department_role_map_created_by_fkey"
-            columns: ["created_by"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "department_role_map_department_id_fkey"
-            columns: ["department_id"]
-            isOneToOne: false
-            referencedRelation: "teams"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "department_role_map_role_id_fkey"
-            columns: ["role_id"]
-            isOneToOne: false
-            referencedRelation: "roles"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "department_role_map_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenants"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "department_role_map_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "users"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       zoho_sign_webhook_events: {
         Row: {
           contract_id: string
@@ -1138,30 +1054,6 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
-      }
-      holidays: {
-        Row: {
-          created_at: string
-          holiday_date: string
-          id: string
-          name: string
-          type: string
-        }
-        Insert: {
-          created_at?: string
-          holiday_date: string
-          id?: string
-          name: string
-          type: string
-        }
-        Update: {
-          created_at?: string
-          holiday_date?: string
-          id?: string
-          name?: string
-          type?: string
-        }
-        Relationships: []
       }
       idempotency_keys: {
         Row: {
@@ -1392,61 +1284,6 @@ export type Database = {
             columns: ["tenant_id"]
             isOneToOne: false
             referencedRelation: "tenants"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      team_members: {
-        Row: {
-          created_at: string
-          id: string
-          is_primary: boolean
-          role_type: string
-          team_id: string
-          tenant_id: string
-          updated_at: string
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          is_primary?: boolean
-          role_type: string
-          team_id: string
-          tenant_id: string
-          updated_at?: string
-          user_id: string
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          is_primary?: boolean
-          role_type?: string
-          team_id?: string
-          tenant_id?: string
-          updated_at?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "team_members_team_id_fkey"
-            columns: ["team_id"]
-            isOneToOne: false
-            referencedRelation: "teams"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "team_members_tenant_id_fkey"
-            columns: ["tenant_id"]
-            isOneToOne: false
-            referencedRelation: "tenants"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "team_members_user_id_fkey"
-            columns: ["user_id"]
-            isOneToOne: false
-            referencedRelation: "users"
             referencedColumns: ["id"]
           },
         ]
