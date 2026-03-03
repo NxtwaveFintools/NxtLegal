@@ -1,11 +1,5 @@
 import { envPublic } from '@/core/config/env.public'
-
-const parseAllowedDomains = (value: string): string[] => {
-  return value
-    .split(',')
-    .map((domain) => domain.trim().toLowerCase())
-    .filter((domain) => domain.length > 0)
-}
+import { parseAllowedDomains } from '@/core/config/allowed-domains'
 
 export const publicConfig = {
   siteUrl: envPublic.siteUrl,

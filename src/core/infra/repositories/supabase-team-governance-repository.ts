@@ -3,6 +3,7 @@ import 'server-only'
 import { createServiceSupabase } from '@/lib/supabase/service'
 import { contractWorkflowIdentities } from '@/core/constants/contracts'
 import { DatabaseError, NotFoundError } from '@/core/http/errors'
+import { logger } from '@/core/infra/logging/logger'
 import type {
   DepartmentSummary,
   ITeamGovernanceRepository,
@@ -65,8 +66,144 @@ type LegalMatrixRpcRow = {
   after_state_snapshot: Record<string, unknown> | null
 }
 
+type RpcErrorLike = {
+  code?: string
+  message?: string
+}
+
 class SupabaseTeamGovernanceRepository implements ITeamGovernanceRepository {
   private readonly supabase = createServiceSupabase()
+
+  private isMissingPrimaryRoleRpcSignature(error: RpcErrorLike | null | undefined): boolean {
+    const code = (error?.code ?? '').toUpperCase()
+    const message = (error?.message ?? '').toLowerCase()
+
+    return code === 'PGRST202' && message.includes('admin_replace_team_role_email') && message.includes('p_new_name')
+  }
+
+  private async syncRoleNameAfterLegacyReplacement(params: {
+    tenantId: string
+    teamId: string
+    roleType: 'POC' | 'HOD'
+    newEmail: string
+    newName: string
+  }): Promise<void> {
+    const normalizedName = params.newName.trim()
+    const normalizedEmail = params.newEmail.trim().toLowerCase()
+
+    const teamNamePatch =
+      params.roleType === 'POC'
+        ? { poc_name: normalizedName, updated_at: new Date().toISOString() }
+        : { hod_name: normalizedName, updated_at: new Date().toISOString() }
+
+    const { error: updateTeamNameError } = await this.supabase
+      .from('teams')
+      .update(teamNamePatch)
+      .eq('tenant_id', params.tenantId)
+      .eq('id', params.teamId)
+      .is('deleted_at', null)
+
+    if (updateTeamNameError) {
+      throw new DatabaseError('Failed to sync role display name after legacy primary role replacement', undefined, {
+        errorCode: updateTeamNameError.code,
+        errorMessage: updateTeamNameError.message,
+      })
+    }
+
+    const { error: updateUserNameError } = await this.supabase
+      .from('users')
+      .update({
+        full_name: normalizedName,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('tenant_id', params.tenantId)
+      .eq('email', normalizedEmail)
+      .is('deleted_at', null)
+
+    if (updateUserNameError) {
+      throw new DatabaseError('Failed to sync replacement user name after legacy primary role replacement', undefined, {
+        errorCode: updateUserNameError.code,
+        errorMessage: updateUserNameError.message,
+      })
+    }
+  }
+
+  private async ensureActiveReplacementUser(params: {
+    tenantId: string
+    email: string
+    fullName: string
+    roleType: 'POC' | 'HOD'
+  }): Promise<void> {
+    const normalizedEmail = params.email.trim().toLowerCase()
+    const normalizedName = params.fullName.trim()
+
+    const { data: existingUser, error: existingUserError } = await this.supabase
+      .from('users')
+      .select('id, is_active, deleted_at, role, full_name')
+      .eq('tenant_id', params.tenantId)
+      .eq('email', normalizedEmail)
+      .limit(1)
+      .maybeSingle<{
+        id: string
+        is_active: boolean
+        deleted_at: string | null
+        role: string | null
+        full_name: string | null
+      }>()
+
+    if (existingUserError) {
+      throw new DatabaseError('Failed to resolve replacement user before role assignment', undefined, {
+        errorCode: existingUserError.code,
+        errorMessage: existingUserError.message,
+      })
+    }
+
+    const desiredRole = params.roleType
+
+    if (!existingUser) {
+      const { error: insertUserError } = await this.supabase.from('users').insert([
+        {
+          tenant_id: params.tenantId,
+          email: normalizedEmail,
+          full_name: normalizedName,
+          role: desiredRole,
+          is_active: true,
+          password_hash: null,
+        },
+      ])
+
+      if (insertUserError) {
+        throw new DatabaseError('Failed to create replacement user before role assignment', undefined, {
+          errorCode: insertUserError.code,
+          errorMessage: insertUserError.message,
+        })
+      }
+
+      return
+    }
+
+    const nextRole = (existingUser.role ?? '').trim().toUpperCase()
+    const shouldUpdateRole = nextRole === '' || nextRole === 'USER' || nextRole === 'POC' || nextRole === 'HOD'
+
+    const { error: updateUserError } = await this.supabase
+      .from('users')
+      .update({
+        is_active: true,
+        deleted_at: null,
+        full_name: normalizedName,
+        role: shouldUpdateRole ? desiredRole : existingUser.role,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('tenant_id', params.tenantId)
+      .eq('id', existingUser.id)
+
+    if (updateUserError) {
+      throw new DatabaseError('Failed to activate replacement user before role assignment', undefined, {
+        errorCode: updateUserError.code,
+        errorMessage: updateUserError.message,
+      })
+    }
+  }
 
   private async enforceRoleReplacementConsistency(params: {
     tenantId: string
@@ -150,42 +287,77 @@ class SupabaseTeamGovernanceRepository implements ITeamGovernanceRepository {
     }
 
     if (params.roleType === 'POC') {
-      const { error: updateUploadedByError } = await this.supabase
+      const uploadedByUpdatePayload = {
+        uploaded_by_employee_id: nextUser.id,
+        uploaded_by_email: nextEmail,
+        updated_at: new Date().toISOString(),
+      }
+
+      const { error: updateUploadedByEmployeeIdError } = await this.supabase
         .from('contracts')
-        .update({
-          uploaded_by_employee_id: nextUser.id,
-          uploaded_by_email: nextEmail,
-          updated_at: new Date().toISOString(),
-        })
+        .update(uploadedByUpdatePayload)
         .eq('tenant_id', params.tenantId)
         .is('deleted_at', null)
         .eq('department_id', params.teamId)
-        .or(`uploaded_by_employee_id.eq.${previousUser.id},uploaded_by_email.eq.${previousEmail}`)
+        .eq('uploaded_by_employee_id', previousUser.id)
 
-      if (updateUploadedByError) {
+      if (updateUploadedByEmployeeIdError) {
         throw new DatabaseError('Failed to reassign POC-owned contracts after email replacement', undefined, {
-          errorCode: updateUploadedByError.code,
-          errorMessage: updateUploadedByError.message,
+          errorCode: updateUploadedByEmployeeIdError.code,
+          errorMessage: updateUploadedByEmployeeIdError.message,
+        })
+      }
+
+      const { error: updateUploadedByEmailError } = await this.supabase
+        .from('contracts')
+        .update(uploadedByUpdatePayload)
+        .eq('tenant_id', params.tenantId)
+        .is('deleted_at', null)
+        .eq('department_id', params.teamId)
+        .eq('uploaded_by_email', previousEmail)
+
+      if (updateUploadedByEmailError) {
+        throw new DatabaseError('Failed to reassign POC-owned contracts after email replacement', undefined, {
+          errorCode: updateUploadedByEmailError.code,
+          errorMessage: updateUploadedByEmailError.message,
         })
       }
     } else {
-      const { error: updateAssigneeError } = await this.supabase
+      const assigneeUpdatePayload = {
+        current_assignee_employee_id: nextUser.id,
+        current_assignee_email: nextEmail,
+        updated_at: new Date().toISOString(),
+      }
+
+      const { error: updateAssigneeEmployeeIdError } = await this.supabase
         .from('contracts')
-        .update({
-          current_assignee_employee_id: nextUser.id,
-          current_assignee_email: nextEmail,
-          updated_at: new Date().toISOString(),
-        })
+        .update(assigneeUpdatePayload)
         .eq('tenant_id', params.tenantId)
         .is('deleted_at', null)
         .eq('department_id', params.teamId)
         .eq('status', 'HOD_PENDING')
-        .or(`current_assignee_employee_id.eq.${previousUser.id},current_assignee_email.eq.${previousEmail}`)
+        .eq('current_assignee_employee_id', previousUser.id)
 
-      if (updateAssigneeError) {
+      if (updateAssigneeEmployeeIdError) {
         throw new DatabaseError('Failed to reassign HOD-pending contracts after email replacement', undefined, {
-          errorCode: updateAssigneeError.code,
-          errorMessage: updateAssigneeError.message,
+          errorCode: updateAssigneeEmployeeIdError.code,
+          errorMessage: updateAssigneeEmployeeIdError.message,
+        })
+      }
+
+      const { error: updateAssigneeEmailError } = await this.supabase
+        .from('contracts')
+        .update(assigneeUpdatePayload)
+        .eq('tenant_id', params.tenantId)
+        .is('deleted_at', null)
+        .eq('department_id', params.teamId)
+        .eq('status', 'HOD_PENDING')
+        .eq('current_assignee_email', previousEmail)
+
+      if (updateAssigneeEmailError) {
+        throw new DatabaseError('Failed to reassign HOD-pending contracts after email replacement', undefined, {
+          errorCode: updateAssigneeEmailError.code,
+          errorMessage: updateAssigneeEmailError.message,
         })
       }
     }
@@ -615,7 +787,16 @@ class SupabaseTeamGovernanceRepository implements ITeamGovernanceRepository {
     roleType: 'POC' | 'HOD'
     reason?: string
   }): Promise<PrimaryRoleMutationResult> {
-    const { data, error } = await this.supabase.rpc('admin_replace_team_role_email', {
+    await this.ensureActiveReplacementUser({
+      tenantId: params.tenantId,
+      email: params.newEmail,
+      fullName: params.newName,
+      roleType: params.roleType,
+    })
+
+    let usedLegacyPrimaryRoleRpc = false
+
+    const modernRpc = await this.supabase.rpc('admin_replace_team_role_email', {
       p_tenant_id: params.tenantId,
       p_admin_user_id: params.adminUserId,
       p_team_id: params.teamId,
@@ -624,6 +805,24 @@ class SupabaseTeamGovernanceRepository implements ITeamGovernanceRepository {
       p_role_type: params.roleType,
       p_reason: params.reason ?? null,
     })
+
+    let data = modernRpc.data
+    let error = modernRpc.error
+
+    if (this.isMissingPrimaryRoleRpcSignature(error)) {
+      const legacyRpc = await this.supabase.rpc('admin_replace_team_role_email', {
+        p_tenant_id: params.tenantId,
+        p_admin_user_id: params.adminUserId,
+        p_team_id: params.teamId,
+        p_new_email: params.newEmail,
+        p_role_type: params.roleType,
+        p_reason: params.reason ?? null,
+      })
+
+      data = legacyRpc.data
+      error = legacyRpc.error
+      usedLegacyPrimaryRoleRpc = true
+    }
 
     if (error) {
       const message = error.message.toLowerCase()
@@ -642,13 +841,31 @@ class SupabaseTeamGovernanceRepository implements ITeamGovernanceRepository {
       throw new DatabaseError('Primary assignment RPC returned no result')
     }
 
-    await this.enforceRoleReplacementConsistency({
-      tenantId: params.tenantId,
-      teamId: params.teamId,
-      roleType: row.role_type,
-      previousEmail: row.previous_email,
-      nextEmail: row.next_email,
-    })
+    if (usedLegacyPrimaryRoleRpc) {
+      await this.syncRoleNameAfterLegacyReplacement({
+        tenantId: params.tenantId,
+        teamId: params.teamId,
+        roleType: row.role_type,
+        newEmail: params.newEmail,
+        newName: params.newName,
+      })
+    }
+
+    try {
+      await this.enforceRoleReplacementConsistency({
+        tenantId: params.tenantId,
+        teamId: params.teamId,
+        roleType: row.role_type,
+        previousEmail: row.previous_email,
+        nextEmail: row.next_email,
+      })
+    } catch (error) {
+      logger.warn('Primary role replacement post-sync step failed; keeping RPC result', {
+        teamId: params.teamId,
+        roleType: row.role_type,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
 
     return {
       teamId: row.team_id,

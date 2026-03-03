@@ -3,13 +3,7 @@ import 'server-only'
 import { envServer } from '@/core/config/env.server'
 import { featureFlags } from '@/core/config/feature-flags'
 import { routeRegistry } from '@/core/config/route-registry'
-
-const parseAllowedDomains = (value: string): string[] => {
-  return value
-    .split(',')
-    .map((domain) => domain.trim().toLowerCase())
-    .filter((domain) => domain.length > 0)
-}
+import { parseAllowedDomains } from '@/core/config/allowed-domains'
 
 const parseInteger = (value: string | undefined, key: string): number | undefined => {
   if (!value) {

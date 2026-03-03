@@ -1,6 +1,6 @@
 import { appConfig } from '@/core/config/app-config'
+import { isAllowedEmailDomain } from '@/core/config/allowed-domains'
 
 export const isAllowedDomain = (email: string): boolean => {
-  const value = email.toLowerCase()
-  return appConfig.auth.allowedDomains.some((domain) => value.endsWith(domain))
+  return isAllowedEmailDomain(email, appConfig.auth.allowedDomains)
 }

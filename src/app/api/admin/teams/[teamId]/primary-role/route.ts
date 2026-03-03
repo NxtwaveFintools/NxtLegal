@@ -6,6 +6,7 @@ import { isAppError } from '@/core/http/errors'
 import { appConfig } from '@/core/config/app-config'
 import { assignPrimaryRoleRequestSchema, teamPathSchema } from '@/core/domain/admin/schemas'
 import { getTeamGovernanceService } from '@/core/registry/service-registry'
+import { logger } from '@/core/infra/logging/logger'
 
 const PUTHandler = withAuth(async (request: NextRequest, { session, params }) => {
   try {
@@ -33,6 +34,13 @@ const PUTHandler = withAuth(async (request: NextRequest, { session, params }) =>
 
     return NextResponse.json(adminOkResponse({ assignment }))
   } catch (error) {
+    logger.error('Admin primary role assignment failed', {
+      teamId: params?.teamId ?? null,
+      code: isAppError(error) ? error.code : 'INTERNAL_ERROR',
+      message: isAppError(error) ? error.message : error instanceof Error ? error.message : 'Unknown error',
+      metadata: isAppError(error) ? (error.metadata ?? null) : null,
+    })
+
     if (error instanceof ZodError) {
       return NextResponse.json(adminErrorResponse('VALIDATION_ERROR', 'Invalid primary role assignment payload'), {
         status: 400,
