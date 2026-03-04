@@ -218,6 +218,8 @@ type ContractSignatory = {
     pageNumber: number | null
     xPosition: number | null
     yPosition: number | null
+    width?: number | null
+    height?: number | null
     anchorString: string | null
     assignedSignerEmail: string
   }>
@@ -243,6 +245,8 @@ type ContractSigningPreparationDraft = {
     pageNumber: number | null
     xPosition: number | null
     yPosition: number | null
+    width?: number | null
+    height?: number | null
     anchorString: string | null
     assignedSignerEmail: string
   }>
@@ -1061,6 +1065,8 @@ export const contractsClient = {
               page_number?: number
               x_position?: number
               y_position?: number
+              width?: number
+              height?: number
               anchor_string?: string
               assigned_signer_email: string
             }>
@@ -1091,6 +1097,8 @@ export const contractsClient = {
         page_number?: number
         x_position?: number
         y_position?: number
+        width?: number
+        height?: number
         anchor_string?: string
         assigned_signer_email: string
       }>

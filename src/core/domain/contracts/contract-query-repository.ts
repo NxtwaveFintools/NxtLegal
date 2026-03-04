@@ -239,6 +239,8 @@ export type ContractSignatoryField = {
   pageNumber: number | null
   xPosition: number | null
   yPosition: number | null
+  width?: number | null
+  height?: number | null
   anchorString: string | null
   assignedSignerEmail: string
 }
@@ -255,6 +257,8 @@ export type ContractSigningPreparationDraftField = {
   pageNumber: number | null
   xPosition: number | null
   yPosition: number | null
+  width?: number | null
+  height?: number | null
   anchorString: string | null
   assignedSignerEmail: string
 }

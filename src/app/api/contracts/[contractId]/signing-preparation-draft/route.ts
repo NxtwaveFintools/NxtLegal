@@ -37,6 +37,8 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
         pageNumber: field.page_number ?? null,
         xPosition: field.x_position ?? null,
         yPosition: field.y_position ?? null,
+        width: field.width ?? null,
+        height: field.height ?? null,
         anchorString: field.anchor_string ?? null,
         assignedSignerEmail: field.assigned_signer_email,
       })),

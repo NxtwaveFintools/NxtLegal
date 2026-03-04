@@ -238,6 +238,8 @@ const contractSignatoryFieldSchema = z
     page_number: z.number().int().min(1).optional(),
     x_position: z.number().min(0).optional(),
     y_position: z.number().min(0).optional(),
+    width: z.number().min(1).optional(),
+    height: z.number().min(1).optional(),
     anchor_string: z.string().trim().min(1).optional(),
     assigned_signer_email: z.string().trim().toLowerCase().email('Valid signer email is required'),
   })
@@ -280,6 +282,8 @@ const contractSigningPreparationFieldSchema = z
     page_number: z.number().int().min(1).optional(),
     x_position: z.number().min(0).optional(),
     y_position: z.number().min(0).optional(),
+    width: z.number().min(1).optional(),
+    height: z.number().min(1).optional(),
     anchor_string: z.string().trim().min(1).optional(),
     assigned_signer_email: z.string().trim().toLowerCase().email('Valid signer email is required'),
   })

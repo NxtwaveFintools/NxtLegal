@@ -41,6 +41,8 @@ type SignatureProvider = {
         pageNumber: number | null
         xPosition: number | null
         yPosition: number | null
+        width: number | null
+        height: number | null
         anchorString: string | null
         assignedSignerEmail: string
       }>
@@ -125,6 +127,8 @@ export class ContractSignatoryService {
         page_number?: number
         x_position?: number
         y_position?: number
+        width?: number
+        height?: number
         anchor_string?: string
         assigned_signer_email: string
       }>
@@ -154,6 +158,8 @@ export class ContractSignatoryService {
         pageNumber: field.page_number ?? null,
         xPosition: field.x_position ?? null,
         yPosition: field.y_position ?? null,
+        width: field.width ?? null,
+        height: field.height ?? null,
         anchorString: field.anchor_string ?? null,
         assignedSignerEmail: field.assigned_signer_email.trim().toLowerCase(),
       })),
@@ -362,6 +368,8 @@ export class ContractSignatoryService {
           page_number: field.pageNumber ?? undefined,
           x_position: field.xPosition ?? undefined,
           y_position: field.yPosition ?? undefined,
+          width: field.width ?? undefined,
+          height: field.height ?? undefined,
           anchor_string: field.anchorString ?? undefined,
           assigned_signer_email: field.assignedSignerEmail,
         }))

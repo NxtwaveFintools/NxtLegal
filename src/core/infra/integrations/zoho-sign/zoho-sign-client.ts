@@ -21,6 +21,8 @@ type CreateSigningEnvelopeInput = {
       pageNumber: number | null
       xPosition: number | null
       yPosition: number | null
+      width: number | null
+      height: number | null
       anchorString: string | null
       assignedSignerEmail: string
     }>
@@ -401,8 +403,8 @@ export class ZohoSignClient {
       action_id: actionId,
       x_coord: xCoord,
       y_coord: yCoord,
-      abs_width: defaultWidth,
-      abs_height: defaultHeight,
+      abs_width: this.normalizeZohoDimension(field.width, defaultWidth),
+      abs_height: this.normalizeZohoDimension(field.height, defaultHeight),
     }
   }
 
@@ -413,6 +415,15 @@ export class ZohoSignClient {
 
     // Treat coordinates as PDF-space points; clamp to safe bounds.
     return Math.max(0, Math.min(2000, Math.round(value)))
+  }
+
+  private normalizeZohoDimension(value: number | null, fallback: number): number {
+    if (typeof value !== 'number' || Number.isNaN(value)) {
+      return fallback
+    }
+
+    // Zoho expects absolute dimensions in PDF points.
+    return Math.max(8, Math.min(1200, Math.round(value)))
   }
 
   private resolveZohoFieldType(fieldType: ContractSignatoryFieldType): {
