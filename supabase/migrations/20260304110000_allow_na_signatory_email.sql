@@ -1,4 +1,4 @@
--- Allow "NA" as a valid placeholder for signatory_email across DB validations.
+--- Allow "NA" as a valid placeholder for signatory_email across DB validations.
 
 DO $$
 BEGIN
