@@ -123,4 +123,60 @@ describe('Contracts upload route', () => {
     expect(mockIdempotencyService.claimOrGet).not.toHaveBeenCalled()
     expect(mockContractUploadService.uploadContract).not.toHaveBeenCalled()
   })
+
+  it('accepts NA as a valid signatory email', async () => {
+    const mainFile = new File([new Uint8Array([1, 2, 3])], 'contract.docx', {
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    })
+
+    const uploadedContract = {
+      id: 'contract-1',
+      title: 'Master Service Agreement',
+      status: 'HOD_PENDING',
+      currentAssigneeEmployeeId: 'hod-1',
+      currentAssigneeEmail: 'hod@nxtwave.co.in',
+      fileName: 'contract.docx',
+      fileSizeBytes: 1024,
+    }
+
+    mockContractUploadService.uploadContract.mockResolvedValue(uploadedContract)
+    mockContractApprovalNotificationService.notifyHodOnContractUpload.mockResolvedValue(undefined)
+
+    const formData: FormDataLike = {
+      get: (key: string) => {
+        const values: Record<string, unknown> = {
+          title: 'Master Service Agreement',
+          contractTypeId: '11111111-1111-1111-1111-111111111111',
+          signatoryName: 'Vendor Signatory',
+          signatoryDesignation: 'Director',
+          signatoryEmail: 'NA',
+          backgroundOfRequest: 'Need legal review',
+          departmentId: '22222222-2222-2222-2222-222222222222',
+          budgetApproved: 'false',
+          counterpartyName: 'NA',
+          file: mainFile,
+        }
+
+        return values[key] ?? null
+      },
+      getAll: () => [],
+    }
+
+    const response = await POST({
+      headers: {
+        get: (name: string) => (name === 'Idempotency-Key' ? 'idem-123' : null),
+      },
+      formData: async () => formData,
+    } as unknown as PostRequestArg)
+
+    const body = await response.json()
+
+    expect(response.status).toBe(201)
+    expect(body.ok).toBe(true)
+    expect(mockContractUploadService.uploadContract).toHaveBeenCalledWith(
+      expect.objectContaining({
+        signatoryEmail: 'na',
+      })
+    )
+  })
 })

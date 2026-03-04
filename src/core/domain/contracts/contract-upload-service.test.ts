@@ -310,6 +310,7 @@ describe('ContractUploadService signing source regression', () => {
       ]),
       setCounterpartyName: jest.fn().mockResolvedValue(undefined),
       createDocument: jest.fn().mockResolvedValue(undefined),
+      upsertMasterCounterpartyNames: jest.fn().mockResolvedValue(undefined),
     }
 
     const contractStorageRepository = {
@@ -349,6 +350,82 @@ describe('ContractUploadService signing source regression', () => {
     })
     expect(contractStorageRepository.upload).toHaveBeenCalled()
     expect(contractRepository.createWithAudit).toHaveBeenCalled()
+  })
+
+  it('allows NA signatory email in default upload mode', async () => {
+    const contractRepository = {
+      isHodAssignedToDepartment: jest.fn().mockResolvedValue(true),
+      createWithAudit: jest.fn().mockResolvedValue({
+        id: 'contract-1',
+        tenantId: 'tenant-1',
+        title: 'MSA',
+        contractTypeId: 'type-1',
+        signatoryName: 'Signer',
+        signatoryDesignation: 'Manager',
+        signatoryEmail: 'na',
+        backgroundOfRequest: 'Need legal review',
+        departmentId: 'dept-1',
+        budgetApproved: false,
+        requestCreatedAt: new Date().toISOString(),
+        uploadedByEmployeeId: 'hod-1',
+        uploadedByEmail: 'hod@nxtwave.co.in',
+        currentAssigneeEmployeeId: 'hod-1',
+        currentAssigneeEmail: 'hod@nxtwave.co.in',
+        status: 'HOD_PENDING',
+        filePath: 'tenant-1/contract-1/contract.docx',
+        fileName: 'contract.docx',
+        fileSizeBytes: 1024,
+        fileMimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      }),
+      createCounterparties: jest.fn().mockResolvedValue([
+        {
+          id: 'counterparty-1',
+          tenantId: 'tenant-1',
+          contractId: 'contract-1',
+          counterpartyName: 'NA',
+          sequenceOrder: 1,
+        },
+      ]),
+      setCounterpartyName: jest.fn().mockResolvedValue(undefined),
+      createDocument: jest.fn().mockResolvedValue(undefined),
+      upsertMasterCounterpartyNames: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const contractStorageRepository = {
+      upload: jest.fn().mockResolvedValue(undefined),
+      remove: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const service = new ContractUploadService(contractRepository as never, contractStorageRepository as never, logger)
+
+    await expect(
+      service.uploadContract({
+        tenantId: 'tenant-1',
+        uploadedByEmployeeId: 'hod-1',
+        uploadedByEmail: 'hod@nxtwave.co.in',
+        uploadedByRole: 'HOD',
+        title: 'MSA',
+        contractTypeId: 'type-1',
+        signatoryName: 'Signer',
+        signatoryDesignation: 'Manager',
+        signatoryEmail: 'NA',
+        backgroundOfRequest: 'Need legal review',
+        departmentId: 'dept-1',
+        budgetApproved: false,
+        uploadMode: contractUploadModes.default,
+        counterpartyName: 'NA',
+        fileName: 'contract.docx',
+        fileSizeBytes: 1024,
+        fileMimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        fileBody: new Blob([new Uint8Array([1, 2, 3])]),
+      })
+    ).resolves.toBeDefined()
+
+    expect(contractRepository.createWithAudit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        signatoryEmail: 'na',
+      })
+    )
   })
 })
 
@@ -465,6 +542,7 @@ describe('ContractUploadService legal send-for-signing validations', () => {
       ]),
       setCounterpartyName: jest.fn().mockResolvedValue(undefined),
       createDocument: jest.fn().mockResolvedValue(undefined),
+      upsertMasterCounterpartyNames: jest.fn().mockResolvedValue(undefined),
     }
 
     const contractStorageRepository = {
@@ -525,6 +603,7 @@ describe('ContractUploadService legal send-for-signing validations', () => {
       ]),
       setCounterpartyName: jest.fn().mockResolvedValue(undefined),
       createDocument: jest.fn().mockResolvedValue(undefined),
+      upsertMasterCounterpartyNames: jest.fn().mockResolvedValue(undefined),
     }
 
     const contractStorageRepository = {
@@ -583,6 +662,7 @@ describe('ContractUploadService legal send-for-signing validations', () => {
       ]),
       setCounterpartyName: jest.fn().mockResolvedValue(undefined),
       createDocument: jest.fn().mockResolvedValue(undefined),
+      upsertMasterCounterpartyNames: jest.fn().mockResolvedValue(undefined),
     }
 
     const contractStorageRepository = {
