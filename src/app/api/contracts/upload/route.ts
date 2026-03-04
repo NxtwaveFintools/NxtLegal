@@ -15,6 +15,16 @@ import { z } from 'zod'
 // to 300 s (5 min) so large multipart uploads (up to 100 MB) have time to
 // be received, validated, and persisted to storage.
 export const maxDuration = 300
+const EMAIL_PATTERN = /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i
+
+function isValidSignatoryEmail(value: string): boolean {
+  const normalizedValue = value.trim()
+  if (normalizedValue.toUpperCase() === 'NA') {
+    return true
+  }
+
+  return EMAIL_PATTERN.test(normalizedValue)
+}
 
 const dispatchNotificationInBackground = (notification: Promise<unknown>, event: string, contractId: string): void => {
   void notification.catch((error) => {
@@ -98,7 +108,7 @@ const uploadContractFormSchema = z
         message: 'Valid signatory email is required',
         path: ['signatoryEmail'],
       })
-    } else if (!/^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(data.signatoryEmail.trim())) {
+    } else if (!isValidSignatoryEmail(data.signatoryEmail)) {
       context.addIssue({
         code: z.ZodIssueCode.custom,
         message: 'Valid signatory email is required',

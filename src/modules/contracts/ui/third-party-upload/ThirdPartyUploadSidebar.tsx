@@ -26,6 +26,16 @@ type ThirdPartyUploadSidebarProps = {
 }
 
 const ORGANIZATION_ENTITY = 'NxtWave Disruptive Technologies Pvt Ltd'
+const EMAIL_PATTERN = /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i
+
+function isValidSignatoryEmail(value: string): boolean {
+  const normalizedValue = value.trim()
+  if (normalizedValue.toUpperCase() === 'NA') {
+    return true
+  }
+
+  return EMAIL_PATTERN.test(normalizedValue)
+}
 
 type CounterpartyEntry = {
   counterpartyName: string
@@ -185,7 +195,7 @@ export default function ThirdPartyUploadSidebar({
           return
         }
 
-        if (!/^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(signatoryEmail.trim())) {
+        if (!isValidSignatoryEmail(signatoryEmail)) {
           toast.error('Please enter a valid signatory email address.')
           return
         }

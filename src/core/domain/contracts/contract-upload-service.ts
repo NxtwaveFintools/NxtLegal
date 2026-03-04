@@ -74,6 +74,7 @@ export class ContractUploadService {
   private readonly allowedInitialUploadRoles = new Set(contractDocumentUploadRules.initialAllowedRoles)
   private readonly allowedReplacementUploadRoles = new Set(contractDocumentUploadRules.replacementAllowedRoles)
   private readonly privilegedReadRoles = new Set(['ADMIN', 'LEGAL_TEAM'])
+  private readonly emailPattern = /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i
 
   constructor(
     private readonly contractRepository: ContractRepository,
@@ -532,7 +533,7 @@ export class ContractUploadService {
         throw new BusinessRuleError('SIGNATORY_EMAIL_REQUIRED', 'Signatory email is required')
       }
 
-      if (!/^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(input.signatoryEmail.trim())) {
+      if (!this.isValidSignatoryEmail(input.signatoryEmail)) {
         throw new BusinessRuleError('SIGNATORY_EMAIL_INVALID', 'Signatory email format is invalid')
       }
 
@@ -627,6 +628,15 @@ export class ContractUploadService {
     const normalized = fileName.replace(/\\/g, '/').split('/').pop() ?? 'contract-file'
     const safe = normalized.replace(/[^a-zA-Z0-9._-]/g, '_')
     return safe.slice(0, 180)
+  }
+
+  private isValidSignatoryEmail(value: string): boolean {
+    const normalizedValue = value.trim()
+    if (normalizedValue.toUpperCase() === 'NA') {
+      return true
+    }
+
+    return this.emailPattern.test(normalizedValue)
   }
 
   private validateReplacementInput(input: ReplacePrimaryDocumentInput): void {
