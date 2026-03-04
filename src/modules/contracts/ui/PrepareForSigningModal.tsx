@@ -26,8 +26,23 @@ type DraftField = {
   pageNumber?: number
   xPosition?: number
   yPosition?: number
+  width?: number
+  height?: number
+  mirrorGroupId?: string
   anchorString?: string
   assignedSignerEmail: string
+}
+
+type ResizeSession = {
+  fieldId: string
+  mirrorGroupId?: string
+  pageNumber: number
+  startClientX: number
+  startClientY: number
+  startWidth: number
+  startHeight: number
+  xPosition: number
+  yPosition: number
 }
 
 type PrepareForSigningModalProps = {
@@ -49,14 +64,14 @@ type PreflightCheck = {
 const fieldPalette: FieldType[] = ['SIGNATURE', 'INITIAL', 'STAMP', 'NAME', 'DATE', 'TIME', 'TEXT']
 
 const createDraftId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`
-const fieldDimensionsByType: Record<FieldType, { width: number; height: number }> = {
-  SIGNATURE: { width: 12, height: 4 },
-  INITIAL: { width: 12, height: 4 },
-  STAMP: { width: 12, height: 4 },
-  NAME: { width: 12, height: 4 },
-  DATE: { width: 12, height: 4 },
-  TIME: { width: 12, height: 4 },
-  TEXT: { width: 12, height: 4 },
+const defaultFieldSizeByType: Record<FieldType, { width: number; height: number }> = {
+  SIGNATURE: { width: 96, height: 22 },
+  INITIAL: { width: 40, height: 15 },
+  STAMP: { width: 96, height: 36 },
+  NAME: { width: 110, height: 22 },
+  DATE: { width: 110, height: 22 },
+  TIME: { width: 96, height: 22 },
+  TEXT: { width: 200, height: 22 },
 }
 
 export default function PrepareForSigningModal({
@@ -74,7 +89,8 @@ export default function PrepareForSigningModal({
   const [numPages, setNumPages] = useState(1)
   const [currentPage, setCurrentPage] = useState(1)
   const [selectedFieldType, setSelectedFieldType] = useState<FieldType>('SIGNATURE')
-  const [selectedRecipientEmail, setSelectedRecipientEmail] = useState('')
+  const [selectedRecipientId, setSelectedRecipientId] = useState('')
+  const [applySignatureToAllPages, setApplySignatureToAllPages] = useState(false)
   const [recipients, setRecipients] = useState<DraftRecipient[]>([])
   const [fields, setFields] = useState<DraftField[]>([])
   const [pageMetricsByNumber, setPageMetricsByNumber] = useState<Record<number, { width: number; height: number }>>({})
@@ -84,9 +100,20 @@ export default function PrepareForSigningModal({
 
   const pageSurfaceRef = useRef<HTMLDivElement | null>(null)
   const pageRenderRef = useRef<HTMLDivElement | null>(null)
+  const resizeSessionRef = useRef<ResizeSession | null>(null)
+  const suppressDeleteForFieldRef = useRef<string | null>(null)
+  const [activeResizeFieldId, setActiveResizeFieldId] = useState<string | null>(null)
 
   const isLocked = contractStatus === contractStatuses.pendingExternal
   const canEdit = !isLocked && !isSending
+
+  useEffect(() => {
+    if (!isOpen) {
+      return
+    }
+    setPageMetricsByNumber({})
+    setPageRenderBoxByNumber({})
+  }, [isOpen, pdfUrl])
 
   useEffect(() => {
     if (!isOpen) {
@@ -108,7 +135,7 @@ export default function PrepareForSigningModal({
         if (!data) {
           setRecipients([])
           setFields([])
-          setSelectedRecipientEmail('')
+          setSelectedRecipientId('')
           return
         }
 
@@ -126,13 +153,15 @@ export default function PrepareForSigningModal({
           pageNumber: field.pageNumber ?? undefined,
           xPosition: field.xPosition ?? undefined,
           yPosition: field.yPosition ?? undefined,
+          width: field.width ?? undefined,
+          height: field.height ?? undefined,
           anchorString: field.anchorString ?? undefined,
           assignedSignerEmail: field.assignedSignerEmail,
         }))
 
         setRecipients(mappedRecipients)
         setFields(mappedFields)
-        setSelectedRecipientEmail(mappedRecipients[0]?.email ?? '')
+        setSelectedRecipientId(mappedRecipients[0]?.id ?? '')
       } catch (error) {
         const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred'
         toast.error(errorMessage)
@@ -144,7 +173,8 @@ export default function PrepareForSigningModal({
     void loadDraft()
   }, [contractId, isOpen])
 
-  const activeRecipientEmail = selectedRecipientEmail || recipients[0]?.email || ''
+  const activeRecipient = recipients.find((recipient) => recipient.id === selectedRecipientId) ?? recipients[0] ?? null
+  const activeRecipientEmail = activeRecipient?.email ?? ''
 
   const preflightChecks = useMemo<PreflightCheck[]>(() => {
     const normalizedRecipients = recipients
@@ -245,26 +275,48 @@ export default function PrepareForSigningModal({
     }))
   }
 
+  const resolveFieldDimensions = (field: DraftField) => {
+    const defaults = defaultFieldSizeByType[field.fieldType]
+    return {
+      width: field.width ?? defaults.width,
+      height: field.height ?? defaults.height,
+    }
+  }
+
   const normalizeFieldToPoints = (field: DraftField): DraftField => {
     const pageNumber = field.pageNumber ?? 1
     const metrics = getPageMetrics(pageNumber)
-    if (!metrics || typeof field.xPosition !== 'number' || typeof field.yPosition !== 'number') {
-      return field
+    const dimensions = resolveFieldDimensions(field)
+    const normalizedWidth = Number(Math.max(1, dimensions.width).toFixed(2))
+    const normalizedHeight = Number(Math.max(1, dimensions.height).toFixed(2))
+
+    if (typeof field.xPosition !== 'number' || typeof field.yPosition !== 'number') {
+      return {
+        ...field,
+        width: normalizedWidth,
+        height: normalizedHeight,
+      }
     }
 
-    // If the value looks like a percentage (<= 100), convert it to PDF-space points using page metrics.
-    const isPercent = field.xPosition <= 100 && field.yPosition <= 100
-    if (!isPercent) {
-      return field
+    if (!metrics) {
+      return {
+        ...field,
+        xPosition: Number(Math.max(0, field.xPosition).toFixed(2)),
+        yPosition: Number(Math.max(0, field.yPosition).toFixed(2)),
+        width: normalizedWidth,
+        height: normalizedHeight,
+      }
     }
 
-    const x = (field.xPosition / 100) * metrics.width
-    const y = (field.yPosition / 100) * metrics.height
+    const maxX = Math.max(0, metrics.width - normalizedWidth)
+    const maxY = Math.max(0, metrics.height - normalizedHeight)
 
     return {
       ...field,
-      xPosition: Number(x.toFixed(2)),
-      yPosition: Number(y.toFixed(2)),
+      xPosition: Number(Math.max(0, Math.min(maxX, field.xPosition)).toFixed(2)),
+      yPosition: Number(Math.max(0, Math.min(maxY, field.yPosition)).toFixed(2)),
+      width: normalizedWidth,
+      height: normalizedHeight,
     }
   }
 
@@ -385,16 +437,39 @@ export default function PrepareForSigningModal({
     const xInPdfSpace = (Math.max(0, Math.min(renderBox.widthPx, clickX)) / renderBox.widthPx) * metrics.width
     const yInPdfSpace = (Math.max(0, Math.min(renderBox.heightPx, clickY)) / renderBox.heightPx) * metrics.height
 
+    const normalizedSignerEmail = activeRecipientEmail.trim().toLowerCase()
+    const defaultDimensions = defaultFieldSizeByType[selectedFieldType]
+    const xRatio = metrics.width > 0 ? xInPdfSpace / metrics.width : 0
+    const yRatio = metrics.height > 0 ? yInPdfSpace / metrics.height : 0
+
+    const placementPages =
+      selectedFieldType === 'SIGNATURE' && applySignatureToAllPages
+        ? Array.from({ length: numPages }, (_, index) => index + 1)
+        : [currentPage]
+    const mirrorGroupId = selectedFieldType === 'SIGNATURE' && applySignatureToAllPages ? createDraftId() : undefined
+
     setFields((current) => [
       ...current,
-      {
+      ...placementPages.map((pageNumber) => ({
+        // Keep mirrored placement aligned to each page's dimensions.
+        ...((): Pick<DraftField, 'xPosition' | 'yPosition'> => {
+          const targetMetrics = getPageMetrics(pageNumber) ?? metrics
+          const rawX = xRatio * targetMetrics.width
+          const rawY = yRatio * targetMetrics.height
+          const clampedX = Number(Math.max(0, Math.min(targetMetrics.width - defaultDimensions.width, rawX)).toFixed(2))
+          const clampedY = Number(
+            Math.max(0, Math.min(targetMetrics.height - defaultDimensions.height, rawY)).toFixed(2)
+          )
+          return { xPosition: clampedX, yPosition: clampedY }
+        })(),
         id: createDraftId(),
         fieldType: selectedFieldType,
-        pageNumber: currentPage,
-        xPosition: Number(xInPdfSpace.toFixed(2)),
-        yPosition: Number(yInPdfSpace.toFixed(2)),
-        assignedSignerEmail: activeRecipientEmail.trim().toLowerCase(),
-      },
+        pageNumber,
+        width: defaultDimensions.width,
+        height: defaultDimensions.height,
+        mirrorGroupId,
+        assignedSignerEmail: normalizedSignerEmail,
+      })),
     ])
   }
 
@@ -403,26 +478,146 @@ export default function PrepareForSigningModal({
     const metrics = getPageMetrics(pageNumber)
     const x = field.xPosition ?? 0
     const y = field.yPosition ?? 0
-    const dimensions = fieldDimensionsByType[field.fieldType]
+    const dimensions = resolveFieldDimensions(field)
 
     if (!metrics) {
       return {
         left: `${Math.max(0, Math.min(100, x))}%`,
         top: `${Math.max(0, Math.min(100, y))}%`,
-        width: `${dimensions.width}%`,
-        height: `${dimensions.height}%`,
+        width: '12%',
+        height: '4%',
       }
     }
 
     const left = (x / metrics.width) * 100
     const top = (y / metrics.height) * 100
+    const width = (dimensions.width / metrics.width) * 100
+    const height = (dimensions.height / metrics.height) * 100
+    const maxLeft = Math.max(0, 100 - width)
+    const maxTop = Math.max(0, 100 - height)
 
     return {
-      left: `${Math.max(0, Math.min(100, left))}%`,
-      top: `${Math.max(0, Math.min(100, top))}%`,
-      width: `${dimensions.width}%`,
-      height: `${dimensions.height}%`,
+      left: `${Math.max(0, Math.min(maxLeft, left))}%`,
+      top: `${Math.max(0, Math.min(maxTop, top))}%`,
+      width: `${Math.max(1, Math.min(100, width))}%`,
+      height: `${Math.max(1, Math.min(100, height))}%`,
     }
+  }
+
+  useEffect(() => {
+    if (!activeResizeFieldId || !canEdit) {
+      return
+    }
+
+    const onMouseMove = (event: MouseEvent) => {
+      const session = resizeSessionRef.current
+      if (!session || session.fieldId !== activeResizeFieldId) {
+        return
+      }
+
+      const metrics = getPageMetrics(session.pageNumber)
+      const renderBox = getPageRenderBox(session.pageNumber)
+      if (!metrics || !renderBox || renderBox.widthPx <= 0 || renderBox.heightPx <= 0) {
+        return
+      }
+
+      const scaleX = metrics.width / renderBox.widthPx
+      const scaleY = metrics.height / renderBox.heightPx
+      const minWidth = 20
+      const minHeight = 12
+
+      const deltaWidth = (event.clientX - session.startClientX) * scaleX
+      const deltaHeight = (event.clientY - session.startClientY) * scaleY
+
+      setFields((current) =>
+        (() => {
+          const candidateFields = current.filter(
+            (field) =>
+              field.id === session.fieldId ||
+              (session.mirrorGroupId && field.mirrorGroupId && field.mirrorGroupId === session.mirrorGroupId)
+          )
+
+          let groupMaxWidth = Math.max(minWidth, metrics.width - session.xPosition)
+          let groupMaxHeight = Math.max(minHeight, metrics.height - session.yPosition)
+
+          for (const candidateField of candidateFields) {
+            const candidatePageNumber = candidateField.pageNumber ?? session.pageNumber
+            const candidateMetrics = getPageMetrics(candidatePageNumber)
+            if (!candidateMetrics) {
+              continue
+            }
+            const candidateX = typeof candidateField.xPosition === 'number' ? candidateField.xPosition : 0
+            const candidateY = typeof candidateField.yPosition === 'number' ? candidateField.yPosition : 0
+            groupMaxWidth = Math.min(groupMaxWidth, Math.max(minWidth, candidateMetrics.width - candidateX))
+            groupMaxHeight = Math.min(groupMaxHeight, Math.max(minHeight, candidateMetrics.height - candidateY))
+          }
+
+          const nextWidth = Number(
+            Math.max(minWidth, Math.min(groupMaxWidth, session.startWidth + deltaWidth)).toFixed(2)
+          )
+          const nextHeight = Number(
+            Math.max(minHeight, Math.min(groupMaxHeight, session.startHeight + deltaHeight)).toFixed(2)
+          )
+
+          return current.map((field) =>
+            field.id === session.fieldId ||
+            (session.mirrorGroupId && field.mirrorGroupId && field.mirrorGroupId === session.mirrorGroupId)
+              ? { ...field, width: nextWidth, height: nextHeight }
+              : field
+          )
+        })()
+      )
+    }
+
+    const onMouseUp = () => {
+      if (resizeSessionRef.current?.fieldId) {
+        suppressDeleteForFieldRef.current = resizeSessionRef.current.fieldId
+        window.setTimeout(() => {
+          if (suppressDeleteForFieldRef.current) {
+            suppressDeleteForFieldRef.current = null
+          }
+        }, 180)
+      }
+      resizeSessionRef.current = null
+      setActiveResizeFieldId(null)
+    }
+
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+    }
+  }, [activeResizeFieldId, canEdit, pageMetricsByNumber, pageRenderBoxByNumber])
+
+  const handleResizeStart = (event: React.MouseEvent<HTMLSpanElement>, field: DraftField) => {
+    event.stopPropagation()
+    event.preventDefault()
+    if (!canEdit) {
+      return
+    }
+
+    const pageNumber = field.pageNumber ?? currentPage
+    const metrics = getPageMetrics(pageNumber)
+    const renderBox = getPageRenderBox(pageNumber)
+    if (!metrics || !renderBox || typeof field.xPosition !== 'number' || typeof field.yPosition !== 'number') {
+      return
+    }
+
+    const dimensions = resolveFieldDimensions(field)
+    resizeSessionRef.current = {
+      fieldId: field.id,
+      mirrorGroupId: field.mirrorGroupId,
+      pageNumber,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startWidth: dimensions.width,
+      startHeight: dimensions.height,
+      xPosition: field.xPosition,
+      yPosition: field.yPosition,
+    }
+    setActiveResizeFieldId(field.id)
   }
 
   const handleSaveDraft = async () => {
@@ -452,6 +647,8 @@ export default function PrepareForSigningModal({
         page_number: field.pageNumber,
         x_position: field.xPosition,
         y_position: field.yPosition,
+        width: field.width,
+        height: field.height,
         anchor_string: field.anchorString,
         assigned_signer_email: field.assignedSignerEmail.trim().toLowerCase(),
       })),
@@ -499,6 +696,8 @@ export default function PrepareForSigningModal({
         page_number: field.pageNumber,
         x_position: field.xPosition,
         y_position: field.yPosition,
+        width: field.width,
+        height: field.height,
         anchor_string: field.anchorString,
         assigned_signer_email: field.assignedSignerEmail.trim().toLowerCase(),
       })),
@@ -634,17 +833,28 @@ export default function PrepareForSigningModal({
               ))}
               <select
                 className={styles.input}
-                value={activeRecipientEmail}
-                onChange={(event) => setSelectedRecipientEmail(event.target.value)}
+                value={activeRecipient?.id ?? ''}
+                onChange={(event) => setSelectedRecipientId(event.target.value)}
                 disabled={!canEdit}
               >
                 <option value="">Assign to recipient</option>
                 {recipients.map((recipient) => (
-                  <option key={recipient.id} value={recipient.email.trim().toLowerCase()}>
+                  <option key={recipient.id} value={recipient.id}>
                     {recipient.name || recipient.email || 'Unnamed'}
                   </option>
                 ))}
               </select>
+              {selectedFieldType === 'SIGNATURE' ? (
+                <label className={styles.toggleLabel}>
+                  <input
+                    type="checkbox"
+                    checked={applySignatureToAllPages}
+                    onChange={(event) => setApplySignatureToAllPages(event.target.checked)}
+                    disabled={!canEdit}
+                  />
+                  Add signature on all pages
+                </label>
+              ) : null}
             </div>
 
             <div className={styles.pageTools}>
@@ -681,6 +891,39 @@ export default function PrepareForSigningModal({
                     onLoadSuccess={(result) => {
                       setNumPages(result.numPages)
                       setCurrentPage((page) => Math.min(page, result.numPages))
+
+                      const resultWithPages = result as {
+                        numPages: number
+                        getPage?: (
+                          pageNumber: number
+                        ) => Promise<{ getViewport: (params: { scale: number }) => { width: number; height: number } }>
+                      }
+                      const getPage = resultWithPages.getPage
+
+                      if (typeof getPage === 'function') {
+                        void (async () => {
+                          const nextMetrics: Record<number, { width: number; height: number }> = {}
+                          for (let pageNumber = 1; pageNumber <= resultWithPages.numPages; pageNumber += 1) {
+                            try {
+                              const page = await getPage(pageNumber)
+                              const viewport = page.getViewport({ scale: 1 })
+                              nextMetrics[pageNumber] = {
+                                width: viewport.width,
+                                height: viewport.height,
+                              }
+                            } catch {
+                              // Keep best-effort metrics collection; current page metrics are still captured on <Page /> load.
+                            }
+                          }
+
+                          if (Object.keys(nextMetrics).length > 0) {
+                            setPageMetricsByNumber((current) => ({
+                              ...current,
+                              ...nextMetrics,
+                            }))
+                          }
+                        })()
+                      }
                     }}
                   >
                     <div ref={pageRenderRef} className={styles.pageRender}>
@@ -716,11 +959,24 @@ export default function PrepareForSigningModal({
                         if (!canEdit) {
                           return
                         }
+                        if (suppressDeleteForFieldRef.current === field.id) {
+                          return
+                        }
                         setFields((current) => current.filter((item) => item.id !== field.id))
                       }}
-                      title={`${field.fieldType} → ${field.assignedSignerEmail}`}
+                      title={`${field.fieldType} → ${field.assignedSignerEmail} (${Math.round(resolveFieldDimensions(field).width)}x${Math.round(resolveFieldDimensions(field).height)})`}
                     >
-                      {field.fieldType}
+                      {field.fieldType} {Math.round(resolveFieldDimensions(field).width)}x
+                      {Math.round(resolveFieldDimensions(field).height)}
+                      <span
+                        className={styles.resizeHandle}
+                        role="presentation"
+                        onMouseDown={(event) => handleResizeStart(event, field)}
+                        onClick={(event) => {
+                          event.stopPropagation()
+                          event.preventDefault()
+                        }}
+                      />
                     </button>
                   ))}
                 </div>

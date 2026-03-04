@@ -186,6 +186,8 @@ type SignatoryEntity = {
     pageNumber: number | null
     xPosition: number | null
     yPosition: number | null
+    width?: number | null
+    height?: number | null
     anchorString: string | null
     assignedSignerEmail: string
   }> | null
@@ -209,6 +211,8 @@ type SigningPreparationDraftEntity = {
     pageNumber: number | null
     xPosition: number | null
     yPosition: number | null
+    width?: number | null
+    height?: number | null
     anchorString: string | null
     assignedSignerEmail: string
   }>
@@ -2228,7 +2232,11 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       signatoryEmail: row.signatory_email,
       recipientType: row.recipient_type,
       routingOrder: row.routing_order,
-      fieldConfig: row.field_config ?? [],
+      fieldConfig: (row.field_config ?? []).map((field) => ({
+        ...field,
+        width: field.width ?? null,
+        height: field.height ?? null,
+      })),
       status: row.status,
       signedAt: row.signed_at,
       zohoSignEnvelopeId: row.zoho_sign_envelope_id,
@@ -2277,6 +2285,8 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       pageNumber: number | null
       xPosition: number | null
       yPosition: number | null
+      width?: number | null
+      height?: number | null
       anchorString: string | null
       assignedSignerEmail: string
     }>
@@ -2293,6 +2303,8 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       pageNumber: number | null
       xPosition: number | null
       yPosition: number | null
+      width?: number | null
+      height?: number | null
       anchorString: string | null
       assignedSignerEmail: string
     }>
@@ -2362,7 +2374,11 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     return {
       contractId: data.contract_id,
       recipients: data.recipients ?? [],
-      fields: data.fields ?? [],
+      fields: (data.fields ?? []).map((field) => ({
+        ...field,
+        width: field.width ?? null,
+        height: field.height ?? null,
+      })),
       createdByEmployeeId: data.created_by_employee_id,
       updatedByEmployeeId: data.updated_by_employee_id,
       createdAt: data.created_at,
@@ -2383,6 +2399,8 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       pageNumber: number | null
       xPosition: number | null
       yPosition: number | null
+      width?: number | null
+      height?: number | null
       anchorString: string | null
       assignedSignerEmail: string
     }>
@@ -2420,7 +2438,11 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     return {
       contractId: data.contract_id,
       recipients: data.recipients ?? [],
-      fields: data.fields ?? [],
+      fields: (data.fields ?? []).map((field) => ({
+        ...field,
+        width: field.width ?? null,
+        height: field.height ?? null,
+      })),
       createdByEmployeeId: data.created_by_employee_id,
       updatedByEmployeeId: data.updated_by_employee_id,
       createdAt: data.created_at,
@@ -3493,6 +3515,8 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       pageNumber: number | null
       xPosition: number | null
       yPosition: number | null
+      width?: number | null
+      height?: number | null
       anchorString: string | null
       assignedSignerEmail: string
     }>

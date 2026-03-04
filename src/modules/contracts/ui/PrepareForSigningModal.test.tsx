@@ -19,12 +19,29 @@ jest.mock('react-pdf', () => {
       onLoadSuccess?: (value: { numPages: number }) => void
     }) => {
       React.useEffect(() => {
-        onLoadSuccess?.({ numPages: 1 })
-      }, [onLoadSuccess])
+        onLoadSuccess?.({ numPages: 3 })
+      }, [])
 
       return <div data-testid="pdf-document">{children}</div>
     },
-    Page: () => <div data-testid="pdf-page">PDF Page</div>,
+    Page: ({
+      onLoadSuccess,
+    }: {
+      onLoadSuccess?: (value: {
+        getViewport: ({ scale }: { scale: number }) => { width: number; height: number }
+      }) => void
+    }) => {
+      React.useEffect(() => {
+        onLoadSuccess?.({
+          getViewport: ({ scale }) => ({
+            width: 612 * scale,
+            height: 792 * scale,
+          }),
+        })
+      }, [])
+
+      return <div data-testid="pdf-page">PDF Page</div>
+    },
   }
 })
 
@@ -51,6 +68,193 @@ function createContractView() {
 describe('PrepareForSigningModal', () => {
   beforeEach(() => {
     jest.restoreAllMocks()
+  })
+
+  it('adds SIGNATURE field on all pages at same position when enabled', async () => {
+    jest.spyOn(contractsClient, 'getSigningPreparationDraft').mockResolvedValue({
+      ok: true,
+      data: {
+        contractId: 'contract-1',
+        recipients: [
+          {
+            name: 'Vendor',
+            email: 'vendor@nxtwave.co.in',
+            recipientType: 'EXTERNAL',
+            routingOrder: 1,
+          },
+        ],
+        fields: [],
+        createdByEmployeeId: 'employee-1',
+        updatedByEmployeeId: 'employee-1',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    } as never)
+
+    const saveSpy = jest.spyOn(contractsClient, 'saveSigningPreparationDraft').mockResolvedValue({
+      ok: true,
+      data: null,
+    } as never)
+
+    const rafSpy = jest.spyOn(window, 'requestAnimationFrame').mockImplementation((callback: FrameRequestCallback) => {
+      callback(0)
+      return 1
+    })
+    const getBoundingClientRectSpy = jest.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(() => ({
+      x: 0,
+      y: 0,
+      width: 720,
+      height: 1000,
+      top: 0,
+      left: 0,
+      right: 720,
+      bottom: 1000,
+      toJSON: () => ({}),
+    }))
+
+    render(
+      <PrepareForSigningModal
+        isOpen
+        contractId="contract-1"
+        contractStatus="COMPLETED"
+        pdfUrl="/api/contracts/contract-1/preview"
+        onClose={jest.fn()}
+        onSent={jest.fn()}
+      />
+    )
+
+    await waitFor(() => expect(contractsClient.getSigningPreparationDraft).toHaveBeenCalled())
+
+    fireEvent.click(screen.getByRole('button', { name: '2. Assign Fields' }))
+    fireEvent.click(screen.getByLabelText('Add signature on all pages'))
+    fireEvent.click(screen.getByTestId('pdf-document'), { clientX: 360, clientY: 500 })
+    fireEvent.click(screen.getByRole('button', { name: 'Save Draft' }))
+
+    await waitFor(() => {
+      expect(saveSpy).toHaveBeenCalledWith(
+        'contract-1',
+        expect.objectContaining({
+          fields: [
+            {
+              field_type: 'SIGNATURE',
+              page_number: 1,
+              x_position: 306,
+              y_position: 396,
+              width: 96,
+              height: 22,
+              anchor_string: undefined,
+              assigned_signer_email: 'vendor@nxtwave.co.in',
+            },
+            {
+              field_type: 'SIGNATURE',
+              page_number: 2,
+              x_position: 306,
+              y_position: 396,
+              width: 96,
+              height: 22,
+              anchor_string: undefined,
+              assigned_signer_email: 'vendor@nxtwave.co.in',
+            },
+            {
+              field_type: 'SIGNATURE',
+              page_number: 3,
+              x_position: 306,
+              y_position: 396,
+              width: 96,
+              height: 22,
+              anchor_string: undefined,
+              assigned_signer_email: 'vendor@nxtwave.co.in',
+            },
+          ],
+        })
+      )
+    })
+
+    getBoundingClientRectSpy.mockRestore()
+    rafSpy.mockRestore()
+  })
+
+  it('adds SIGNATURE field only on current page by default', async () => {
+    jest.spyOn(contractsClient, 'getSigningPreparationDraft').mockResolvedValue({
+      ok: true,
+      data: {
+        contractId: 'contract-1',
+        recipients: [
+          {
+            name: 'Vendor',
+            email: 'vendor@nxtwave.co.in',
+            recipientType: 'EXTERNAL',
+            routingOrder: 1,
+          },
+        ],
+        fields: [],
+        createdByEmployeeId: 'employee-1',
+        updatedByEmployeeId: 'employee-1',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    } as never)
+
+    const saveSpy = jest.spyOn(contractsClient, 'saveSigningPreparationDraft').mockResolvedValue({
+      ok: true,
+      data: null,
+    } as never)
+
+    const rafSpy = jest.spyOn(window, 'requestAnimationFrame').mockImplementation((callback: FrameRequestCallback) => {
+      callback(0)
+      return 1
+    })
+    const getBoundingClientRectSpy = jest.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(() => ({
+      x: 0,
+      y: 0,
+      width: 720,
+      height: 1000,
+      top: 0,
+      left: 0,
+      right: 720,
+      bottom: 1000,
+      toJSON: () => ({}),
+    }))
+
+    render(
+      <PrepareForSigningModal
+        isOpen
+        contractId="contract-1"
+        contractStatus="COMPLETED"
+        pdfUrl="/api/contracts/contract-1/preview"
+        onClose={jest.fn()}
+        onSent={jest.fn()}
+      />
+    )
+
+    await waitFor(() => expect(contractsClient.getSigningPreparationDraft).toHaveBeenCalled())
+
+    fireEvent.click(screen.getByRole('button', { name: '2. Assign Fields' }))
+    fireEvent.click(screen.getByTestId('pdf-document'), { clientX: 360, clientY: 500 })
+    fireEvent.click(screen.getByRole('button', { name: 'Save Draft' }))
+
+    await waitFor(() => {
+      expect(saveSpy).toHaveBeenCalledWith(
+        'contract-1',
+        expect.objectContaining({
+          fields: [
+            {
+              field_type: 'SIGNATURE',
+              page_number: 1,
+              x_position: 306,
+              y_position: 396,
+              width: 96,
+              height: 22,
+              anchor_string: undefined,
+              assigned_signer_email: 'vendor@nxtwave.co.in',
+            },
+          ],
+        })
+      )
+    })
+
+    getBoundingClientRectSpy.mockRestore()
+    rafSpy.mockRestore()
   })
 
   it('disables send when recipient has no SIGNATURE field', async () => {
@@ -115,6 +319,8 @@ describe('PrepareForSigningModal', () => {
             pageNumber: 1,
             xPosition: 22.5,
             yPosition: 37.25,
+            width: 96,
+            height: 22,
             anchorString: null,
             assignedSignerEmail: 'Vendor@NxtWave.co.in',
           },
@@ -162,6 +368,8 @@ describe('PrepareForSigningModal', () => {
             page_number: 1,
             x_position: 22.5,
             y_position: 37.25,
+            width: 96,
+            height: 22,
             anchor_string: undefined,
             assigned_signer_email: 'vendor@nxtwave.co.in',
           },
@@ -195,6 +403,8 @@ describe('PrepareForSigningModal', () => {
             pageNumber: 1,
             xPosition: 10,
             yPosition: 20,
+            width: 96,
+            height: 22,
             anchorString: null,
             assignedSignerEmail: 'one@nxtwave.co.in',
           },
@@ -203,6 +413,8 @@ describe('PrepareForSigningModal', () => {
             pageNumber: 1,
             xPosition: 20,
             yPosition: 30,
+            width: 96,
+            height: 22,
             anchorString: null,
             assignedSignerEmail: 'two@nxtwave.co.in',
           },
@@ -249,6 +461,8 @@ describe('PrepareForSigningModal', () => {
             pageNumber: 1,
             xPosition: 15,
             yPosition: 20,
+            width: 96,
+            height: 22,
             anchorString: null,
             assignedSignerEmail: 'vendor@nxtwave.co.in',
           },
