@@ -19,7 +19,12 @@ export const useLoginPage = (): void => {
       try {
         const response = await authClient.getSession()
         if (response.ok && response.data?.authenticated) {
-          router.push(routeRegistry.protected.dashboard)
+          const redirectTo = searchParams.get('redirectTo')?.trim()
+          const destination =
+            redirectTo && redirectTo.startsWith('/') && !redirectTo.startsWith('//')
+              ? redirectTo
+              : routeRegistry.protected.dashboard
+          router.push(destination)
         }
       } catch {
         // Stay on login page when session check fails.
@@ -27,7 +32,7 @@ export const useLoginPage = (): void => {
     }
 
     checkSession()
-  }, [router])
+  }, [router, searchParams])
 
   // Handle error messages from URL params in separate effect
   useEffect(() => {

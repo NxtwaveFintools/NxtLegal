@@ -10,10 +10,16 @@ export const startMicrosoftOAuth = async () => {
   if (!provider) {
     throw new Error('OAuth provider is not configured.')
   }
+  const callbackUrl = new URL(`${publicConfig.siteUrl}${routeRegistry.public.authCallback}`)
+  const redirectTo = new URL(window.location.href).searchParams.get('redirectTo')?.trim()
+  if (redirectTo && redirectTo.startsWith('/') && !redirectTo.startsWith('//')) {
+    callbackUrl.searchParams.set('redirectTo', redirectTo)
+  }
+
   await supabase.auth.signInWithOAuth({
     provider: provider as Provider,
     options: {
-      redirectTo: `${publicConfig.siteUrl}${routeRegistry.public.authCallback}`,
+      redirectTo: callbackUrl.toString(),
     },
   })
 }
