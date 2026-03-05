@@ -5,6 +5,24 @@ import { authErrorCodes } from '@/core/constants/auth-errors'
 import { appConfig } from '@/core/config/app-config'
 import { DEFAULT_TENANT_ID } from '@/core/constants/tenants'
 
+const resolveSafeRedirectPath = (requestUrl: URL): string | null => {
+  const redirectTo = requestUrl.searchParams.get('redirectTo')?.trim()
+  if (!redirectTo) {
+    return null
+  }
+
+  try {
+    const resolved = new URL(redirectTo, requestUrl.origin)
+    if (resolved.origin !== requestUrl.origin) {
+      return null
+    }
+
+    return `${resolved.pathname}${resolved.search}${resolved.hash}`
+  } catch {
+    return null
+  }
+}
+
 const resolveUserEmail = (user: {
   email?: string | null
   user_metadata?: Record<string, unknown>
@@ -46,6 +64,13 @@ export async function GET(request: Request) {
   const errorCode = requestUrl.searchParams.get('error_code')
   const errorDescription = requestUrl.searchParams.get('error_description')
   const origin = requestUrl.origin
+  const safeRedirectPath = resolveSafeRedirectPath(requestUrl)
+  const buildLoginUrl = (params: URLSearchParams) => {
+    if (safeRedirectPath) {
+      params.set('redirectTo', safeRedirectPath)
+    }
+    return `${origin}${appConfig.routes.public.login}?${params.toString()}`
+  }
 
   if (error) {
     const params = new URLSearchParams({
@@ -57,11 +82,17 @@ export async function GET(request: Request) {
     if (errorDescription) {
       params.set('error_description', errorDescription)
     }
-    return NextResponse.redirect(`${origin}${appConfig.routes.public.login}?${params.toString()}`)
+    return NextResponse.redirect(buildLoginUrl(params))
   }
 
   if (!code) {
-    return NextResponse.redirect(`${origin}${appConfig.routes.public.login}?error=${authErrorCodes.noCode}`)
+    return NextResponse.redirect(
+      buildLoginUrl(
+        new URLSearchParams({
+          error: authErrorCodes.noCode,
+        })
+      )
+    )
   }
 
   try {
@@ -75,14 +106,26 @@ export async function GET(request: Request) {
 
     if (!user) {
       await supabase.auth.signOut()
-      return NextResponse.redirect(`${origin}${appConfig.routes.public.login}?error=${authErrorCodes.unauthorized}`)
+      return NextResponse.redirect(
+        buildLoginUrl(
+          new URLSearchParams({
+            error: authErrorCodes.unauthorized,
+          })
+        )
+      )
     }
 
     const email = resolveUserEmail(user)
 
     if (!email) {
       await supabase.auth.signOut()
-      return NextResponse.redirect(`${origin}${appConfig.routes.public.login}?error=${authErrorCodes.unauthorized}`)
+      return NextResponse.redirect(
+        buildLoginUrl(
+          new URLSearchParams({
+            error: authErrorCodes.unauthorized,
+          })
+        )
+      )
     }
 
     // Extract user name from OAuth metadata or derive from email
@@ -103,7 +146,8 @@ export async function GET(request: Request) {
     const tenantId = DEFAULT_TENANT_ID
     await authService.loginWithOAuth({ email, name }, tenantId)
 
-    return NextResponse.redirect(`${origin}${appConfig.routes.protected.dashboard}`)
+    const postLoginPath = safeRedirectPath ?? appConfig.routes.protected.dashboard
+    return NextResponse.redirect(`${origin}${postLoginPath}`)
   } catch {
     try {
       const supabase = await createServerSupabase()
@@ -112,6 +156,12 @@ export async function GET(request: Request) {
       // Best-effort sign-out before redirecting.
     }
 
-    return NextResponse.redirect(`${origin}${appConfig.routes.public.login}?error=${authErrorCodes.authFailed}`)
+    return NextResponse.redirect(
+      buildLoginUrl(
+        new URLSearchParams({
+          error: authErrorCodes.authFailed,
+        })
+      )
+    )
   }
 }

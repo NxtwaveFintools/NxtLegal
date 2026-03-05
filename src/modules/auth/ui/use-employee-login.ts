@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
 import { authClient } from '@/core/client/auth-client'
 import { authErrorMessages } from '@/core/constants/auth-errors'
@@ -19,6 +19,7 @@ type EmployeeLoginState = {
 
 export const useEmployeeLogin = (): EmployeeLoginState => {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
@@ -61,7 +62,12 @@ export const useEmployeeLogin = (): EmployeeLoginState => {
       }
 
       toast.success('Login successful')
-      router.push(routeRegistry.protected.dashboard)
+      const redirectTo = searchParams.get('redirectTo')?.trim()
+      const destination =
+        redirectTo && redirectTo.startsWith('/') && !redirectTo.startsWith('//')
+          ? redirectTo
+          : routeRegistry.protected.dashboard
+      router.push(destination)
       router.refresh()
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : authErrorMessages.auth_failed
