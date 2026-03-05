@@ -38,6 +38,7 @@ export type ContractListItem = {
   canHodApprove?: boolean
   canHodReject?: boolean
   requestCreatedAt?: string | null
+  executedAt?: string | null
   departmentId?: string | null
   departmentName?: string | null
   uploadMode?: ContractUploadMode

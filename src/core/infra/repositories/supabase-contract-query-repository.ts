@@ -407,9 +407,14 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     )
 
     const hasNext = validRows.length > params.limit
-    const mappedItems = validRows
-      .slice(0, params.limit)
-      .map((row) => this.mapListItem(row, additionalApproverContext.get(row.id)))
+    const rowsForPage = validRows.slice(0, params.limit)
+    const dashboardEnrichment = await this.resolveListContractEnrichment(params.tenantId, rowsForPage)
+    const mappedItems = rowsForPage.map((row) =>
+      this.mapListItem(row, additionalApproverContext.get(row.id), {
+        creatorName: dashboardEnrichment.creatorNameByContractId.get(row.id) ?? null,
+        executedAt: dashboardEnrichment.executedAtByContractId.get(row.id) ?? null,
+      })
+    )
     const items = await this.attachActorContractSignals(params.tenantId, params.employeeId, mappedItems, params.role)
 
     const nextCursor = hasNext ? this.encodeCursor(items[items.length - 1]?.createdAt ?? '') : undefined
@@ -742,9 +747,14 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     )
 
     const hasNext = validRows.length > params.limit
-    const mappedItems = validRows
-      .slice(0, params.limit)
-      .map((row) => this.mapListItem(row, additionalApproverContext.get(row.id)))
+    const rowsForPage = validRows.slice(0, params.limit)
+    const dashboardRowsEnrichment = await this.resolveListContractEnrichment(params.tenantId, rowsForPage)
+    const mappedItems = rowsForPage.map((row) =>
+      this.mapListItem(row, additionalApproverContext.get(row.id), {
+        creatorName: dashboardRowsEnrichment.creatorNameByContractId.get(row.id) ?? null,
+        executedAt: dashboardRowsEnrichment.executedAtByContractId.get(row.id) ?? null,
+      })
+    )
     const items = await this.attachActorContractSignals(params.tenantId, params.employeeId, mappedItems, params.role)
     const nextCursor = hasNext
       ? this.encodeTimestampIdCursor(items[items.length - 1]?.createdAt ?? '', items[items.length - 1]?.id ?? '')
@@ -1267,9 +1277,13 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         }
       })
 
-      const mappedItems = hydratedLegacyRows.slice(0, params.limit).map((row) =>
+      const legacyRowsForPage = hydratedLegacyRows.slice(0, params.limit)
+      const legacyEnrichment = await this.resolveListContractEnrichment(params.tenantId, legacyRowsForPage)
+
+      const mappedItems = legacyRowsForPage.map((row) =>
         this.mapListItem(row, additionalApproverContext.get(row.id), {
-          creatorName: row.uploaded_by_email,
+          creatorName: legacyEnrichment.creatorNameByContractId.get(row.id) ?? null,
+          executedAt: legacyEnrichment.executedAtByContractId.get(row.id) ?? null,
           departmentName: row.department_id ? (departmentNameById.get(row.department_id) ?? null) : null,
           assignedToUsers:
             params.role === 'LEGAL_TEAM'
@@ -1304,10 +1318,13 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     const hasNext = rows.length > params.limit
 
     const assignmentMap = this.buildAssignmentMapFromJoinedRows(rows, params.role)
+    const rowsForPage = rows.slice(0, params.limit)
+    const joinedEnrichment = await this.resolveListContractEnrichment(params.tenantId, rowsForPage)
 
-    const mappedItems = rows.slice(0, params.limit).map((row) =>
+    const mappedItems = rowsForPage.map((row) =>
       this.mapListItem(row, additionalApproverContext.get(row.id), {
-        creatorName: row.uploaded_by_email,
+        creatorName: joinedEnrichment.creatorNameByContractId.get(row.id) ?? null,
+        executedAt: joinedEnrichment.executedAtByContractId.get(row.id) ?? null,
         departmentName: this.resolveDepartmentName(row.department),
         assignedToUsers:
           params.role === 'LEGAL_TEAM'
@@ -5782,6 +5799,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     additionalApproverContext?: AdditionalApproverContractContext,
     metadata?: {
       creatorName?: string | null
+      executedAt?: string | null
       departmentName?: string | null
       assignedToUsers?: string[]
     }
@@ -5821,6 +5839,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       nearBreach: Boolean(row.near_breach),
       isTatBreached: Boolean(row.is_tat_breached),
       requestCreatedAt: row.request_created_at ?? null,
+      executedAt: metadata?.executedAt ?? null,
       legalEffectiveDate: row.legal_effective_date ?? null,
       legalTerminationDate: row.legal_termination_date ?? null,
       legalNoticePeriod: row.legal_notice_period ?? null,
@@ -5831,6 +5850,127 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       createdAt: row.created_at,
       updatedAt: row.updated_at,
     }
+  }
+
+  private async resolveListContractEnrichment(
+    tenantId: string,
+    rows: Array<{
+      id: string
+      uploaded_by_employee_id: string
+      uploaded_by_email: string
+    }>
+  ): Promise<{
+    creatorNameByContractId: Map<string, string | null>
+    executedAtByContractId: Map<string, string | null>
+  }> {
+    const creatorNameByContractId = new Map<string, string | null>()
+    const executedAtByContractId = new Map<string, string | null>()
+
+    if (rows.length === 0) {
+      return { creatorNameByContractId, executedAtByContractId }
+    }
+
+    const supabase = createServiceSupabase()
+    const contractIds = Array.from(new Set(rows.map((row) => row.id)))
+    const uploaderIds = Array.from(new Set(rows.map((row) => row.uploaded_by_employee_id).filter(Boolean)))
+
+    const [usersResult, signatoriesResult] = await Promise.all([
+      uploaderIds.length > 0
+        ? supabase.from('users').select('id, full_name').eq('tenant_id', tenantId).in('id', uploaderIds)
+        : Promise.resolve({ data: [] as Array<{ id: string; full_name: string | null }>, error: null }),
+      contractIds.length > 0
+        ? supabase
+            .from('contract_signatories')
+            .select('contract_id, status, signed_at')
+            .eq('tenant_id', tenantId)
+            .in('contract_id', contractIds)
+            .is('deleted_at', null)
+        : Promise.resolve({
+            data: [] as Array<{ contract_id: string; status: string; signed_at: string | null }>,
+            error: null,
+          }),
+    ])
+
+    if (usersResult.error) {
+      throw new DatabaseError('Failed to resolve creator names for contracts', new Error(usersResult.error.message), {
+        code: usersResult.error.code,
+      })
+    }
+
+    if (signatoriesResult.error) {
+      if (
+        !this.isMissingRelationError(signatoriesResult.error, 'contract_signatories') &&
+        !this.isMissingColumnError(signatoriesResult.error, 'contract_signatories')
+      ) {
+        throw new DatabaseError(
+          'Failed to resolve executed timestamps for contracts',
+          new Error(signatoriesResult.error.message),
+          {
+            code: signatoriesResult.error.code,
+          }
+        )
+      }
+    }
+
+    const creatorNameByEmployeeId = new Map<string, string | null>()
+    for (const userRow of (usersResult.data ?? []) as Array<{ id: string; full_name: string | null }>) {
+      creatorNameByEmployeeId.set(userRow.id, userRow.full_name ?? null)
+    }
+
+    for (const row of rows) {
+      creatorNameByContractId.set(row.id, creatorNameByEmployeeId.get(row.uploaded_by_employee_id) ?? null)
+    }
+
+    const signatoryRows = (signatoriesResult.data ?? []) as Array<{
+      contract_id: string
+      status: string
+      signed_at: string | null
+    }>
+
+    const signatoryAggregateByContractId = new Map<
+      string,
+      {
+        hasSignatories: boolean
+        allSigned: boolean
+        latestSignedAt: string | null
+      }
+    >()
+
+    for (const contractId of contractIds) {
+      signatoryAggregateByContractId.set(contractId, {
+        hasSignatories: false,
+        allSigned: true,
+        latestSignedAt: null,
+      })
+    }
+
+    for (const signatoryRow of signatoryRows) {
+      const aggregate = signatoryAggregateByContractId.get(signatoryRow.contract_id)
+      if (!aggregate) {
+        continue
+      }
+
+      aggregate.hasSignatories = true
+
+      if (signatoryRow.status !== contractSignatoryStatuses.signed || !signatoryRow.signed_at) {
+        aggregate.allSigned = false
+      }
+
+      if (signatoryRow.signed_at && (!aggregate.latestSignedAt || signatoryRow.signed_at > aggregate.latestSignedAt)) {
+        aggregate.latestSignedAt = signatoryRow.signed_at
+      }
+    }
+
+    for (const contractId of contractIds) {
+      const aggregate = signatoryAggregateByContractId.get(contractId)
+      const executedAt =
+        aggregate && aggregate.hasSignatories && aggregate.allSigned && aggregate.latestSignedAt
+          ? aggregate.latestSignedAt
+          : null
+      executedAtByContractId.set(contractId, executedAt)
+    }
+
+    return { creatorNameByContractId, executedAtByContractId }
   }
 
   private resolveDepartmentName(department: RepositoryJoinedContractRow['department']): string | null {

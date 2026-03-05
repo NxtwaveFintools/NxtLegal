@@ -701,7 +701,16 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
       {
         accessorKey: 'creator',
         header: 'Creator',
-        cell: ({ row }) => row.original.creatorName ?? row.original.uploadedByEmail ?? '—',
+        cell: ({ row }) => {
+          const creatorName = row.original.creatorName?.trim()
+          const creatorEmail = row.original.uploadedByEmail?.trim()
+
+          if (creatorName && creatorEmail) {
+            return `${creatorName} (${creatorEmail})`
+          }
+
+          return creatorName || creatorEmail || '—'
+        },
       },
       {
         accessorKey: 'department',
@@ -875,6 +884,12 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
             </div>
           )
         },
+      },
+      {
+        accessorKey: 'executedAt',
+        header: 'Executed Date & Time',
+        cell: ({ row }) =>
+          row.original.executedAt ? timestampFormatter.format(new Date(row.original.executedAt)) : '—',
       },
       ...(isLegalTeamRole
         ? [

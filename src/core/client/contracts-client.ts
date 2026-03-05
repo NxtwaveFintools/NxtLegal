@@ -63,6 +63,7 @@ type ContractRecord = {
   legalNoticePeriod?: string | null
   legalAutoRenewal?: boolean | null
   requestCreatedAt?: string
+  executedAt?: string | null
   currentDocumentId?: string | null
   tatDeadlineAt?: string | null
   tatBreachedAt?: string | null
