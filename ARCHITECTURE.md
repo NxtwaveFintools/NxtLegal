@@ -193,25 +193,6 @@ Client Config (env.public.ts)
          ↓
 App Config (app-config.ts)     Public Config (public-config.ts)
          ↓                               ↓
-Domain Services                   Client Components/Hooks
-```
-
-### Adding New Configuration
-
-**Example: Add new allowed role**
-
-1. Add to env:
-   ```
-   NEXT_PUBLIC_FEATURE_ADMIN_UI=true
-   ```
-
-2. Update `env.public.ts`:
-   ```typescript
-   export const envPublic = {
-     ...
-     featureAdminUi: process.env.NEXT_PUBLIC_FEATURE_ADMIN_UI ?? ''
-   }
-   ```
 
 3. Update `public-config.ts`:
    ```typescript
