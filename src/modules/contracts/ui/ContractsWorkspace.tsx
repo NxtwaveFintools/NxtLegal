@@ -731,32 +731,57 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     window.open(response.data.signedUrl, '_blank', 'noopener,noreferrer')
   }
 
+  const openDownloadTab = () => {
+    const downloadTab = window.open('', '_blank', 'noopener,noreferrer')
+    if (downloadTab) {
+      downloadTab.opener = null
+    }
+
+    return downloadTab
+  }
+
+  const openUrlInTab = (downloadTab: Window | null, url: string) => {
+    if (downloadTab && !downloadTab.closed) {
+      downloadTab.location.href = url
+      return
+    }
+
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
+
   const handleDownloadFinalSignedDocument = async () => {
     if (!selectedContractId) {
       return
     }
 
+    const downloadTab = openDownloadTab()
     setIsDownloadingFinalSignedDoc(true)
     const response = await contractsClient.downloadFinalSigningArtifact(selectedContractId, 'signed_document')
     if (!response.ok || !response.data) {
       toast.error(response.error?.message ?? 'Failed to download final signed document')
+      if (downloadTab && !downloadTab.closed) {
+        downloadTab.close()
+      }
       setIsDownloadingFinalSignedDoc(false)
       return
     }
 
     if (response.data.signedUrl) {
-      window.open(response.data.signedUrl, '_blank', 'noopener,noreferrer')
+      openUrlInTab(downloadTab, response.data.signedUrl)
       setIsDownloadingFinalSignedDoc(false)
       return
     }
 
     if (!response.data.blob) {
       toast.error('Failed to download final signed document')
+      if (downloadTab && !downloadTab.closed) {
+        downloadTab.close()
+      }
       setIsDownloadingFinalSignedDoc(false)
       return
     }
 
-    triggerBlobDownload(response.data.blob, response.data.fileName)
+    triggerBlobDownload(response.data.blob, response.data.fileName, downloadTab)
     setIsDownloadingFinalSignedDoc(false)
   }
 
@@ -765,27 +790,34 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       return
     }
 
+    const downloadTab = openDownloadTab()
     setIsDownloadingCompletionCertificate(true)
     const response = await contractsClient.downloadFinalSigningArtifact(selectedContractId, 'completion_certificate')
     if (!response.ok || !response.data) {
       toast.error(response.error?.message ?? 'Failed to download completion certificate')
+      if (downloadTab && !downloadTab.closed) {
+        downloadTab.close()
+      }
       setIsDownloadingCompletionCertificate(false)
       return
     }
 
     if (response.data.signedUrl) {
-      window.open(response.data.signedUrl, '_blank', 'noopener,noreferrer')
+      openUrlInTab(downloadTab, response.data.signedUrl)
       setIsDownloadingCompletionCertificate(false)
       return
     }
 
     if (!response.data.blob) {
       toast.error('Failed to download completion certificate')
+      if (downloadTab && !downloadTab.closed) {
+        downloadTab.close()
+      }
       setIsDownloadingCompletionCertificate(false)
       return
     }
 
-    triggerBlobDownload(response.data.blob, response.data.fileName)
+    triggerBlobDownload(response.data.blob, response.data.fileName, downloadTab)
     setIsDownloadingCompletionCertificate(false)
   }
 
@@ -794,27 +826,34 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       return
     }
 
+    const downloadTab = openDownloadTab()
     setIsDownloadingMergedArtifact(true)
     const response = await contractsClient.downloadFinalSigningArtifact(selectedContractId, 'merged_pdf')
     if (!response.ok || !response.data) {
       toast.error(response.error?.message ?? 'Failed to download merged signed artifact')
+      if (downloadTab && !downloadTab.closed) {
+        downloadTab.close()
+      }
       setIsDownloadingMergedArtifact(false)
       return
     }
 
     if (response.data.signedUrl) {
-      window.open(response.data.signedUrl, '_blank', 'noopener,noreferrer')
+      openUrlInTab(downloadTab, response.data.signedUrl)
       setIsDownloadingMergedArtifact(false)
       return
     }
 
     if (!response.data.blob) {
       toast.error('Failed to download merged signed artifact')
+      if (downloadTab && !downloadTab.closed) {
+        downloadTab.close()
+      }
       setIsDownloadingMergedArtifact(false)
       return
     }
 
-    triggerBlobDownload(response.data.blob, response.data.fileName)
+    triggerBlobDownload(response.data.blob, response.data.fileName, downloadTab)
     setIsDownloadingMergedArtifact(false)
   }
 
@@ -884,17 +923,23 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     setViewerFileName('')
   }, [])
 
-  const triggerBlobDownload = useCallback((blob: Blob, fileName: string) => {
+  const triggerBlobDownload = useCallback((blob: Blob, fileName: string, downloadTab?: Window | null) => {
     const objectUrl = URL.createObjectURL(blob)
-    const anchor = document.createElement('a')
-    anchor.href = objectUrl
-    anchor.download = fileName
-    document.body.appendChild(anchor)
-    anchor.click()
-    anchor.remove()
+
+    if (downloadTab && !downloadTab.closed) {
+      downloadTab.location.href = objectUrl
+    } else {
+      const anchor = document.createElement('a')
+      anchor.href = objectUrl
+      anchor.download = fileName
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+    }
+
     window.setTimeout(() => {
       URL.revokeObjectURL(objectUrl)
-    }, 0)
+    }, 60_000)
   }, [])
 
   useEffect(() => {
