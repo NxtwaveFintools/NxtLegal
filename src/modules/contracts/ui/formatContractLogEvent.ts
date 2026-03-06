@@ -549,7 +549,7 @@ function resolveLogMessage(
     case 'LEGAL_VOIDED':
       return 'Marked this contract as Void Documents.'
     case 'HOD_BYPASSED':
-      return 'Bypassed HOD approval.'
+      return 'Skipped HOD approval.'
     case 'CONTRACT_REROUTED_TO_HOD':
       return 'Rerouted the contract to HOD.'
     case 'LEGAL_OWNER_SET':
@@ -569,7 +569,7 @@ function resolveLogMessage(
     case 'ADDITIONAL_REJECTED':
       return 'Rejected as additional approver.'
     case 'ADDITIONAL_BYPASSED':
-      return `Bypassed ${target ?? 'an additional approver'} as additional approver.`
+      return `Skipped ${target ?? 'an additional approver'} as additional approver.`
     case 'SIGNATORY_ADDED': {
       const recipientTypeLabel = recipientType ? `, ${recipientType.toUpperCase()}` : ''
       const routingLabel = typeof routingOrder === 'number' ? `, Order #${routingOrder}` : ''

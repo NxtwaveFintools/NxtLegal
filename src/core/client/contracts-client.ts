@@ -20,7 +20,7 @@ type ContractActionName =
   | 'approver.approve'
   | 'approver.reject'
 
-type ContractBypassApprovalActionName = 'BYPASS_APPROVAL'
+type ContractSkipApprovalActionName = 'BYPASS_APPROVAL'
 
 type ContractRecord = {
   id: string
@@ -193,7 +193,7 @@ type ContractAdditionalApprover = {
   approverEmployeeId: string
   approverEmail: string
   sequenceOrder: number
-  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'BYPASSED'
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'SKIPPED' | 'BYPASSED'
   approvedAt: string | null
 }
 
@@ -958,9 +958,11 @@ export const contractsClient = {
     contractId: string
     file: File
     idempotencyKey: string
+    isFinalExecuted?: boolean
   }): Promise<ApiResponse<{ document: ContractDocument }>> {
     const formData = new FormData()
     formData.set('file', params.file)
+    formData.set('isFinalExecuted', params.isFinalExecuted ? 'true' : 'false')
 
     return safeFetch<{ document: ContractDocument }>(
       resolveContractPath(routeRegistry.api.contracts.replaceMainDocument, params.contractId),
@@ -979,7 +981,7 @@ export const contractsClient = {
     contractId: string,
     payload:
       | { action: ContractActionName; noteText?: string }
-      | { action: ContractBypassApprovalActionName; approverId: string; reason: string }
+      | { action: ContractSkipApprovalActionName; approverId: string; reason: string }
   ) {
     return safeFetch<ContractDetailResponse>(resolveContractPath(routeRegistry.api.contracts.action, contractId), {
       method: 'POST',

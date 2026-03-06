@@ -66,7 +66,7 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
         ? await (() => {
             if (session.role !== contractWorkflowRoles.legalTeam && session.role !== contractWorkflowRoles.admin) {
               return NextResponse.json(
-                errorResponse('CONTRACT_ACTION_FORBIDDEN', 'Only LEGAL_TEAM or ADMIN can bypass approvals'),
+                errorResponse('CONTRACT_ACTION_FORBIDDEN', 'Only LEGAL_TEAM or ADMIN can skip approvals'),
                 { status: 403 }
               )
             }

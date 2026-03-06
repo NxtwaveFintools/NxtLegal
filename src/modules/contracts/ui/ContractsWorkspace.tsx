@@ -592,7 +592,11 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   )
 
   const nonLegalStatusActions = useMemo(
-    () => availableActions.filter((actionItem) => !legalStatusActionSet.has(actionItem.action)),
+    () =>
+      availableActions.filter(
+        (actionItem) =>
+          !legalStatusActionSet.has(actionItem.action) && actionItem.action !== contractTransitionActions.hodBypass
+      ),
     [availableActions, legalStatusActionSet]
   )
 
@@ -895,27 +899,46 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     }
   }
 
-  const handleBypassApprover = async (approverId: string, reason: string) => {
+  const handleSkipApprover = async (params: {
+    approverRole: 'HOD' | 'ADDITIONAL'
+    approverId?: string
+    reason: string
+  }) => {
     if (!selectedContractId) {
       throw new Error('No contract selected')
     }
 
+    const trimmedReason = params.reason.trim()
+    if (!trimmedReason) {
+      throw new Error('Skip reason is required')
+    }
+
+    const payload =
+      params.approverRole === 'HOD'
+        ? ({ action: contractTransitionActions.hodBypass, noteText: trimmedReason } as const)
+        : (() => {
+            if (!params.approverId) {
+              throw new Error('Approver ID is required')
+            }
+
+            return {
+              action: 'BYPASS_APPROVAL' as const,
+              approverId: params.approverId,
+              reason: trimmedReason,
+            }
+          })()
+
     setIsMutating(true)
-    const response = await contractsClient.action(selectedContractId, {
-      action: 'BYPASS_APPROVAL',
-      approverId,
-      reason: reason.trim(),
-    })
+    const response = await contractsClient.action(selectedContractId, payload)
     setIsMutating(false)
 
     if (!response.ok || !response.data) {
-      throw new Error(response.error?.message ?? 'Failed to bypass approval')
+      throw new Error(response.error?.message ?? 'Failed to skip approval')
     }
 
     applyContractView(response.data)
     await loadContractContext(selectedContractId)
     await loadContracts()
-    router.refresh()
   }
   const handleAddCollaborator = async () => {
     if (!selectedContractId || !collaboratorEmail.trim() || isAddingCollaborator) {
@@ -1942,12 +1965,15 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                       approvers={approvers}
                       isMutating={isMutating}
                       canManageApprovals={session.role === 'LEGAL_TEAM' || session.role === 'ADMIN'}
-                      canBypassApprovals={session.role === 'LEGAL_TEAM' || session.role === 'ADMIN'}
+                      canSkipApprovals={session.role === 'LEGAL_TEAM' || session.role === 'ADMIN'}
                       approverEmail={approverEmail}
                       onApproverEmailChange={setApproverEmail}
                       onAddApprover={handleAddApprover}
                       onRemindApprover={handleRemindApprover}
-                      onBypassApprover={handleBypassApprover}
+                      onSkipApprover={handleSkipApprover}
+                      onSkipRefresh={() => {
+                        router.refresh()
+                      }}
                     />
                   )}
 

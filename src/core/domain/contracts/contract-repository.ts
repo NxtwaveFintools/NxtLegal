@@ -8,6 +8,7 @@ import type {
   CreateContractDocumentInput,
   CreateContractUploadInput,
   ReplacePrimaryContractDocumentInput,
+  UpdateContractStatusInput,
 } from '@/core/domain/contracts/types'
 
 export interface ContractRepository {
@@ -29,6 +30,7 @@ export interface ContractRepository {
     contractId: string
   }): Promise<ContractDocumentAccessRecord | null>
   replacePrimaryDocument(input: ReplacePrimaryContractDocumentInput): Promise<ContractDocumentRecord>
+  updateContractStatus(input: UpdateContractStatusInput): Promise<void>
   isPocAssignedToDepartment(params: { tenantId: string; pocEmail: string; departmentId: string }): Promise<boolean>
   isHodAssignedToDepartment(params: { tenantId: string; hodEmail: string; departmentId: string }): Promise<boolean>
   isUploaderInActorTeam(params: {

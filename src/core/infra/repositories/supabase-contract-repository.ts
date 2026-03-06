@@ -14,6 +14,7 @@ import type {
   CreateContractDocumentInput,
   CreateContractUploadInput,
   ReplacePrimaryContractDocumentInput,
+  UpdateContractStatusInput,
 } from '@/core/domain/contracts/types'
 
 type ContractRow = {
@@ -593,6 +594,41 @@ class SupabaseContractRepository implements ContractRepository {
       uploadedRole: input.uploadedByRole,
       replacedDocumentId: payload.replaced_document_id,
       createdAt: new Date().toISOString(),
+    }
+  }
+
+  async updateContractStatus(input: UpdateContractStatusInput): Promise<void> {
+    if (!this.validStatuses.has(input.status)) {
+      throw new DatabaseError('Contract status is invalid in persistence layer', undefined, {
+        status: input.status,
+      })
+    }
+
+    const supabase = createServiceSupabase()
+    const { data, error } = await supabase
+      .from('contracts')
+      .update({
+        status: input.status,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('tenant_id', input.tenantId)
+      .eq('id', input.contractId)
+      .is('deleted_at', null)
+      .select('id')
+      .limit(1)
+
+    if (error) {
+      throw new DatabaseError('Failed to update contract status', new Error(error.message), {
+        code: error.code,
+        details: error.details,
+      })
+    }
+
+    if (!data || data.length === 0) {
+      throw new DatabaseError('Contract not found for tenant during status update', undefined, {
+        tenantId: input.tenantId,
+        contractId: input.contractId,
+      })
     }
   }
 
