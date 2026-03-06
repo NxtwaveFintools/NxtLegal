@@ -71,6 +71,7 @@ export type ReplacePrimaryDocumentInput = {
   uploadedByEmployeeId: string
   uploadedByEmail: string
   uploadedByRole: string
+  isFinalExecuted?: boolean
   fileName: string
   fileSizeBytes: number
   fileMimeType: string
@@ -422,7 +423,7 @@ export class ContractUploadService {
     })
 
     try {
-      return await this.contractRepository.replacePrimaryDocument({
+      const replaceDocumentPromise = this.contractRepository.replacePrimaryDocument({
         tenantId: input.tenantId,
         contractId: input.contractId,
         fileName: safeFileName,
@@ -433,6 +434,17 @@ export class ContractUploadService {
         uploadedByEmail: input.uploadedByEmail,
         uploadedByRole: input.uploadedByRole,
       })
+
+      const updateStatusPromise = input.isFinalExecuted
+        ? this.contractRepository.updateContractStatus({
+            tenantId: input.tenantId,
+            contractId: input.contractId,
+            status: contractStatuses.executed,
+          })
+        : Promise.resolve()
+
+      const [document] = await Promise.all([replaceDocumentPromise, updateStatusPromise])
+      return document
     } catch (error) {
       try {
         await this.contractStorageRepository.remove(filePath)

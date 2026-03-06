@@ -172,7 +172,7 @@ export const bypassApprovalActionName = 'BYPASS_APPROVAL' as const
 export const contractBypassApprovalSchema = z.object({
   action: z.literal(bypassApprovalActionName),
   approverId: z.string().trim().uuid('Valid approverId is required'),
-  reason: z.string().trim().min(1, 'Bypass reason is required').max(2000, 'Bypass reason exceeds maximum length'),
+  reason: z.string().trim().min(1, 'Skip reason is required').max(2000, 'Skip reason exceeds maximum length'),
 })
 
 export const contractActionCommandSchema = z.union([contractActionSchema, contractBypassApprovalSchema])

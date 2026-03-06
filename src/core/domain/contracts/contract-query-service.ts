@@ -461,11 +461,11 @@ export class ContractQueryService {
     reason: string
   }): Promise<ContractDetailView> {
     if (!params.actorRole) {
-      throw new AuthorizationError('CONTRACT_ACTION_FORBIDDEN', 'User role is required for approval bypass')
+      throw new AuthorizationError('CONTRACT_ACTION_FORBIDDEN', 'User role is required for approval skip')
     }
 
     if (params.actorRole !== contractWorkflowRoles.legalTeam && params.actorRole !== contractWorkflowRoles.admin) {
-      throw new AuthorizationError('CONTRACT_ACTION_FORBIDDEN', 'Only LEGAL_TEAM or ADMIN can bypass approvals')
+      throw new AuthorizationError('CONTRACT_ACTION_FORBIDDEN', 'Only LEGAL_TEAM or ADMIN can skip approvals')
     }
 
     if (!params.actorEmail) {
