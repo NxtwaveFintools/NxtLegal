@@ -380,8 +380,6 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       upsertContractInSidebarList(detailResponse.data.contract)
       if (signingDraftResponse.ok) {
         setSigningDraftRecipients(signingDraftResponse.data?.recipients ?? [])
-      } else {
-        setSigningDraftRecipients([])
       }
 
       if (timelineResponse.ok && timelineResponse.data) {
@@ -461,8 +459,6 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       upsertContractInSidebarList(detailResponse.data.contract)
       if (signingDraftResponse.ok) {
         setSigningDraftRecipients(signingDraftResponse.data?.recipients ?? [])
-      } else {
-        setSigningDraftRecipients([])
       }
 
       if (timelineResponse.ok && timelineResponse.data) {
@@ -1295,18 +1291,60 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
     return normalizedCounterparties.map((counterpartyName, index) => {
       const mappedSignatories = signatoriesByCounterparty[index] ?? []
+      const fallbackPrimarySignatory =
+        index === 0
+          ? {
+              name: selectedContract?.signatoryName?.trim() ?? '',
+              designation: selectedContract?.signatoryDesignation?.trim() ?? '',
+              email: selectedContract?.signatoryEmail?.trim() ?? '',
+              backgroundOfRequest: selectedContract?.backgroundOfRequest?.trim() ?? '',
+              budgetApproved:
+                typeof selectedContract?.budgetApproved === 'boolean' ? selectedContract.budgetApproved : null,
+            }
+          : null
+      const hasFallbackPrimarySignatory = Boolean(
+        fallbackPrimarySignatory &&
+        (fallbackPrimarySignatory.name ||
+          fallbackPrimarySignatory.designation ||
+          fallbackPrimarySignatory.email ||
+          fallbackPrimarySignatory.backgroundOfRequest ||
+          fallbackPrimarySignatory.budgetApproved !== null)
+      )
+      const normalizedMappedSignatories =
+        mappedSignatories.length > 0
+          ? mappedSignatories.map((signatory, signatoryIndex) => {
+              if (signatoryIndex !== 0 || !hasFallbackPrimarySignatory || !fallbackPrimarySignatory) {
+                return signatory
+              }
+
+              return {
+                ...signatory,
+                name: signatory.name || fallbackPrimarySignatory.name,
+                designation: signatory.designation || fallbackPrimarySignatory.designation,
+                email: signatory.email || fallbackPrimarySignatory.email,
+                backgroundOfRequest: signatory.backgroundOfRequest || fallbackPrimarySignatory.backgroundOfRequest,
+                budgetApproved:
+                  typeof signatory.budgetApproved === 'boolean'
+                    ? signatory.budgetApproved
+                    : fallbackPrimarySignatory.budgetApproved,
+              }
+            })
+          : hasFallbackPrimarySignatory && fallbackPrimarySignatory
+            ? [fallbackPrimarySignatory]
+            : []
+
       return {
         counterpartyName,
-        backgroundOfRequest: mappedSignatories[0]?.backgroundOfRequest ?? '',
-        budgetApproved: mappedSignatories[0]?.budgetApproved ?? null,
-        signatories: mappedSignatories.map((signatory) => ({
+        backgroundOfRequest: normalizedMappedSignatories[0]?.backgroundOfRequest ?? '',
+        budgetApproved: normalizedMappedSignatories[0]?.budgetApproved ?? null,
+        signatories: normalizedMappedSignatories.map((signatory) => ({
           name: signatory.name,
           designation: signatory.designation,
           email: signatory.email,
         })),
       }
     })
-  }, [counterparties, signingDraftRecipients])
+  }, [counterparties, selectedContract, signingDraftRecipients])
   const allSignatoriesSigned = useMemo(
     () => orderedSignatories.length > 0 && orderedSignatories.every((signatory) => signatory.status === 'SIGNED'),
     [orderedSignatories]

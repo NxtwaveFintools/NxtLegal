@@ -549,13 +549,6 @@ export class ContractSignatoryService {
       })
       const moveToInSignatureMs = Date.now() - moveToSignatureStartedAt
 
-      const deleteDraftStartedAt = Date.now()
-      await this.contractQueryService.deleteSigningPreparationDraft({
-        tenantId: params.tenantId,
-        contractId: params.contractId,
-      })
-      const deleteDraftMs = Date.now() - deleteDraftStartedAt
-
       const finalContractDetailStartedAt = Date.now()
       const contractView = await this.contractQueryService.getContractDetail({
         tenantId: params.tenantId,
@@ -574,7 +567,6 @@ export class ContractSignatoryService {
         draftLoadMs,
         assignSignatoryMs,
         moveToInSignatureMs,
-        deleteDraftMs,
         finalContractDetailMs,
         elapsedMs: elapsedMs(),
       })

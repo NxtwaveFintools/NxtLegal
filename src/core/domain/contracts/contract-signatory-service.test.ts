@@ -1318,10 +1318,7 @@ describe('ContractSignatoryService', () => {
       actorEmail: 'legal@nxtwave.co.in',
       envelopeId: 'env-1',
     })
-    expect(contractQueryService.deleteSigningPreparationDraft).toHaveBeenCalledWith({
-      tenantId: 'tenant-1',
-      contractId: 'contract-1',
-    })
+    expect(contractQueryService.deleteSigningPreparationDraft).not.toHaveBeenCalled()
   })
 
   it('persists all recipients for mixed embedded and external envelopes', async () => {

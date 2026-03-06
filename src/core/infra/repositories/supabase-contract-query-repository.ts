@@ -87,6 +87,17 @@ const remarkRequiredActions = new Set<ContractActionName>([
 ])
 const bypassAllowedRoles = new Set(['LEGAL_TEAM', 'ADMIN'])
 const activityMessageAllowedRoles = new Set(['LEGAL_TEAM', 'ADMIN', 'HOD'])
+const signingStatusTransitionFallbackRoles = new Set(['LEGAL_TEAM', 'ADMIN'])
+const signingStatusTransitionFallbackActions = new Set<ContractActionName>([
+  'legal.set.under_review',
+  'legal.set.pending_internal',
+  'legal.set.pending_external',
+  'legal.set.offline_execution',
+  'legal.set.on_hold',
+  'legal.set.completed',
+  'legal.reject',
+  'legal.void',
+])
 
 const contractsListSelectWithSlaMetrics =
   'id, tenant_id, title, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, hod_approved_at, tat_deadline_at, tat_breached_at, request_created_at, department_id, legal_effective_date, legal_termination_date, legal_notice_period, legal_auto_renewal, aging_business_days, near_breach, is_tat_breached, void_reason, created_at, updated_at'
@@ -4598,6 +4609,44 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       })
     }
 
+    if (
+      fromStatus === contractStatuses.signing &&
+      signingStatusTransitionFallbackRoles.has(role) &&
+      (!defaultRows || defaultRows.length === 0)
+    ) {
+      const resolveSigningTransitionFallbackRows = async (scopeTenantId: string): Promise<TransitionGraphEntity[]> => {
+        const { data: signingFallbackRows, error: signingFallbackError } = await supabase
+          .from('contract_transition_graph')
+          .select('trigger_action, to_status, allowed_roles')
+          .eq('tenant_id', scopeTenantId)
+          .eq('from_status', contractStatuses.pendingExternal)
+          .eq('is_active', true)
+          .contains('allowed_roles', [role])
+
+        if (signingFallbackError) {
+          throw new DatabaseError(
+            'Failed to resolve signing fallback transitions',
+            new Error(signingFallbackError.message),
+            {
+              code: signingFallbackError.code,
+            }
+          )
+        }
+
+        return (signingFallbackRows ?? []) as TransitionGraphEntity[]
+      }
+
+      const tenantFallbackRows = await resolveSigningTransitionFallbackRows(tenantId)
+      if (tenantFallbackRows.length > 0) {
+        return tenantFallbackRows
+      }
+
+      const defaultFallbackRows = await resolveSigningTransitionFallbackRows(DEFAULT_TENANT_ID)
+      if (defaultFallbackRows.length > 0) {
+        return defaultFallbackRows
+      }
+    }
+
     return (defaultRows ?? []) as TransitionGraphEntity[]
   }
 
@@ -4659,6 +4708,13 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     }
 
     if (!fallbackTransitions || fallbackTransitions.length === 0) {
+      if (fromStatus === contractStatuses.signing && signingStatusTransitionFallbackActions.has(action)) {
+        const signingFallbackTransition = await this.resolveSigningFallbackTransition(tenantId, action)
+        if (signingFallbackTransition) {
+          return signingFallbackTransition
+        }
+      }
+
       throw new BusinessRuleError(
         'CONTRACT_TRANSITION_INVALID',
         'No active workflow transition configured for this action'
@@ -4666,6 +4722,42 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     }
 
     return fallbackTransitions[0] as { to_status: string; allowed_roles: string[] }
+  }
+
+  private async resolveSigningFallbackTransition(
+    tenantId: string,
+    action: ContractActionName
+  ): Promise<{ to_status: string; allowed_roles: string[] } | null> {
+    const supabase = createServiceSupabase()
+    const tryResolve = async (
+      scopeTenantId: string
+    ): Promise<{ to_status: string; allowed_roles: string[] } | null> => {
+      const { data, error } = await supabase
+        .from('contract_transition_graph')
+        .select('to_status, allowed_roles')
+        .eq('tenant_id', scopeTenantId)
+        .eq('from_status', contractStatuses.pendingExternal)
+        .eq('trigger_action', action)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+
+      if (error) {
+        throw new DatabaseError('Failed to resolve signing fallback transition', new Error(error.message), {
+          code: error.code,
+        })
+      }
+
+      const match = data?.[0]
+      return match ? (match as { to_status: string; allowed_roles: string[] }) : null
+    }
+
+    const tenantMatch = await tryResolve(tenantId)
+    if (tenantMatch) {
+      return tenantMatch
+    }
+
+    return tryResolve(DEFAULT_TENANT_ID)
   }
 
   private async resolveRerouteTransition(tenantId: string, fromStatus: ContractStatus) {
