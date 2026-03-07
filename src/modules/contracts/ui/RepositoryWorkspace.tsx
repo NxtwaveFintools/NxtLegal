@@ -1,14 +1,6 @@
 'use client'
 
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useOptimistic,
-  useRef,
-  useState,
-  type MouseEvent as ReactMouseEvent,
-} from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { useRouter } from 'next/navigation'
 import { type ColumnDef, type SortingState, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table'
 import { useDebouncedValue } from '@/lib/hooks/use-debounced-value'
@@ -222,7 +214,6 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     normalizedRole === 'SUPER_ADMIN'
 
   const [contracts, setContracts] = useState<ContractRecord[]>([])
-  const [optimisticContracts, setOptimisticContracts] = useOptimistic<ContractRecord[]>(contracts)
   const [isLoading, setIsLoading] = useState(true)
   const [search, setSearch] = useState('')
   const debouncedSearch = useDebouncedValue(search, 400)
@@ -530,6 +521,10 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
         return
       }
 
+      if (assignmentSavingByContractId[contractId]) {
+        return
+      }
+
       const targetContract = contracts.find((contract) => contract.id === contractId)
       if (!targetContract) {
         return
@@ -544,7 +539,6 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
 
       const emailsToAdd = nextEmails.filter((email) => !previousEmails.includes(email))
       const emailsToRemove = previousEmails.filter((email) => !nextEmails.includes(email))
-      const previousContracts = contracts
 
       setAssignmentSavingByContractId((current) => ({ ...current, [contractId]: true }))
       setAssignmentErrorByContractId((current) => {
@@ -553,7 +547,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
         return next
       })
 
-      setOptimisticContracts((current) =>
+      setContracts((current) =>
         current.map((contract) =>
           contract.id === contractId ? { ...contract, assignedToUsers: nextEmails } : contract
         )
@@ -582,14 +576,13 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
           }
         }
 
-        setContracts((current) =>
-          current.map((contract) =>
-            contract.id === contractId ? { ...contract, assignedToUsers: nextEmails } : contract
-          )
-        )
         setOpenAssignmentDropdownContractId(contractId)
       } catch (assignmentError) {
-        setOptimisticContracts(previousContracts)
+        setContracts((current) =>
+          current.map((contract) =>
+            contract.id === contractId ? { ...contract, assignedToUsers: previousEmails } : contract
+          )
+        )
         setAssignmentErrorByContractId((current) => ({
           ...current,
           [contractId]: assignmentError instanceof Error ? assignmentError.message : 'Failed to update assignment',
@@ -598,7 +591,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
         setAssignmentSavingByContractId((current) => ({ ...current, [contractId]: false }))
       }
     },
-    [contracts, isLegalTeamRole, resolveContractAssignedEmails]
+    [assignmentSavingByContractId, contracts, isLegalTeamRole, resolveContractAssignedEmails]
   )
 
   const columns = useMemo<ColumnDef<ContractRecord>[]>(
@@ -885,7 +878,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
   }
 
   const table = useReactTable({
-    data: optimisticContracts,
+    data: contracts,
     columns,
     state: { sorting },
     onSortingChange: (updater) => {

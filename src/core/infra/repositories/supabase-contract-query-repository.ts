@@ -5374,7 +5374,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
   private async getLegalAssignee(tenantId: string): Promise<{ id: string; email: string }> {
     const legalMembers = await this.resolveActiveTenantLegalMembers(tenantId)
-    const assignee = legalMembers[0]
+    const assignee = this.pickRandomLegalMember(legalMembers)
 
     if (!assignee) {
       throw new BusinessRuleError('LEGAL_ASSIGNEE_NOT_FOUND', 'No active legal team member available for routing')
@@ -5384,6 +5384,15 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       id: assignee.id,
       email: assignee.email,
     }
+  }
+
+  private pickRandomLegalMember<T>(members: T[]): T | undefined {
+    if (members.length === 0) {
+      return undefined
+    }
+
+    const randomIndex = Math.floor(Math.random() * members.length)
+    return members[randomIndex]
   }
 
   private async resolveActiveTenantLegalUserByEmail(
