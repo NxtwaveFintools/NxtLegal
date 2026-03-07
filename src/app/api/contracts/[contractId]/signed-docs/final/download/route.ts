@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { withAuth } from '@/core/http/with-auth'
-import { errorResponse } from '@/core/http/response'
+import { errorResponse, okResponse } from '@/core/http/response'
 import { isAppError } from '@/core/http/errors'
 import { getContractSignatoryService } from '@/core/registry/service-registry'
 import { logger } from '@/core/infra/logging/logger'
@@ -24,9 +24,9 @@ const GETHandler = withAuth(async (request: NextRequest, { session, params }) =>
     }
 
     const artifact = request.nextUrl.searchParams.get('artifact')
-    if (artifact !== 'signed_document' && artifact !== 'completion_certificate') {
+    if (artifact !== 'signed_document' && artifact !== 'completion_certificate' && artifact !== 'merged_pdf') {
       return NextResponse.json(
-        errorResponse('INVALID_ARTIFACT', 'artifact must be signed_document or completion_certificate'),
+        errorResponse('INVALID_ARTIFACT', 'artifact must be signed_document, completion_certificate, or merged_pdf'),
         { status: 400 }
       )
     }
@@ -39,6 +39,25 @@ const GETHandler = withAuth(async (request: NextRequest, { session, params }) =>
       actorRole: session.role,
       artifact,
     })
+
+    if ('signedUrl' in result) {
+      logger.info('FINAL_ARTIFACT_ROUTE_TRACE', {
+        phase: 'served_storage_signed_url',
+        tenantId: session.tenantId,
+        contractId,
+        artifact,
+        elapsedMs: elapsedMs(),
+        fileName: result.fileName,
+      })
+
+      return NextResponse.json(
+        okResponse({
+          signedUrl: result.signedUrl,
+          fileName: result.fileName,
+          contentType: result.contentType,
+        })
+      )
+    }
 
     const normalizedBytes = new Uint8Array(result.fileBytes)
     const fileBlob = new Blob([normalizedBytes], { type: result.contentType })

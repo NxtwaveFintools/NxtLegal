@@ -1,6 +1,14 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useOptimistic,
+  useRef,
+  useState,
+  type MouseEvent as ReactMouseEvent,
+} from 'react'
 import { useRouter } from 'next/navigation'
 import { type ColumnDef, type SortingState, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table'
 import { useDebouncedValue } from '@/lib/hooks/use-debounced-value'
@@ -35,14 +43,6 @@ type RepositoryWorkspaceProps = {
     role?: string | null
     canAccessApproverHistory?: boolean
   }
-}
-
-type RepositorySavedView = {
-  id: string
-  label: string
-  statusFilter: RepositoryStatusFilter | ''
-  dateBasis: RepositoryDateBasis
-  datePreset: RepositoryDatePreset | ''
 }
 
 const timestampFormatter = new Intl.DateTimeFormat('en-GB', {
@@ -99,71 +99,8 @@ const stuckStateStatuses = new Set([
   'UNDER_REVIEW',
   'PENDING_WITH_INTERNAL_STAKEHOLDERS',
   'PENDING_WITH_EXTERNAL_STAKEHOLDERS',
+  'SIGNING',
 ])
-
-function resolveSavedViews(role?: string | null): RepositorySavedView[] {
-  const normalizedRole = (role ?? '').toUpperCase()
-
-  if (normalizedRole === 'HOD') {
-    return [
-      {
-        id: 'hod_pending',
-        label: 'HOD Queue',
-        statusFilter: 'HOD_APPROVAL_PENDING',
-        dateBasis: 'request_created_at',
-        datePreset: '',
-      },
-      {
-        id: 'hod_recent',
-        label: 'HOD Last 30 Days',
-        statusFilter: 'HOD_APPROVAL_PENDING',
-        dateBasis: 'request_created_at',
-        datePreset: 'month',
-      },
-    ]
-  }
-
-  if (
-    normalizedRole === 'LEGAL_TEAM' ||
-    normalizedRole === 'LEGAL_ADMIN' ||
-    normalizedRole === 'ADMIN' ||
-    normalizedRole === 'SUPER_ADMIN'
-  ) {
-    return [
-      {
-        id: 'legal_under_review',
-        label: 'Legal Under Review',
-        statusFilter: 'UNDER_REVIEW',
-        dateBasis: 'hod_approved_at',
-        datePreset: '',
-      },
-      {
-        id: 'legal_pending_external',
-        label: 'Legal Pending External',
-        statusFilter: 'PENDING_WITH_EXTERNAL_STAKEHOLDERS',
-        dateBasis: 'request_created_at',
-        datePreset: '',
-      },
-      {
-        id: 'legal_on_hold',
-        label: 'Legal On Hold',
-        statusFilter: 'ON_HOLD',
-        dateBasis: 'request_created_at',
-        datePreset: '',
-      },
-    ]
-  }
-
-  return [
-    {
-      id: 'default_all',
-      label: 'All Contracts',
-      statusFilter: '',
-      dateBasis: 'request_created_at',
-      datePreset: '',
-    },
-  ]
-}
 
 function getDaysInStatus(updatedAt?: string): number | null {
   if (!updatedAt) {
@@ -283,22 +220,15 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     normalizedRole === 'LEGAL_ADMIN' ||
     normalizedRole === 'ADMIN' ||
     normalizedRole === 'SUPER_ADMIN'
-  // savedViews must be declared here — before the filter useState calls — so
-  // their lazy initialisers can read savedViews[0] on the very first render.
-  // Previously this lived near activeSavedViewId and a post-mount useEffect
-  // applied the default view, which caused statusFilter to change after mount
-  // and triggered a duplicate loadContractsAndReport call on every page load.
-  const savedViews = useMemo(() => resolveSavedViews(session.role), [session.role])
 
   const [contracts, setContracts] = useState<ContractRecord[]>([])
+  const [optimisticContracts, setOptimisticContracts] = useOptimistic<ContractRecord[]>(contracts)
   const [isLoading, setIsLoading] = useState(true)
   const [search, setSearch] = useState('')
   const debouncedSearch = useDebouncedValue(search, 400)
-  const [statusFilter, setStatusFilter] = useState<RepositoryStatusFilter | ''>(() => savedViews[0]?.statusFilter ?? '')
-  const [dateBasis, setDateBasis] = useState<RepositoryDateBasis>(
-    () => savedViews[0]?.dateBasis ?? 'request_created_at'
-  )
-  const [datePreset, setDatePreset] = useState<RepositoryDatePreset | ''>(() => savedViews[0]?.datePreset ?? '')
+  const [statusFilter, setStatusFilter] = useState<RepositoryStatusFilter | ''>('')
+  const [dateBasis, setDateBasis] = useState<RepositoryDateBasis>('request_created_at')
+  const [datePreset, setDatePreset] = useState<RepositoryDatePreset | ''>('')
   const [customFromDate, setCustomFromDate] = useState('')
   const [customToDate, setCustomToDate] = useState('')
   const [sorting, setSorting] = useState<SortingState>([{ id: 'requestDate', desc: true }])
@@ -334,7 +264,6 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
   const tableWrapRef = useRef<HTMLElement | null>(null)
   const tableAutoScrollFrameRef = useRef<number | null>(null)
   const tableAutoScrollVelocityRef = useRef(0)
-  const [activeSavedViewId, setActiveSavedViewId] = useState<string>(() => savedViews[0]?.id ?? 'custom')
 
   const stopTableAutoScroll = useCallback(() => {
     tableAutoScrollVelocityRef.current = 0
@@ -493,39 +422,15 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     setCursorHistory([undefined])
   }, [customFromDate, customToDate, dateBasis, datePreset, debouncedSearch, statusFilter, sortBy, sortDirection])
 
-  const handleSavedViewChange = (viewId: string) => {
-    if (viewId === 'custom') {
-      setActiveSavedViewId('custom')
-      return
-    }
-
-    const selectedView = savedViews.find((view) => view.id === viewId)
-    if (!selectedView) {
-      setActiveSavedViewId('custom')
-      return
-    }
-
-    setActiveSavedViewId(selectedView.id)
-    setStatusFilter(selectedView.statusFilter)
-    setDateBasis(selectedView.dateBasis)
-    setDatePreset(selectedView.datePreset)
-    setCustomFromDate('')
-    setCustomToDate('')
-    setSearch('')
-  }
-
   const handleStatusFilterChange = (value: RepositoryStatusFilter | '') => {
-    setActiveSavedViewId('custom')
     setStatusFilter(value)
   }
 
   const handleDateBasisChange = (value: RepositoryDateBasis) => {
-    setActiveSavedViewId('custom')
     setDateBasis(value)
   }
 
   const handleDatePresetChange = (value: RepositoryDatePreset | '') => {
-    setActiveSavedViewId('custom')
     setDatePreset(value)
     if (value !== 'custom') {
       setCustomFromDate('')
@@ -639,6 +544,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
 
       const emailsToAdd = nextEmails.filter((email) => !previousEmails.includes(email))
       const emailsToRemove = previousEmails.filter((email) => !nextEmails.includes(email))
+      const previousContracts = contracts
 
       setAssignmentSavingByContractId((current) => ({ ...current, [contractId]: true }))
       setAssignmentErrorByContractId((current) => {
@@ -646,6 +552,12 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
         delete next[contractId]
         return next
       })
+
+      setOptimisticContracts((current) =>
+        current.map((contract) =>
+          contract.id === contractId ? { ...contract, assignedToUsers: nextEmails } : contract
+        )
+      )
 
       try {
         for (const email of emailsToAdd) {
@@ -677,6 +589,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
         )
         setOpenAssignmentDropdownContractId(contractId)
       } catch (assignmentError) {
+        setOptimisticContracts(previousContracts)
         setAssignmentErrorByContractId((current) => ({
           ...current,
           [contractId]: assignmentError instanceof Error ? assignmentError.message : 'Failed to update assignment',
@@ -701,7 +614,16 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
       {
         accessorKey: 'creator',
         header: 'Creator',
-        cell: ({ row }) => row.original.creatorName ?? row.original.uploadedByEmail ?? '—',
+        cell: ({ row }) => {
+          const creatorName = row.original.creatorName?.trim()
+          const creatorEmail = row.original.uploadedByEmail?.trim()
+
+          if (creatorName && creatorEmail) {
+            return `${creatorName} (${creatorEmail})`
+          }
+
+          return creatorName || creatorEmail || '—'
+        },
       },
       {
         accessorKey: 'department',
@@ -876,6 +798,12 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
           )
         },
       },
+      {
+        accessorKey: 'executedAt',
+        header: 'Executed Date & Time',
+        cell: ({ row }) =>
+          row.original.executedAt ? timestampFormatter.format(new Date(row.original.executedAt)) : '—',
+      },
       ...(isLegalTeamRole
         ? [
             {
@@ -957,7 +885,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
   }
 
   const table = useReactTable({
-    data: contracts,
+    data: optimisticContracts,
     columns,
     state: { sorting },
     onSortingChange: (updater) => {
@@ -996,22 +924,9 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
                 placeholder="Search by contract name"
                 value={search}
                 onChange={(event) => {
-                  setActiveSavedViewId('custom')
                   setSearch(event.target.value)
                 }}
               />
-              <select
-                className={styles.statusSelect}
-                value={activeSavedViewId}
-                onChange={(event) => handleSavedViewChange(event.target.value)}
-              >
-                {savedViews.map((view) => (
-                  <option key={view.id} value={view.id}>
-                    {view.label}
-                  </option>
-                ))}
-                <option value="custom">Custom View</option>
-              </select>
               <select
                 className={styles.statusSelect}
                 value={statusFilter}
@@ -1053,19 +968,13 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
                     type="date"
                     className={styles.searchInput}
                     value={customFromDate}
-                    onChange={(event) => {
-                      setActiveSavedViewId('custom')
-                      setCustomFromDate(event.target.value)
-                    }}
+                    onChange={(event) => setCustomFromDate(event.target.value)}
                   />
                   <input
                     type="date"
                     className={styles.searchInput}
                     value={customToDate}
-                    onChange={(event) => {
-                      setActiveSavedViewId('custom')
-                      setCustomToDate(event.target.value)
-                    }}
+                    onChange={(event) => setCustomToDate(event.target.value)}
                   />
                 </>
               ) : null}

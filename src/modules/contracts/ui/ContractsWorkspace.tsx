@@ -11,10 +11,12 @@ import {
   type ContractDocument,
   type ContractDetailResponse,
   type ContractRecord,
+  type ContractSigningPreparationDraft,
   type ContractTimelineEvent,
 } from '@/core/client/contracts-client'
 import { publicConfig } from '@/core/config/public-config'
 import {
+  getContractSignatoryRecipientTypeLabel,
   contractDocumentKinds,
   contractLegalAssignmentEditableStatuses,
   contractStatuses,
@@ -36,6 +38,26 @@ const PrepareForSigningModal = dynamic(() => import('@/modules/contracts/ui/Prep
 const htmlPreviewExtensions = new Set(['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'csv', 'tsv', 'txt'])
 const defaultDomain = publicConfig.auth.allowedDomains[0] ?? 'example.com'
 const collaboratorEmailPlaceholder = `legalmember@${defaultDomain}`
+const defaultPrepareForSigningRecipients = [
+  {
+    name: 'Rahul Attuluri',
+    email: 'rahul@nxtwave.tech',
+    recipientType: 'INTERNAL' as const,
+    routingOrder: 1,
+  },
+  {
+    name: 'Anupam Pedarla',
+    email: 'anupam@nxtwave.tech',
+    recipientType: 'INTERNAL' as const,
+    routingOrder: 1,
+  },
+  {
+    name: 'Sashank Reddy Gujjula',
+    email: 'sashank@nxtwave.tech',
+    recipientType: 'INTERNAL' as const,
+    routingOrder: 1,
+  },
+]
 
 const resolveFileExtension = (fileName: string): string => {
   const normalizedName = fileName.trim().toLowerCase()
@@ -46,6 +68,63 @@ const resolveFileExtension = (fileName: string): string => {
   }
 
   return normalizedName.slice(lastDotIndex + 1)
+}
+
+const copyTextToClipboard = async (value: string): Promise<boolean> => {
+  const text = value.trim()
+  if (!text) {
+    return false
+  }
+
+  if (typeof navigator !== 'undefined' && typeof navigator.clipboard?.writeText === 'function') {
+    try {
+      await navigator.clipboard.writeText(text)
+      return true
+    } catch {
+      // Fallback for browsers/contexts that block Clipboard API (Safari, permission-restricted windows).
+    }
+  }
+
+  if (typeof document === 'undefined') {
+    return false
+  }
+
+  const textArea = document.createElement('textarea')
+  textArea.value = text
+  textArea.setAttribute('readonly', 'true')
+  textArea.style.position = 'fixed'
+  textArea.style.top = '0'
+  textArea.style.left = '-9999px'
+  textArea.style.opacity = '0'
+  document.body.appendChild(textArea)
+
+  const selection = document.getSelection()
+  const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null
+  const originalRange = selection && selection.rangeCount > 0 ? selection.getRangeAt(0).cloneRange() : null
+
+  textArea.focus()
+  textArea.select()
+  textArea.setSelectionRange(0, textArea.value.length)
+
+  let copied = false
+  try {
+    copied = document.execCommand('copy')
+  } catch {
+    copied = false
+  } finally {
+    document.body.removeChild(textArea)
+
+    if (selection) {
+      selection.removeAllRanges()
+      if (originalRange) {
+        selection.addRange(originalRange)
+      }
+    }
+
+    activeElement?.focus()
+  }
+
+  return copied
 }
 
 type ContractsWorkspaceProps = {
@@ -74,6 +153,9 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const [legalCollaborators, setLegalCollaborators] = useState<ContractDetailResponse['legalCollaborators']>([])
   const [signatories, setSignatories] = useState<ContractDetailResponse['signatories']>([])
   const [counterparties, setCounterparties] = useState<ContractDetailResponse['counterparties']>([])
+  const [signingDraftRecipients, setSigningDraftRecipients] = useState<ContractSigningPreparationDraft['recipients']>(
+    []
+  )
   const [documents, setDocuments] = useState<ContractDocument[]>([])
   const [noteText, setNoteText] = useState('')
   const [approverEmail, setApproverEmail] = useState('')
@@ -88,6 +170,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const [generatedSigningLinksByEmail, setGeneratedSigningLinksByEmail] = useState<Record<string, string>>({})
   const [isDownloadingFinalSignedDoc, setIsDownloadingFinalSignedDoc] = useState(false)
   const [isDownloadingCompletionCertificate, setIsDownloadingCompletionCertificate] = useState(false)
+  const [isDownloadingMergedArtifact, setIsDownloadingMergedArtifact] = useState(false)
   const [activeTab, setActiveTab] = useState<TabId>('overview')
   const [isActivityComposerOpen, setIsActivityComposerOpen] = useState(false)
   const [isSubmittingActivity, setIsSubmittingActivity] = useState(false)
@@ -117,10 +200,17 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const [hasMore, setHasMore] = useState(false)
   const [isLoadingMore, setIsLoadingMore] = useState(false)
   const [totalContracts, setTotalContracts] = useState(0)
+  const [isSigningSendProcessingByContractId, setIsSigningSendProcessingByContractId] = useState<
+    Record<string, boolean>
+  >({})
   const knownContractStatusesRef = useRef<Map<string, ContractRecord['status']>>(new Map())
   const executedCelebratedContractIdsRef = useRef<Set<string>>(new Set())
   const pendingCompletedCelebrationContractIdRef = useRef<string | null>(null)
   const copiedSigningLinkResetTimerRef = useRef<number | null>(null)
+  const selectedContractIdRef = useRef<string | null>(selectedContractId)
+  const signingSendPollingIntervalByContractIdRef = useRef<Record<string, number>>({})
+  const signingSendPollingInFlightByContractIdRef = useRef<Record<string, boolean>>({})
+  const signingSendPollingDeadlineByContractIdRef = useRef<Record<string, number>>({})
   const [error, setError] = useState<string | null>(null)
   const canViewSignedDocsTab = session.role === 'LEGAL_TEAM' || session.role === 'ADMIN'
   const tabs = useMemo(
@@ -272,9 +362,10 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
   const loadContractContext = useCallback(
     async (contractId: string) => {
-      const [detailResponse, timelineResponse] = await Promise.all([
+      const [detailResponse, timelineResponse, signingDraftResponse] = await Promise.all([
         contractsClient.detail(contractId),
         contractsClient.timeline(contractId),
+        contractsClient.getSigningPreparationDraft(contractId),
       ])
 
       if (!detailResponse.ok || !detailResponse.data?.contract) {
@@ -288,11 +379,15 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
         setApprovers([])
         setLegalCollaborators([])
         setSignatories([])
+        setSigningDraftRecipients([])
         return
       }
 
       applyContractView(detailResponse.data)
       upsertContractInSidebarList(detailResponse.data.contract)
+      if (signingDraftResponse.ok) {
+        setSigningDraftRecipients(signingDraftResponse.data?.recipients ?? [])
+      }
 
       if (timelineResponse.ok && timelineResponse.data) {
         setTimeline(timelineResponse.data.events)
@@ -328,6 +423,21 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   }, [activeTab, canViewSignedDocsTab])
 
   useEffect(() => {
+    selectedContractIdRef.current = selectedContractId
+  }, [selectedContractId])
+
+  useEffect(() => {
+    return () => {
+      for (const intervalId of Object.values(signingSendPollingIntervalByContractIdRef.current)) {
+        window.clearInterval(intervalId)
+      }
+      signingSendPollingIntervalByContractIdRef.current = {}
+      signingSendPollingInFlightByContractIdRef.current = {}
+      signingSendPollingDeadlineByContractIdRef.current = {}
+    }
+  }, [])
+
+  useEffect(() => {
     setGeneratedSigningLinksByEmail({})
     setCopiedSigningLinkFor(null)
   }, [selectedContractId])
@@ -341,9 +451,10 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
     const loadSelectedContract = async () => {
       setIsContractContextLoading(true)
-      const [detailResponse, timelineResponse] = await Promise.all([
+      const [detailResponse, timelineResponse, signingDraftResponse] = await Promise.all([
         contractsClient.detail(selectedContractId),
         contractsClient.timeline(selectedContractId),
+        contractsClient.getSigningPreparationDraft(selectedContractId),
       ])
 
       if (isCancelled) {
@@ -361,12 +472,16 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
         setApprovers([])
         setLegalCollaborators([])
         setSignatories([])
+        setSigningDraftRecipients([])
         setIsContractContextLoading(false)
         return
       }
 
       applyContractView(detailResponse.data)
       upsertContractInSidebarList(detailResponse.data.contract)
+      if (signingDraftResponse.ok) {
+        setSigningDraftRecipients(signingDraftResponse.data?.recipients ?? [])
+      }
 
       if (timelineResponse.ok && timelineResponse.data) {
         setTimeline(timelineResponse.data.events)
@@ -387,6 +502,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const selectContract = (contractId: string) => {
     setIsContractContextLoading(true)
     setSelectedContractId(contractId)
+    setSigningDraftRecipients([])
     setActiveTab('overview')
     setIsIntakeOpen(false)
     setIsPrepareForSigningOpen(false)
@@ -592,7 +708,11 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   )
 
   const nonLegalStatusActions = useMemo(
-    () => availableActions.filter((actionItem) => !legalStatusActionSet.has(actionItem.action)),
+    () =>
+      availableActions.filter(
+        (actionItem) =>
+          !legalStatusActionSet.has(actionItem.action) && actionItem.action !== contractTransitionActions.hodBypass
+      ),
     [availableActions, legalStatusActionSet]
   )
 
@@ -633,19 +753,57 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     window.open(response.data.signedUrl, '_blank', 'noopener,noreferrer')
   }
 
+  const openDownloadTab = () => {
+    const downloadTab = window.open('', '_blank')
+    if (downloadTab) {
+      downloadTab.opener = null
+    }
+
+    return downloadTab
+  }
+
+  const openUrlInTab = (downloadTab: Window | null, url: string) => {
+    if (downloadTab && !downloadTab.closed) {
+      downloadTab.location.href = url
+      return
+    }
+
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }
+
   const handleDownloadFinalSignedDocument = async () => {
     if (!selectedContractId) {
       return
     }
 
+    const downloadTab = openDownloadTab()
     setIsDownloadingFinalSignedDoc(true)
     const response = await contractsClient.downloadFinalSigningArtifact(selectedContractId, 'signed_document')
     if (!response.ok || !response.data) {
       toast.error(response.error?.message ?? 'Failed to download final signed document')
+      if (downloadTab && !downloadTab.closed) {
+        downloadTab.close()
+      }
       setIsDownloadingFinalSignedDoc(false)
       return
     }
-    triggerBlobDownload(response.data.blob, response.data.fileName)
+
+    if (response.data.signedUrl) {
+      openUrlInTab(downloadTab, response.data.signedUrl)
+      setIsDownloadingFinalSignedDoc(false)
+      return
+    }
+
+    if (!response.data.blob) {
+      toast.error('Failed to download final signed document')
+      if (downloadTab && !downloadTab.closed) {
+        downloadTab.close()
+      }
+      setIsDownloadingFinalSignedDoc(false)
+      return
+    }
+
+    triggerBlobDownload(response.data.blob, response.data.fileName, downloadTab)
     setIsDownloadingFinalSignedDoc(false)
   }
 
@@ -654,15 +812,71 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       return
     }
 
+    const downloadTab = openDownloadTab()
     setIsDownloadingCompletionCertificate(true)
     const response = await contractsClient.downloadFinalSigningArtifact(selectedContractId, 'completion_certificate')
     if (!response.ok || !response.data) {
       toast.error(response.error?.message ?? 'Failed to download completion certificate')
+      if (downloadTab && !downloadTab.closed) {
+        downloadTab.close()
+      }
       setIsDownloadingCompletionCertificate(false)
       return
     }
-    triggerBlobDownload(response.data.blob, response.data.fileName)
+
+    if (response.data.signedUrl) {
+      openUrlInTab(downloadTab, response.data.signedUrl)
+      setIsDownloadingCompletionCertificate(false)
+      return
+    }
+
+    if (!response.data.blob) {
+      toast.error('Failed to download completion certificate')
+      if (downloadTab && !downloadTab.closed) {
+        downloadTab.close()
+      }
+      setIsDownloadingCompletionCertificate(false)
+      return
+    }
+
+    triggerBlobDownload(response.data.blob, response.data.fileName, downloadTab)
     setIsDownloadingCompletionCertificate(false)
+  }
+
+  const handleDownloadMergedSigningArtifact = async () => {
+    if (!selectedContractId) {
+      return
+    }
+
+    const downloadTab = openDownloadTab()
+    setIsDownloadingMergedArtifact(true)
+    const response = await contractsClient.downloadFinalSigningArtifact(selectedContractId, 'merged_pdf')
+    if (!response.ok || !response.data) {
+      toast.error(response.error?.message ?? 'Failed to download merged signed artifact')
+      if (downloadTab && !downloadTab.closed) {
+        downloadTab.close()
+      }
+      setIsDownloadingMergedArtifact(false)
+      return
+    }
+
+    if (response.data.signedUrl) {
+      openUrlInTab(downloadTab, response.data.signedUrl)
+      setIsDownloadingMergedArtifact(false)
+      return
+    }
+
+    if (!response.data.blob) {
+      toast.error('Failed to download merged signed artifact')
+      if (downloadTab && !downloadTab.closed) {
+        downloadTab.close()
+      }
+      setIsDownloadingMergedArtifact(false)
+      return
+    }
+
+    triggerBlobDownload(response.data.blob, response.data.fileName, downloadTab)
+    setIsDownloadingMergedArtifact(false)
   }
 
   const handleViewDocument = async (document?: ContractDocument) => {
@@ -731,17 +945,23 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     setViewerFileName('')
   }, [])
 
-  const triggerBlobDownload = useCallback((blob: Blob, fileName: string) => {
+  const triggerBlobDownload = useCallback((blob: Blob, fileName: string, downloadTab?: Window | null) => {
     const objectUrl = URL.createObjectURL(blob)
-    const anchor = document.createElement('a')
-    anchor.href = objectUrl
-    anchor.download = fileName
-    document.body.appendChild(anchor)
-    anchor.click()
-    anchor.remove()
+
+    if (downloadTab && !downloadTab.closed) {
+      downloadTab.location.href = objectUrl
+    } else {
+      const anchor = document.createElement('a')
+      anchor.href = objectUrl
+      anchor.download = fileName
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+    }
+
     window.setTimeout(() => {
       URL.revokeObjectURL(objectUrl)
-    }, 0)
+    }, 60_000)
   }, [])
 
   useEffect(() => {
@@ -807,44 +1027,39 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     }
 
     if (recipientType !== 'INTERNAL') {
-      setError('Signing link can only be generated for internal recipients')
+      setError('Signing link can only be generated for Nxtwave recipients')
       return
     }
     setIsGeneratingLinkFor(recipientEmail)
     try {
       const normalizedRecipientEmail = recipientEmail.trim().toLowerCase()
       const response = await fetch(
-        `/api/contracts/${selectedContractId}/signatories/link?email=${encodeURIComponent(recipientEmail)}`,
+        `/api/contracts/${selectedContractId}/signatories/link?email=${encodeURIComponent(normalizedRecipientEmail)}`,
         { method: 'GET' }
       )
       const json = await response.json()
       if (!response.ok || !json?.ok || !json.data?.signing_url) {
         throw new Error(json?.error?.message ?? 'Failed to generate signing link')
       }
-      const signingUrl = String(json.data.signing_url)
+      const signingUrl = String(json.data.signing_url).trim()
       setGeneratedSigningLinksByEmail((current) => ({
         ...current,
         [normalizedRecipientEmail]: signingUrl,
       }))
       setError(null)
 
-      if (typeof navigator?.clipboard?.writeText === 'function') {
-        try {
-          await navigator.clipboard.writeText(signingUrl)
-          setCopiedSigningLinkFor(recipientEmail)
-          if (copiedSigningLinkResetTimerRef.current) {
-            window.clearTimeout(copiedSigningLinkResetTimerRef.current)
-          }
-          copiedSigningLinkResetTimerRef.current = window.setTimeout(() => {
-            setCopiedSigningLinkFor((current) => (current === recipientEmail ? null : current))
-          }, 2000)
-        } catch {
-          setCopiedSigningLinkFor(null)
-          setError('Signing link generated. Clipboard copy failed, copy the link shown below.')
+      const copied = await copyTextToClipboard(signingUrl)
+      if (copied) {
+        setCopiedSigningLinkFor(normalizedRecipientEmail)
+        if (copiedSigningLinkResetTimerRef.current) {
+          window.clearTimeout(copiedSigningLinkResetTimerRef.current)
         }
+        copiedSigningLinkResetTimerRef.current = window.setTimeout(() => {
+          setCopiedSigningLinkFor((current) => (current === normalizedRecipientEmail ? null : current))
+        }, 2000)
       } else {
         setCopiedSigningLinkFor(null)
-        setError('Signing link generated. Clipboard is unavailable, copy the link shown below.')
+        setError('Signing link generated. Clipboard copy failed, copy the link shown below.')
       }
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Failed to generate signing link')
@@ -869,27 +1084,46 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     }
   }
 
-  const handleBypassApprover = async (approverId: string, reason: string) => {
+  const handleSkipApprover = async (params: {
+    approverRole: 'HOD' | 'ADDITIONAL'
+    approverId?: string
+    reason: string
+  }) => {
     if (!selectedContractId) {
       throw new Error('No contract selected')
     }
 
+    const trimmedReason = params.reason.trim()
+    if (!trimmedReason) {
+      throw new Error('Skip reason is required')
+    }
+
+    const payload =
+      params.approverRole === 'HOD'
+        ? ({ action: contractTransitionActions.hodBypass, noteText: trimmedReason } as const)
+        : (() => {
+            if (!params.approverId) {
+              throw new Error('Approver ID is required')
+            }
+
+            return {
+              action: 'BYPASS_APPROVAL' as const,
+              approverId: params.approverId,
+              reason: trimmedReason,
+            }
+          })()
+
     setIsMutating(true)
-    const response = await contractsClient.action(selectedContractId, {
-      action: 'BYPASS_APPROVAL',
-      approverId,
-      reason: reason.trim(),
-    })
+    const response = await contractsClient.action(selectedContractId, payload)
     setIsMutating(false)
 
     if (!response.ok || !response.data) {
-      throw new Error(response.error?.message ?? 'Failed to bypass approval')
+      throw new Error(response.error?.message ?? 'Failed to skip approval')
     }
 
     applyContractView(response.data)
     await loadContractContext(selectedContractId)
     await loadContracts()
-    router.refresh()
   }
   const handleAddCollaborator = async () => {
     if (!selectedContractId || !collaboratorEmail.trim() || isAddingCollaborator) {
@@ -1012,7 +1246,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const noteEvents = useMemo(() => timeline.filter((event) => isContractNoteEvent(event)), [timeline])
   const timelineById = useMemo(() => new Map(timeline.map((event) => [event.id, event])), [timeline])
   const selectedCurrentDocumentId = selectedContract?.currentDocumentId
-  const signingPreviewDocumentId = useMemo(() => {
+  const signingPreviewDocument = useMemo(() => {
     const primaryDocuments = documents.filter((document) => document.documentKind === 'PRIMARY')
     const orderedPrimaryDocuments = [...primaryDocuments].sort(
       (first, second) => (second.versionNumber ?? 0) - (first.versionNumber ?? 0)
@@ -1024,34 +1258,27 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     if (selectedCurrentDocumentId) {
       const currentDocument = primaryDocuments.find((document) => document.id === selectedCurrentDocumentId)
       if (currentDocument && isPdfDocument(currentDocument)) {
-        return currentDocument.id
+        return currentDocument
       }
     }
 
     const latestPrimaryPdf = orderedPrimaryDocuments.find(isPdfDocument)
     if (latestPrimaryPdf) {
-      return latestPrimaryPdf.id
+      return latestPrimaryPdf
     }
 
-    if (selectedCurrentDocumentId) {
-      const currentDocument = primaryDocuments.find((document) => document.id === selectedCurrentDocumentId)
-      if (currentDocument) {
-        return currentDocument.id
-      }
-    }
-
-    return orderedPrimaryDocuments[0]?.id ?? documents[0]?.id
+    return null
   }, [documents, selectedCurrentDocumentId])
   const signingPreviewUrl = useMemo(() => {
-    if (!selectedContractId) {
+    if (!selectedContractId || !signingPreviewDocument?.id) {
       return ''
     }
 
     return contractsClient.previewUrl(selectedContractId, {
-      documentId: signingPreviewDocumentId,
+      documentId: signingPreviewDocument.id,
       renderAs: 'binary',
     })
-  }, [selectedContractId, signingPreviewDocumentId])
+  }, [selectedContractId, signingPreviewDocument?.id])
   const formattedLogs = useMemo(() => {
     if (activeTab !== 'activity') {
       return []
@@ -1076,6 +1303,165 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       }),
     [signatories]
   )
+  const intakeCounterparties = useMemo(() => {
+    type IntakeCounterparty = {
+      counterpartyName: string
+      backgroundOfRequest: string
+      budgetApproved: boolean | null
+      signatories: Array<{
+        name: string
+        designation: string
+        email: string
+      }>
+    }
+
+    const externalDraftRecipients = [...signingDraftRecipients]
+      .filter((recipient) => recipient.recipientType === 'EXTERNAL')
+      .sort((left, right) => {
+        if (left.routingOrder !== right.routingOrder) {
+          return left.routingOrder - right.routingOrder
+        }
+        return left.email.localeCompare(right.email)
+      })
+      .map((recipient) => ({
+        name: recipient.name.trim(),
+        designation: recipient.designation?.trim() ?? '',
+        email: recipient.email.trim(),
+        counterpartyId: recipient.counterpartyId?.trim() ?? '',
+        counterpartyName: recipient.counterpartyName?.trim() ?? '',
+        backgroundOfRequest: recipient.backgroundOfRequest?.trim() ?? '',
+        budgetApproved: typeof recipient.budgetApproved === 'boolean' ? recipient.budgetApproved : null,
+      }))
+
+    const normalizeCounterpartyKey = (value?: string | null) => (value ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
+
+    const normalizedCounterparties = counterparties
+      .map((counterparty) => ({
+        id: counterparty.id.trim(),
+        name: counterparty.counterpartyName?.trim() ?? '',
+      }))
+      .filter((counterparty) => counterparty.name.length > 0)
+
+    if (normalizedCounterparties.length === 0) {
+      return [] as IntakeCounterparty[]
+    }
+
+    const signatoriesByCounterparty = normalizedCounterparties.map(
+      () =>
+        [] as Array<{
+          name: string
+          designation: string
+          email: string
+          backgroundOfRequest: string
+          budgetApproved: boolean | null
+        }>
+    )
+    const unmatchedSignatories: Array<{
+      name: string
+      designation: string
+      email: string
+      backgroundOfRequest: string
+      budgetApproved: boolean | null
+    }> = []
+
+    const counterpartyIndexById = new Map<string, number>()
+    normalizedCounterparties.forEach((counterparty, index) => {
+      if (counterparty.id) {
+        counterpartyIndexById.set(counterparty.id, index)
+      }
+    })
+    const normalizedCounterpartyNameByIndex = normalizedCounterparties.map((counterparty) =>
+      normalizeCounterpartyKey(counterparty.name)
+    )
+    for (const signatory of externalDraftRecipients) {
+      const normalizedSignatoryCounterpartyId = signatory.counterpartyId.trim()
+      if (normalizedSignatoryCounterpartyId) {
+        const mappedIndexById = counterpartyIndexById.get(normalizedSignatoryCounterpartyId)
+        if (typeof mappedIndexById === 'number') {
+          signatoriesByCounterparty[mappedIndexById]?.push(signatory)
+          continue
+        }
+      }
+      const normalizedSignatoryCounterpartyName = normalizeCounterpartyKey(signatory.counterpartyName)
+      const matchedCounterpartyIndex = normalizedSignatoryCounterpartyName
+        ? normalizedCounterpartyNameByIndex.findIndex(
+            (counterpartyName) => counterpartyName === normalizedSignatoryCounterpartyName
+          )
+        : -1
+      if (matchedCounterpartyIndex === -1) {
+        unmatchedSignatories.push(signatory)
+        continue
+      }
+      signatoriesByCounterparty[matchedCounterpartyIndex]?.push(signatory)
+    }
+
+    for (const signatory of unmatchedSignatories) {
+      const targetCounterpartyIndex = signatoriesByCounterparty.reduce((bestIndex, currentBucket, currentIndex) => {
+        const bestBucketSize = signatoriesByCounterparty[bestIndex]?.length ?? 0
+        if (currentBucket.length < bestBucketSize) {
+          return currentIndex
+        }
+        return bestIndex
+      }, 0)
+      signatoriesByCounterparty[targetCounterpartyIndex]?.push(signatory)
+    }
+
+    return normalizedCounterparties.map((counterparty, index) => {
+      const mappedSignatories = signatoriesByCounterparty[index] ?? []
+      const fallbackPrimarySignatory =
+        index === 0
+          ? {
+              name: selectedContract?.signatoryName?.trim() ?? '',
+              designation: selectedContract?.signatoryDesignation?.trim() ?? '',
+              email: selectedContract?.signatoryEmail?.trim() ?? '',
+              backgroundOfRequest: selectedContract?.backgroundOfRequest?.trim() ?? '',
+              budgetApproved:
+                typeof selectedContract?.budgetApproved === 'boolean' ? selectedContract.budgetApproved : null,
+            }
+          : null
+      const hasFallbackPrimarySignatory = Boolean(
+        fallbackPrimarySignatory &&
+        (fallbackPrimarySignatory.name ||
+          fallbackPrimarySignatory.designation ||
+          fallbackPrimarySignatory.email ||
+          fallbackPrimarySignatory.backgroundOfRequest ||
+          fallbackPrimarySignatory.budgetApproved !== null)
+      )
+      const normalizedMappedSignatories =
+        mappedSignatories.length > 0
+          ? mappedSignatories.map((signatory, signatoryIndex) => {
+              if (signatoryIndex !== 0 || !hasFallbackPrimarySignatory || !fallbackPrimarySignatory) {
+                return signatory
+              }
+
+              return {
+                ...signatory,
+                name: signatory.name || fallbackPrimarySignatory.name,
+                designation: signatory.designation || fallbackPrimarySignatory.designation,
+                email: signatory.email || fallbackPrimarySignatory.email,
+                backgroundOfRequest: signatory.backgroundOfRequest || fallbackPrimarySignatory.backgroundOfRequest,
+                budgetApproved:
+                  typeof signatory.budgetApproved === 'boolean'
+                    ? signatory.budgetApproved
+                    : fallbackPrimarySignatory.budgetApproved,
+              }
+            })
+          : hasFallbackPrimarySignatory && fallbackPrimarySignatory
+            ? [fallbackPrimarySignatory]
+            : []
+
+      return {
+        counterpartyName: counterparty.name,
+        backgroundOfRequest: normalizedMappedSignatories[0]?.backgroundOfRequest ?? '',
+        budgetApproved: normalizedMappedSignatories[0]?.budgetApproved ?? null,
+        signatories: normalizedMappedSignatories.map((signatory) => ({
+          name: signatory.name,
+          designation: signatory.designation,
+          email: signatory.email,
+        })),
+      }
+    })
+  }, [counterparties, selectedContract, signingDraftRecipients])
   const allSignatoriesSigned = useMemo(
     () => orderedSignatories.length > 0 && orderedSignatories.every((signatory) => signatory.status === 'SIGNED'),
     [orderedSignatories]
@@ -1229,15 +1615,152 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     router.push('/repository')
   }
 
-  const handleSigningPrepared = async (contractView: ContractDetailResponse) => {
-    applyContractView(contractView)
-    setIsPrepareForSigningOpen(false)
-    if (contractView.contract.id === selectedContractId) {
-      await loadContractContext(selectedContractId)
+  const clearSigningSendPolling = useCallback((contractId: string) => {
+    const intervalId = signingSendPollingIntervalByContractIdRef.current[contractId]
+    if (typeof intervalId === 'number') {
+      window.clearInterval(intervalId)
     }
-    await loadContracts()
-    router.refresh()
-  }
+    delete signingSendPollingIntervalByContractIdRef.current[contractId]
+    delete signingSendPollingInFlightByContractIdRef.current[contractId]
+    delete signingSendPollingDeadlineByContractIdRef.current[contractId]
+  }, [])
+
+  const updateSigningSendProcessing = useCallback((contractId: string, isProcessing: boolean) => {
+    setIsSigningSendProcessingByContractId((current) => {
+      if (!isProcessing && !current[contractId]) {
+        return current
+      }
+
+      const next = { ...current }
+      if (isProcessing) {
+        next[contractId] = true
+      } else {
+        delete next[contractId]
+      }
+      return next
+    })
+  }, [])
+
+  const startSigningSendPolling = useCallback(
+    (contractId: string) => {
+      clearSigningSendPolling(contractId)
+      signingSendPollingDeadlineByContractIdRef.current[contractId] = Date.now() + 2 * 60 * 1000
+
+      const poll = async () => {
+        if (signingSendPollingInFlightByContractIdRef.current[contractId]) {
+          return
+        }
+
+        signingSendPollingInFlightByContractIdRef.current[contractId] = true
+        try {
+          const detailResponse = await contractsClient.detail(contractId)
+          if (!detailResponse.ok || !detailResponse.data?.contract) {
+            return
+          }
+
+          const contractView = detailResponse.data
+          upsertContractInSidebarList(contractView.contract)
+
+          if (selectedContractIdRef.current === contractId) {
+            applyContractView(contractView)
+          }
+
+          const normalizedStatus = (contractView.contract.status ?? '').toUpperCase()
+          const hasExitedPrepareForSigningStatus =
+            normalizedStatus !== contractStatuses.underReview && normalizedStatus !== contractStatuses.completed
+
+          if (hasExitedPrepareForSigningStatus) {
+            clearSigningSendPolling(contractId)
+            updateSigningSendProcessing(contractId, false)
+
+            if (selectedContractIdRef.current === contractId) {
+              await loadContractContext(contractId)
+            }
+            await loadContracts()
+            router.refresh()
+          }
+        } finally {
+          signingSendPollingInFlightByContractIdRef.current[contractId] = false
+        }
+
+        const deadline = signingSendPollingDeadlineByContractIdRef.current[contractId]
+        if (typeof deadline === 'number' && Date.now() > deadline) {
+          clearSigningSendPolling(contractId)
+          updateSigningSendProcessing(contractId, false)
+          toast.error('Failed to confirm signing request. Please try Prepare for Signing again.')
+        }
+      }
+
+      void poll()
+      signingSendPollingIntervalByContractIdRef.current[contractId] = window.setInterval(() => {
+        void poll()
+      }, 2000)
+    },
+    [
+      applyContractView,
+      clearSigningSendPolling,
+      loadContractContext,
+      loadContracts,
+      router,
+      updateSigningSendProcessing,
+      upsertContractInSidebarList,
+    ]
+  )
+
+  const handleSigningReviewSendRequested = useCallback(
+    (contractId: string, draftPayload: Parameters<typeof contractsClient.saveSigningPreparationDraft>[1]) => {
+      if (isSigningSendProcessingByContractId[contractId]) {
+        return
+      }
+
+      setIsPrepareForSigningOpen(false)
+      setActiveTab('overview')
+      updateSigningSendProcessing(contractId, true)
+      startSigningSendPolling(contractId)
+
+      void (async () => {
+        try {
+          const draftSaveResponse = await contractsClient.saveSigningPreparationDraft(contractId, draftPayload)
+          if (!draftSaveResponse.ok) {
+            throw new Error(draftSaveResponse.error?.message ?? 'Failed to save draft before sending')
+          }
+
+          const sendResponse = await contractsClient.sendSigningPreparationDraft(contractId)
+          if (!sendResponse.ok || !sendResponse.data?.contractView) {
+            throw new Error(sendResponse.error?.message ?? 'Failed to send for signing')
+          }
+
+          const contractView = sendResponse.data.contractView
+          upsertContractInSidebarList(contractView.contract)
+          if (selectedContractIdRef.current === contractId) {
+            applyContractView(contractView)
+          }
+        } catch (error) {
+          clearSigningSendPolling(contractId)
+          updateSigningSendProcessing(contractId, false)
+          const errorMessage = error instanceof Error ? error.message : 'Failed to send for signing'
+          toast.error(errorMessage)
+
+          if (selectedContractIdRef.current === contractId) {
+            await loadContractContext(contractId)
+          }
+          await loadContracts()
+        }
+      })()
+    },
+    [
+      applyContractView,
+      clearSigningSendPolling,
+      isSigningSendProcessingByContractId,
+      loadContractContext,
+      loadContracts,
+      startSigningSendPolling,
+      updateSigningSendProcessing,
+      upsertContractInSidebarList,
+    ]
+  )
+
+  const isSigningSendProcessing = Boolean(selectedContractId && isSigningSendProcessingByContractId[selectedContractId])
 
   return (
     <div className={`${styles.layout} ${!isSidebarOpen ? styles.layoutCollapsed : ''}`}>
@@ -1602,24 +2125,69 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                         </button>
                         {isIntakeOpen ? (
                           <div id="intake-details-panel" className={styles.accordionBody}>
-                            <div className={styles.row}>
-                              <span>Counterparty Signatory Name</span>
-                              <span>{selectedContract.signatoryName ?? '—'}</span>
-                            </div>
-                            <div className={styles.row}>
-                              <span>Counterparty Signatory Designation</span>
-                              <span>{selectedContract.signatoryDesignation ?? '—'}</span>
-                            </div>
-                            <div className={styles.row}>
-                              <span>Counterparty Signatory Email</span>
-                              <span>{selectedContract.signatoryEmail ?? '—'}</span>
-                            </div>
-                            <div className={styles.row}>
-                              <span>Background</span>
-                              <span className={styles.multilineValue}>
-                                {selectedContract.backgroundOfRequest ?? '—'}
-                              </span>
-                            </div>
+                            {intakeCounterparties.length === 0 ? (
+                              <div className={styles.row}>
+                                <span>Counterparties</span>
+                                <span>—</span>
+                              </div>
+                            ) : (
+                              intakeCounterparties.map((counterparty, counterpartyIndex) => (
+                                <div key={`${counterparty.counterpartyName}-${counterpartyIndex}`}>
+                                  <div className={styles.row}>
+                                    <span>Counterparty {counterpartyIndex + 1}</span>
+                                    <span>{counterparty.counterpartyName}</span>
+                                  </div>
+                                  {counterparty.signatories.length === 0 ? (
+                                    <div className={styles.row}>
+                                      <span>Signatories</span>
+                                      <span>—</span>
+                                    </div>
+                                  ) : (
+                                    counterparty.signatories.map((signatory, signatoryIndex) => (
+                                      <div
+                                        key={`${counterparty.counterpartyName}-${counterpartyIndex}-signatory-${signatoryIndex}`}
+                                      >
+                                        <div className={styles.row}>
+                                          <span>
+                                            Counterparty {counterpartyIndex + 1} Signatory {signatoryIndex + 1} Name
+                                          </span>
+                                          <span>{signatory.name || '—'}</span>
+                                        </div>
+                                        <div className={styles.row}>
+                                          <span>
+                                            Counterparty {counterpartyIndex + 1} Signatory {signatoryIndex + 1}{' '}
+                                            Designation
+                                          </span>
+                                          <span>{signatory.designation || '—'}</span>
+                                        </div>
+                                        <div className={styles.row}>
+                                          <span>
+                                            Counterparty {counterpartyIndex + 1} Signatory {signatoryIndex + 1} Email
+                                          </span>
+                                          <span>{signatory.email || '—'}</span>
+                                        </div>
+                                      </div>
+                                    ))
+                                  )}
+                                  <div className={styles.row}>
+                                    <span>Counterparty {counterpartyIndex + 1} Background</span>
+                                    <span className={styles.multilineValue}>
+                                      {counterparty.backgroundOfRequest || '—'}
+                                    </span>
+                                  </div>
+                                  <div className={styles.row}>
+                                    <span>Counterparty {counterpartyIndex + 1} Budget Approved</span>
+                                    <span>
+                                      {counterparty.budgetApproved === null
+                                        ? '—'
+                                        : counterparty.budgetApproved
+                                          ? 'Yes'
+                                          : 'No'}
+                                    </span>
+                                  </div>
+                                </div>
+                              ))
+                            )}
                           </div>
                         ) : null}
                       </div>
@@ -1672,20 +2240,36 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                         <>
                           <div className={styles.card}>
                             <div className={styles.sectionTitle}>Signatories</div>
-                            {selectedContract.status === contractStatuses.completed ? (
+                            {([contractStatuses.underReview, contractStatuses.completed] as string[]).includes(
+                              selectedContract.status
+                            ) ? (
                               <div className={styles.inlineForm}>
                                 <button
                                   type="button"
                                   className={styles.button}
-                                  disabled={!selectedContractId}
+                                  disabled={!selectedContractId || !signingPreviewDocument || isSigningSendProcessing}
                                   onClick={() => setIsPrepareForSigningOpen(true)}
                                 >
-                                  Prepare for Signing
+                                  {isSigningSendProcessing ? 'Processing…' : 'Prepare for Signing'}
                                 </button>
                               </div>
                             ) : (
-                              <div className={styles.eventMeta}>Sign is available only after COMPLETED.</div>
+                              <div className={styles.eventMeta}>
+                                Sign is available only in UNDER REVIEW or COMPLETED.
+                              </div>
                             )}
+                            {isSigningSendProcessing ? (
+                              <div className={styles.eventMeta}>
+                                Signing request is processing in background. This section updates automatically.
+                              </div>
+                            ) : null}
+                            {([contractStatuses.underReview, contractStatuses.completed] as string[]).includes(
+                              selectedContract.status
+                            ) && !signingPreviewDocument ? (
+                              <div className={styles.eventMeta}>
+                                Prepare for Signing requires a PDF primary document.
+                              </div>
+                            ) : null}
                             <div className={styles.timeline}>
                               {signatories.map((signatory) => {
                                 const generatedSigningLink =
@@ -1695,7 +2279,8 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                                   <div key={signatory.id} className={styles.event}>
                                     <div className={styles.signatoryHeader}>
                                       <div>
-                                        {signatory.signatoryEmail} · {signatory.recipientType} · Step{' '}
+                                        {signatory.signatoryEmail} ·{' '}
+                                        {getContractSignatoryRecipientTypeLabel(signatory.recipientType)} · Step{' '}
                                         {signatory.routingOrder}
                                       </div>
                                       <span
@@ -1723,12 +2308,12 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                                         >
                                           {isGeneratingLinkFor === signatory.signatoryEmail
                                             ? 'Generating link...'
-                                            : copiedSigningLinkFor === signatory.signatoryEmail
+                                            : copiedSigningLinkFor === signatory.signatoryEmail.trim().toLowerCase()
                                               ? 'Copied'
                                               : 'Copy Signing Link'}
                                         </button>
                                         <span className={styles.signatoryActionHint}>
-                                          {copiedSigningLinkFor === signatory.signatoryEmail
+                                          {copiedSigningLinkFor === signatory.signatoryEmail.trim().toLowerCase()
                                             ? 'Copied to clipboard'
                                             : 'Generates fresh secure link'}
                                         </span>
@@ -1746,7 +2331,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                                       </div>
                                     ) : (
                                       <div className={styles.signatoryActionHint}>
-                                        Signing link available for internal users.
+                                        Signing link available for Nxtwave users.
                                       </div>
                                     )}
                                   </div>
@@ -1916,12 +2501,15 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                       approvers={approvers}
                       isMutating={isMutating}
                       canManageApprovals={session.role === 'LEGAL_TEAM' || session.role === 'ADMIN'}
-                      canBypassApprovals={session.role === 'LEGAL_TEAM' || session.role === 'ADMIN'}
+                      canSkipApprovals={session.role === 'LEGAL_TEAM' || session.role === 'ADMIN'}
                       approverEmail={approverEmail}
                       onApproverEmailChange={setApproverEmail}
                       onAddApprover={handleAddApprover}
                       onRemindApprover={handleRemindApprover}
-                      onBypassApprover={handleBypassApprover}
+                      onSkipApprover={handleSkipApprover}
+                      onSkipRefresh={() => {
+                        router.refresh()
+                      }}
                     />
                   )}
 
@@ -1939,6 +2527,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                                 disabled={
                                   isDownloadingFinalSignedDoc ||
                                   isDownloadingCompletionCertificate ||
+                                  isDownloadingMergedArtifact ||
                                   !selectedContractId
                                 }
                               >
@@ -1954,14 +2543,31 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                                 disabled={
                                   isDownloadingCompletionCertificate ||
                                   isDownloadingFinalSignedDoc ||
+                                  isDownloadingMergedArtifact ||
                                   !selectedContractId
                                 }
                               >
                                 <span className={styles.buttonContent}>
                                   {isDownloadingCompletionCertificate ? <Spinner size={14} /> : null}
                                   {isDownloadingCompletionCertificate
-                                    ? 'Preparing…'
+                                    ? 'Preparing...'
                                     : 'Download Completion Certificate'}
+                                </span>
+                              </button>
+                              <button
+                                type="button"
+                                className={`${styles.button} ${styles.buttonGhost}`}
+                                onClick={() => void handleDownloadMergedSigningArtifact()}
+                                disabled={
+                                  isDownloadingMergedArtifact ||
+                                  isDownloadingCompletionCertificate ||
+                                  isDownloadingFinalSignedDoc ||
+                                  !selectedContractId
+                                }
+                              >
+                                <span className={styles.buttonContent}>
+                                  {isDownloadingMergedArtifact ? <Spinner size={14} /> : null}
+                                  {isDownloadingMergedArtifact ? 'Preparing...' : 'Download Combined PDF'}
                                 </span>
                               </button>
                             </div>
@@ -1976,7 +2582,8 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                               <div key={signatory.id} className={styles.event}>
                                 <div className={styles.signatoryHeader}>
                                   <div>
-                                    {signatory.signatoryEmail} · {signatory.recipientType} · Step{' '}
+                                    {signatory.signatoryEmail} ·{' '}
+                                    {getContractSignatoryRecipientTypeLabel(signatory.recipientType)} · Step{' '}
                                     {signatory.routingOrder}
                                   </div>
                                   <span
@@ -2138,14 +2745,17 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
         </div>
       ) : null}
 
-      {selectedContractId && selectedContract && signingPreviewUrl ? (
+      {selectedContractId && selectedContract && signingPreviewDocument && signingPreviewUrl ? (
         <PrepareForSigningModal
           isOpen={isPrepareForSigningOpen}
           contractId={selectedContractId}
           contractStatus={selectedContract.status}
           pdfUrl={signingPreviewUrl}
+          initialRecipients={defaultPrepareForSigningRecipients}
           onClose={() => setIsPrepareForSigningOpen(false)}
-          onSent={(contractView) => void handleSigningPrepared(contractView)}
+          onReviewSendRequested={(draftPayload) => {
+            handleSigningReviewSendRequested(selectedContractId, draftPayload)
+          }}
         />
       ) : null}
     </div>

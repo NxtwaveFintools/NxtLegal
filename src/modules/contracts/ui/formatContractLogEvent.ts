@@ -1,5 +1,11 @@
 import type { ContractTimelineEvent } from '@/core/client/contracts-client'
-import { contractStatusLabels, type ContractStatus } from '@/core/constants/contracts'
+import {
+  contractSignatoryRecipientTypes,
+  contractStatusLabels,
+  getContractSignatoryRecipientTypeLabel,
+  type ContractSignatoryRecipientType,
+  type ContractStatus,
+} from '@/core/constants/contracts'
 
 type CanonicalContractLogEventType =
   | 'CONTRACT_CREATED'
@@ -389,11 +395,12 @@ function resolveActorLabel(
   }
 
   if (isSystemActor(event) && isSignatoryCanonicalType(canonicalType)) {
+    const recipientTypeLabel = resolveRecipientTypeLabel(getMetadataString(event.metadata, ['recipient_type']))
     if (recipientEmail) {
-      return `External signer (${recipientEmail})`
+      return `${recipientTypeLabel ?? 'Counter Party'} signer (${recipientEmail})`
     }
 
-    return 'External signer'
+    return `${recipientTypeLabel ?? 'Counter Party'} signer`
   }
 
   return 'System'
@@ -401,6 +408,22 @@ function resolveActorLabel(
 
 function toRecipientSuffix(recipientEmail: string | null): string {
   return recipientEmail ? ` ${recipientEmail}` : ''
+}
+
+function resolveRecipientTypeLabel(recipientType: string | null): string | null {
+  if (!recipientType) {
+    return null
+  }
+
+  const normalizedRecipientType = recipientType.trim().toUpperCase()
+  if (
+    normalizedRecipientType !== contractSignatoryRecipientTypes.internal &&
+    normalizedRecipientType !== contractSignatoryRecipientTypes.external
+  ) {
+    return null
+  }
+
+  return getContractSignatoryRecipientTypeLabel(normalizedRecipientType as ContractSignatoryRecipientType)
 }
 
 function resolveCategory(canonicalType: CanonicalContractLogEventType | null): TimelineEventCategory {
@@ -521,6 +544,19 @@ function resolveLogMessage(
     return explicitOverrideMessage
   }
 
+  // Prefer explicit skip messages for bypassed approvals even when a
+  // status transition is present in metadata. This ensures "Skipped [Role]
+  // Approval for [email]" is shown instead of a generic status change.
+  if (canonicalType === 'HOD_BYPASSED' || canonicalType === 'ADDITIONAL_BYPASSED') {
+    const approverEmailFromMeta = getMetadataString(event.metadata, ['approver_email', 'email', 'recipient_email'])
+    const approverEmail = recipientEmail || approverEmailFromMeta || target || null
+    const approverRole =
+      getMetadataString(event.metadata, ['approver_role', 'role']) ||
+      (canonicalType === 'HOD_BYPASSED' ? 'HOD' : 'Additional Approver')
+
+    return `Skipped ${approverRole} Approval for ${approverEmail ?? 'an approver'}.`
+  }
+
   const transitionMessage = resolveStatusTransitionMessage(event)
   if (transitionMessage) {
     return transitionMessage
@@ -548,8 +584,6 @@ function resolveLogMessage(
       return 'Updated the legal workflow status.'
     case 'LEGAL_VOIDED':
       return 'Marked this contract as Void Documents.'
-    case 'HOD_BYPASSED':
-      return 'Bypassed HOD approval.'
     case 'CONTRACT_REROUTED_TO_HOD':
       return 'Rerouted the contract to HOD.'
     case 'LEGAL_OWNER_SET':
@@ -568,12 +602,11 @@ function resolveLogMessage(
       return 'Approved as additional approver.'
     case 'ADDITIONAL_REJECTED':
       return 'Rejected as additional approver.'
-    case 'ADDITIONAL_BYPASSED':
-      return `Bypassed ${target ?? 'an additional approver'} as additional approver.`
     case 'SIGNATORY_ADDED': {
-      const recipientTypeLabel = recipientType ? `, ${recipientType.toUpperCase()}` : ''
+      const recipientTypeLabel = resolveRecipientTypeLabel(recipientType)
+      const recipientTypeSuffix = recipientTypeLabel ? `, ${recipientTypeLabel}` : ''
       const routingLabel = typeof routingOrder === 'number' ? `, Order #${routingOrder}` : ''
-      return `Added ${target ?? recipientEmail ?? 'a signer'} as signer${recipientTypeLabel}${routingLabel}.`
+      return `Added ${target ?? recipientEmail ?? 'a signer'} as signer${recipientTypeSuffix}${routingLabel}.`
     }
     case 'SIGNATORY_SENT':
       return `Sent the contract for signing${toRecipientSuffix(recipientEmail)}.`
