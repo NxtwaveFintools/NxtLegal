@@ -243,6 +243,7 @@ type ContractSigningPreparationDraft = {
     recipientType: 'INTERNAL' | 'EXTERNAL'
     routingOrder: number
     designation?: string
+    counterpartyId?: string
     counterpartyName?: string
     backgroundOfRequest?: string
     budgetApproved?: boolean
@@ -1118,6 +1119,7 @@ export const contractsClient = {
         recipient_type: 'INTERNAL' | 'EXTERNAL'
         routing_order: number
         designation?: string
+        counterparty_id?: string
         counterparty_name?: string
         background_of_request?: string
         budget_approved?: boolean

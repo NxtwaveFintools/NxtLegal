@@ -1327,14 +1327,20 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
         name: recipient.name.trim(),
         designation: recipient.designation?.trim() ?? '',
         email: recipient.email.trim(),
+        counterpartyId: recipient.counterpartyId?.trim() ?? '',
         counterpartyName: recipient.counterpartyName?.trim() ?? '',
         backgroundOfRequest: recipient.backgroundOfRequest?.trim() ?? '',
         budgetApproved: typeof recipient.budgetApproved === 'boolean' ? recipient.budgetApproved : null,
       }))
 
+    const normalizeCounterpartyKey = (value?: string | null) => (value ?? '').trim().toLowerCase().replace(/\s+/g, ' ')
+
     const normalizedCounterparties = counterparties
-      .map((counterparty) => counterparty.counterpartyName?.trim() ?? '')
-      .filter((counterpartyName) => counterpartyName.length > 0)
+      .map((counterparty) => ({
+        id: counterparty.id.trim(),
+        name: counterparty.counterpartyName?.trim() ?? '',
+      }))
+      .filter((counterparty) => counterparty.name.length > 0)
 
     if (normalizedCounterparties.length === 0) {
       return [] as IntakeCounterparty[]
@@ -1358,15 +1364,30 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       budgetApproved: boolean | null
     }> = []
 
-    const normalizedCounterpartyNameByIndex = normalizedCounterparties.map((name) => name.toLowerCase())
-    for (const signatory of externalDraftRecipients) {
-      if (!signatory.counterpartyName) {
-        unmatchedSignatories.push(signatory)
-        continue
+    const counterpartyIndexById = new Map<string, number>()
+    normalizedCounterparties.forEach((counterparty, index) => {
+      if (counterparty.id) {
+        counterpartyIndexById.set(counterparty.id, index)
       }
-      const matchedCounterpartyIndex = normalizedCounterpartyNameByIndex.findIndex(
-        (counterpartyName) => counterpartyName === signatory.counterpartyName.toLowerCase()
-      )
+    })
+    const normalizedCounterpartyNameByIndex = normalizedCounterparties.map((counterparty) =>
+      normalizeCounterpartyKey(counterparty.name)
+    )
+    for (const signatory of externalDraftRecipients) {
+      const normalizedSignatoryCounterpartyId = signatory.counterpartyId.trim()
+      if (normalizedSignatoryCounterpartyId) {
+        const mappedIndexById = counterpartyIndexById.get(normalizedSignatoryCounterpartyId)
+        if (typeof mappedIndexById === 'number') {
+          signatoriesByCounterparty[mappedIndexById]?.push(signatory)
+          continue
+        }
+      }
+      const normalizedSignatoryCounterpartyName = normalizeCounterpartyKey(signatory.counterpartyName)
+      const matchedCounterpartyIndex = normalizedSignatoryCounterpartyName
+        ? normalizedCounterpartyNameByIndex.findIndex(
+            (counterpartyName) => counterpartyName === normalizedSignatoryCounterpartyName
+          )
+        : -1
       if (matchedCounterpartyIndex === -1) {
         unmatchedSignatories.push(signatory)
         continue
@@ -1374,12 +1395,18 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       signatoriesByCounterparty[matchedCounterpartyIndex]?.push(signatory)
     }
 
-    for (const [index, signatory] of unmatchedSignatories.entries()) {
-      const targetCounterpartyIndex = Math.min(index, signatoriesByCounterparty.length - 1)
+    for (const signatory of unmatchedSignatories) {
+      const targetCounterpartyIndex = signatoriesByCounterparty.reduce((bestIndex, currentBucket, currentIndex) => {
+        const bestBucketSize = signatoriesByCounterparty[bestIndex]?.length ?? 0
+        if (currentBucket.length < bestBucketSize) {
+          return currentIndex
+        }
+        return bestIndex
+      }, 0)
       signatoriesByCounterparty[targetCounterpartyIndex]?.push(signatory)
     }
 
-    return normalizedCounterparties.map((counterpartyName, index) => {
+    return normalizedCounterparties.map((counterparty, index) => {
       const mappedSignatories = signatoriesByCounterparty[index] ?? []
       const fallbackPrimarySignatory =
         index === 0
@@ -1424,7 +1451,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
             : []
 
       return {
-        counterpartyName,
+        counterpartyName: counterparty.name,
         backgroundOfRequest: normalizedMappedSignatories[0]?.backgroundOfRequest ?? '',
         budgetApproved: normalizedMappedSignatories[0]?.budgetApproved ?? null,
         signatories: normalizedMappedSignatories.map((signatory) => ({

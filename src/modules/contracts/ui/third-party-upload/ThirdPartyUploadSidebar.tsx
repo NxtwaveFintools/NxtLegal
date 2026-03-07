@@ -84,7 +84,6 @@ export default function ThirdPartyUploadSidebar({
   const [isDragging, setIsDragging] = useState(false)
   const [contractType, setContractType] = useState('')
   const [counterpartyEntries, setCounterpartyEntries] = useState<CounterpartyEntry[]>([createEmptyCounterpartyEntry()])
-  const [signatoryName, setSignatoryName] = useState('')
   const [departmentId, setDepartmentId] = useState('')
   const [contractTypes, setContractTypes] = useState<ContractTypeOption[]>([])
   const [contractTypesLoaded, setContractTypesLoaded] = useState(false)
@@ -143,7 +142,6 @@ export default function ThirdPartyUploadSidebar({
     setMainFile(null)
     setContractType('')
     setCounterpartyEntries([createEmptyCounterpartyEntry()])
-    setSignatoryName('')
     setDepartmentId('')
     setUploadSuccess(null)
     setIsSubmitting(false)
@@ -207,53 +205,46 @@ export default function ThirdPartyUploadSidebar({
         }))
         .filter((entry) => entry.counterpartyName.length > 0)
 
-      if (isLegalSendForSigningMode) {
-        if (!contractType || !signatoryName.trim() || !effectiveDepartmentId) {
-          toast.error('Please complete the required fields before continuing.')
-          return
+      if (!contractType || normalizedCounterparties.length === 0 || !effectiveDepartmentId) {
+        toast.error('Please complete the required fields before continuing.')
+        return
+      }
+
+      for (const counterparty of normalizedCounterparties) {
+        const isNotApplicableCounterparty =
+          counterparty.counterpartyName.toUpperCase() === contractCounterpartyValues.notApplicable
+        if (isNotApplicableCounterparty) {
+          continue
         }
-      } else {
-        if (!contractType || normalizedCounterparties.length === 0 || !effectiveDepartmentId) {
-          toast.error('Please complete the required fields before continuing.')
+
+        if (!counterparty.backgroundOfRequest) {
+          toast.error(`Please provide background of request for ${counterparty.counterpartyName}.`)
           return
         }
 
-        for (const counterparty of normalizedCounterparties) {
-          const isNotApplicableCounterparty =
-            counterparty.counterpartyName.toUpperCase() === contractCounterpartyValues.notApplicable
-          if (isNotApplicableCounterparty) {
-            continue
-          }
+        if (counterparty.signatories.length === 0) {
+          toast.error(`Please add at least one signatory for ${counterparty.counterpartyName}.`)
+          return
+        }
 
-          if (!counterparty.backgroundOfRequest) {
-            toast.error(`Please provide background of request for ${counterparty.counterpartyName}.`)
+        const seenEmails = new Set<string>()
+        for (const signatory of counterparty.signatories) {
+          if (!signatory.name || !signatory.designation || !signatory.email) {
+            toast.error(`Please complete all signatory details for ${counterparty.counterpartyName}.`)
             return
           }
 
-          if (counterparty.signatories.length === 0) {
-            toast.error(`Please add at least one signatory for ${counterparty.counterpartyName}.`)
+          if (!isValidSignatoryEmail(signatory.email)) {
+            toast.error(`Please enter valid signatory email(s) for ${counterparty.counterpartyName}.`)
             return
           }
 
-          const seenEmails = new Set<string>()
-          for (const signatory of counterparty.signatories) {
-            if (!signatory.name || !signatory.designation || !signatory.email) {
-              toast.error(`Please complete all signatory details for ${counterparty.counterpartyName}.`)
-              return
-            }
-
-            if (!isValidSignatoryEmail(signatory.email)) {
-              toast.error(`Please enter valid signatory email(s) for ${counterparty.counterpartyName}.`)
-              return
-            }
-
-            if (seenEmails.has(signatory.email)) {
-              toast.error(`Signatory emails must be unique for ${counterparty.counterpartyName}.`)
-              return
-            }
-
-            seenEmails.add(signatory.email)
+          if (seenEmails.has(signatory.email)) {
+            toast.error(`Signatory emails must be unique for ${counterparty.counterpartyName}.`)
+            return
           }
+
+          seenEmails.add(signatory.email)
         }
       }
 
@@ -327,19 +318,11 @@ export default function ThirdPartyUploadSidebar({
       }))
       .filter((entry) => entry.counterpartyName.length > 0)
 
-    const effectiveCounterparties = isLegalSendForSigningMode
-      ? signatoryName.trim()
-        ? [
-            {
-              counterpartyName: signatoryName.trim(),
-              supportingFiles: [] as File[],
-              backgroundOfRequest: '',
-              budgetApproved: false,
-              signatories: [],
-            },
-          ]
-        : []
-      : normalizedCounterparties
+    const effectiveCounterparties = normalizedCounterparties
+    const primarySignatoryName =
+      effectiveCounterparties[0]?.signatories[0]?.name?.trim() ||
+      effectiveCounterparties[0]?.counterpartyName ||
+      'Counterparty'
 
     const primaryCounterpartyName = effectiveCounterparties[0]?.counterpartyName ?? 'Counterparty'
     const generatedCounterpartySuffix =
@@ -364,7 +347,7 @@ export default function ThirdPartyUploadSidebar({
         contractTypeId: contractType,
         counterpartyName: primaryCounterpartyName,
         counterparties: effectiveCounterparties,
-        signatoryName: signatoryName.trim(),
+        signatoryName: primarySignatoryName,
         departmentId: effectiveDepartmentId,
         uploadMode: mode,
         bypassHodApproval: false,
@@ -584,13 +567,11 @@ export default function ThirdPartyUploadSidebar({
               return next
             })
           }}
-          legalCounterpartyName={signatoryName}
           departmentId={effectiveDepartmentId}
           departments={departments}
           isDepartmentLocked={false}
           bypassHodApproval={bypassHodApproval}
           bypassReason={bypassReason}
-          onLegalCounterpartyNameChange={setSignatoryName}
           onDepartmentIdChange={setDepartmentId}
           onBypassHodApprovalChange={
             isLegalSendForSigningMode
@@ -643,37 +624,21 @@ export default function ThirdPartyUploadSidebar({
           isSendForSigningFlow={isLegalSendForSigningMode}
           mainFileName={mainFile?.name || null}
           contractType={selectedContractTypeName}
-          counterparties={
-            isLegalSendForSigningMode
-              ? signatoryName.trim()
-                ? [
-                    {
-                      counterpartyName: signatoryName.trim(),
-                      supportingCount: 0,
-                      supportingFileNames: [],
-                      backgroundOfRequest: '',
-                      budgetApproved: false,
-                      signatories: [],
-                    },
-                  ]
-                : []
-              : counterpartyEntries
-                  .map((entry) => ({
-                    counterpartyName: entry.counterpartyName.trim(),
-                    supportingCount: entry.supportingFiles.length,
-                    supportingFileNames: entry.supportingFiles.map((file) => file.name),
-                    backgroundOfRequest: entry.backgroundOfRequest.trim(),
-                    budgetApproved: entry.budgetApproved,
-                    signatories: entry.signatories.map((signatory) => ({
-                      name: signatory.name.trim(),
-                      designation: signatory.designation.trim(),
-                      email: signatory.email.trim(),
-                    })),
-                  }))
-                  .filter((entry) => entry.counterpartyName.length > 0)
-          }
+          counterparties={counterpartyEntries
+            .map((entry) => ({
+              counterpartyName: entry.counterpartyName.trim(),
+              supportingCount: isLegalSendForSigningMode ? 0 : entry.supportingFiles.length,
+              supportingFileNames: isLegalSendForSigningMode ? [] : entry.supportingFiles.map((file) => file.name),
+              backgroundOfRequest: entry.backgroundOfRequest.trim(),
+              budgetApproved: entry.budgetApproved,
+              signatories: entry.signatories.map((signatory) => ({
+                name: signatory.name.trim(),
+                designation: signatory.designation.trim(),
+                email: signatory.email.trim(),
+              })),
+            }))
+            .filter((entry) => entry.counterpartyName.length > 0)}
           departmentName={selectedDepartmentName}
-          signatoryName={signatoryName}
           bypassHodApproval={false}
           bypassReason={undefined}
           organizationEntity={ORGANIZATION_ENTITY}

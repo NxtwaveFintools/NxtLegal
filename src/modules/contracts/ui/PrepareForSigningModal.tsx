@@ -19,6 +19,7 @@ type DraftRecipient = {
   recipientType: RecipientType
   routingOrder: number
   designation?: string
+  counterpartyId?: string
   counterpartyName?: string
   backgroundOfRequest?: string
   budgetApproved?: boolean
@@ -69,6 +70,7 @@ type PrepareForSigningModalProps = {
       recipient_type: 'INTERNAL' | 'EXTERNAL'
       routing_order: number
       designation?: string
+      counterparty_id?: string
       counterparty_name?: string
       background_of_request?: string
       budget_approved?: boolean
@@ -161,7 +163,7 @@ export default function PrepareForSigningModal({
   contractId,
   contractStatus,
   pdfUrl,
-  initialRecipients = [],
+  initialRecipients,
   onClose,
   onReviewSendRequested,
 }: PrepareForSigningModalProps) {
@@ -191,10 +193,11 @@ export default function PrepareForSigningModal({
 
   const isLocked = contractStatus === contractStatuses.signing || contractStatus === contractStatuses.pendingExternal
   const canEdit = !isLocked && !isSending
+  const effectiveInitialRecipients = useMemo(() => initialRecipients ?? [], [initialRecipients])
   const normalizedInitialRecipients = useMemo(() => {
     const byEmail = new Map<string, DraftRecipient>()
 
-    for (const recipient of initialRecipients) {
+    for (const recipient of effectiveInitialRecipients) {
       const normalizedEmail = recipient.email.trim().toLowerCase()
       if (!normalizedEmail) {
         continue
@@ -214,7 +217,7 @@ export default function PrepareForSigningModal({
     }
 
     return Array.from(byEmail.values())
-  }, [initialRecipients])
+  }, [effectiveInitialRecipients])
 
   useEffect(() => {
     if (!isSending) {
@@ -271,6 +274,7 @@ export default function PrepareForSigningModal({
           recipientType: recipient.recipientType,
           routingOrder: recipient.routingOrder,
           designation: recipient.designation,
+          counterpartyId: recipient.counterpartyId,
           counterpartyName: recipient.counterpartyName,
           backgroundOfRequest: recipient.backgroundOfRequest,
           budgetApproved: recipient.budgetApproved,
@@ -844,6 +848,7 @@ export default function PrepareForSigningModal({
         recipient_type: recipient.recipientType,
         routing_order: recipient.routingOrder,
         designation: recipient.designation?.trim() || undefined,
+        counterparty_id: recipient.counterpartyId?.trim() || undefined,
         counterparty_name: recipient.counterpartyName?.trim() || undefined,
         background_of_request: recipient.backgroundOfRequest?.trim() || undefined,
         budget_approved: recipient.budgetApproved,
@@ -897,6 +902,7 @@ export default function PrepareForSigningModal({
         recipient_type: recipient.recipientType,
         routing_order: recipient.routingOrder,
         designation: recipient.designation?.trim() || undefined,
+        counterparty_id: recipient.counterpartyId?.trim() || undefined,
         counterparty_name: recipient.counterpartyName?.trim() || undefined,
         background_of_request: recipient.backgroundOfRequest?.trim() || undefined,
         budget_approved: recipient.budgetApproved,

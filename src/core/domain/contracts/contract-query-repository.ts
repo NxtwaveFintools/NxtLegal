@@ -253,6 +253,7 @@ export type ContractSigningPreparationDraftRecipient = {
   recipientType: ContractSignatoryRecipientType
   routingOrder: number
   designation?: string
+  counterpartyId?: string
   counterpartyName?: string
   backgroundOfRequest?: string
   budgetApproved?: boolean

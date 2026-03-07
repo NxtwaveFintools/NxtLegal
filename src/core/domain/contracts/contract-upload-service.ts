@@ -311,11 +311,12 @@ export class ContractUploadService {
         .filter(
           (counterparty) => counterparty.counterpartyName.toUpperCase() !== contractCounterpartyValues.notApplicable
         )
-        .flatMap((counterparty) =>
+        .flatMap((counterparty, counterpartyIndex) =>
           counterparty.signatories.map((signatory) => ({
             name: signatory.name,
             email: signatory.email,
             designation: signatory.designation,
+            counterpartyId: counterpartyIdBySequenceOrder.get(counterpartyIndex + 1),
             counterpartyName: counterparty.counterpartyName,
             backgroundOfRequest: counterparty.backgroundOfRequest,
             budgetApproved: counterparty.budgetApproved,
@@ -328,6 +329,7 @@ export class ContractUploadService {
           name: string
           email: string
           designation?: string
+          counterpartyId?: string
           counterpartyName?: string
           backgroundOfRequest?: string
           budgetApproved?: boolean

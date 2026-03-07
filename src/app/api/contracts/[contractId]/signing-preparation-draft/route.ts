@@ -35,6 +35,7 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
         recipientType: recipient.recipient_type,
         routingOrder: recipient.routing_order,
         designation: recipient.designation,
+        counterpartyId: recipient.counterparty_id,
         counterpartyName: recipient.counterparty_name,
         backgroundOfRequest: recipient.background_of_request,
         budgetApproved: recipient.budget_approved,

@@ -50,14 +50,12 @@ type AdditionalDataStepProps = {
   ) => void
   onAddCounterparty: () => void
   onRemoveCounterparty: (index: number) => void
-  legalCounterpartyName: string
   departmentId: string
   departments: Array<{ id: string; name: string }>
   isDepartmentLocked?: boolean
   lockedDepartmentName?: string
   bypassHodApproval?: boolean
   bypassReason?: string
-  onLegalCounterpartyNameChange: (value: string) => void
   onDepartmentIdChange: (value: string) => void
   onBypassHodApprovalChange?: (value: boolean) => void
   onBypassReasonChange?: (value: string) => void
@@ -83,14 +81,12 @@ export default function AdditionalDataStep({
   onCounterpartyAutofill,
   onAddCounterparty,
   onRemoveCounterparty,
-  legalCounterpartyName,
   departmentId,
   departments,
   isDepartmentLocked = false,
   lockedDepartmentName,
   bypassHodApproval = false,
   bypassReason = '',
-  onLegalCounterpartyNameChange,
   onDepartmentIdChange,
   onBypassHodApprovalChange,
   onBypassReasonChange,
@@ -114,10 +110,6 @@ export default function AdditionalDataStep({
   }, [counterpartyOptions])
 
   useEffect(() => {
-    if (isSendForSigningFlow) {
-      return
-    }
-
     let isMounted = true
 
     void (async () => {
@@ -171,7 +163,7 @@ export default function AdditionalDataStep({
     return () => {
       isMounted = false
     }
-  }, [isSendForSigningFlow])
+  }, [])
 
   const isCounterpartyNa = (value: string) => value.trim().toUpperCase() === contractCounterpartyValues.notApplicable
 
@@ -311,272 +303,236 @@ export default function AdditionalDataStep({
             ) : null
           ) : null}
 
-          {!isSendForSigningFlow
-            ? counterparties.map((counterparty, counterpartyIndex) => {
-                const isNotApplicableCounterparty = isCounterpartyNa(counterparty.counterpartyName)
-                const requiresSupportingDocs =
-                  counterparty.counterpartyName.trim() !== '' && !isNotApplicableCounterparty
+          {counterparties.map((counterparty, counterpartyIndex) => {
+            const isNotApplicableCounterparty = isCounterpartyNa(counterparty.counterpartyName)
+            const requiresSupportingDocs =
+              !isSendForSigningFlow && counterparty.counterpartyName.trim() !== '' && !isNotApplicableCounterparty
 
-                return (
-                  <div key={`counterparty-${counterpartyIndex}`} className={styles.counterpartyCard}>
+            return (
+              <div key={`counterparty-${counterpartyIndex}`} className={styles.counterpartyCard}>
+                <div className={styles.counterpartyHeader}>
+                  <label className={styles.label} htmlFor={`counterparty-name-${counterpartyIndex}`}>
+                    Counterparty Name* {counterparties.length > 1 ? `(${counterpartyIndex + 1})` : ''}
+                  </label>
+                  <div className={styles.counterpartyActions}>
+                    {counterpartyIndex > 0 ? (
+                      <button
+                        type="button"
+                        className={styles.counterpartyRemoveButton}
+                        onClick={() => onRemoveCounterparty(counterpartyIndex)}
+                        aria-label={`Remove counterparty ${counterpartyIndex + 1}`}
+                      >
+                        −
+                      </button>
+                    ) : null}
+                    {canAddCounterparty(counterpartyIndex) ? (
+                      <button type="button" className={styles.counterpartyAddButton} onClick={onAddCounterparty}>
+                        +
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+                <input
+                  id={`counterparty-name-${counterpartyIndex}`}
+                  className={styles.input}
+                  list="counterparty-options"
+                  placeholder="Select or type counterparty"
+                  value={counterparty.counterpartyName}
+                  onChange={(event) => {
+                    const value = event.target.value
+                    onCounterpartyNameChange(counterpartyIndex, value)
+                    maybeAutofillCounterparty(counterpartyIndex, value)
+                  }}
+                  onBlur={(event) => maybeAutofillCounterparty(counterpartyIndex, event.target.value)}
+                  onKeyDown={(event) => handleCounterpartyNameKeyDown(event, counterpartyIndex)}
+                />
+
+                <div className={styles.fieldGroup}>
+                  <label className={styles.label} htmlFor={`counterparty-background-of-request-${counterpartyIndex}`}>
+                    Background of Request*
+                  </label>
+                  <textarea
+                    id={`counterparty-background-of-request-${counterpartyIndex}`}
+                    className={styles.input}
+                    value={counterparty.backgroundOfRequest}
+                    disabled={isNotApplicableCounterparty}
+                    onChange={(event) => onCounterpartyBackgroundOfRequestChange(counterpartyIndex, event.target.value)}
+                    placeholder="Describe the request context"
+                    rows={4}
+                  />
+                </div>
+
+                <div className={styles.fieldGroup}>
+                  <label className={styles.label} htmlFor={`counterparty-budget-approved-${counterpartyIndex}`}>
+                    Budget Approved*
+                  </label>
+                  <select
+                    id={`counterparty-budget-approved-${counterpartyIndex}`}
+                    className={styles.select}
+                    value={counterparty.budgetApproved ? 'true' : 'false'}
+                    disabled={isNotApplicableCounterparty}
+                    onChange={(event) =>
+                      onCounterpartyBudgetApprovedChange(counterpartyIndex, event.target.value === 'true')
+                    }
+                  >
+                    <option value="false">No</option>
+                    <option value="true">Yes</option>
+                  </select>
+                </div>
+
+                {counterparty.signatories.map((signatory, signatoryIndex) => (
+                  <div
+                    key={`counterparty-${counterpartyIndex}-signatory-${signatoryIndex}`}
+                    className={styles.counterpartyCard}
+                  >
                     <div className={styles.counterpartyHeader}>
-                      <label className={styles.label} htmlFor={`counterparty-name-${counterpartyIndex}`}>
-                        Counterparty Name* {counterparties.length > 1 ? `(${counterpartyIndex + 1})` : ''}
+                      <label
+                        className={styles.label}
+                        htmlFor={`counterparty-${counterpartyIndex}-signatory-name-${signatoryIndex}`}
+                      >
+                        Counterparty Signatory {counterparty.signatories.length > 1 ? `${signatoryIndex + 1}` : ''}
                       </label>
                       <div className={styles.counterpartyActions}>
-                        {counterpartyIndex > 0 ? (
+                        {signatoryIndex > 0 ? (
                           <button
                             type="button"
                             className={styles.counterpartyRemoveButton}
-                            onClick={() => onRemoveCounterparty(counterpartyIndex)}
-                            aria-label={`Remove counterparty ${counterpartyIndex + 1}`}
+                            disabled={isNotApplicableCounterparty}
+                            onClick={() => onCounterpartySignatoryRemove(counterpartyIndex, signatoryIndex)}
+                            aria-label={`Remove signatory ${signatoryIndex + 1}`}
                           >
                             −
                           </button>
                         ) : null}
-                        {canAddCounterparty(counterpartyIndex) ? (
-                          <button type="button" className={styles.counterpartyAddButton} onClick={onAddCounterparty}>
+                        {signatoryIndex === counterparty.signatories.length - 1 ? (
+                          <button
+                            type="button"
+                            className={styles.counterpartyAddButton}
+                            disabled={isNotApplicableCounterparty}
+                            onClick={() => onCounterpartySignatoryAdd(counterpartyIndex)}
+                          >
                             +
                           </button>
                         ) : null}
                       </div>
                     </div>
-                    <input
-                      id={`counterparty-name-${counterpartyIndex}`}
-                      className={styles.input}
-                      list="counterparty-options"
-                      placeholder="Select or type counterparty"
-                      value={counterparty.counterpartyName}
-                      onChange={(event) => {
-                        const value = event.target.value
-                        onCounterpartyNameChange(counterpartyIndex, value)
-                        maybeAutofillCounterparty(counterpartyIndex, value)
-                      }}
-                      onBlur={(event) => maybeAutofillCounterparty(counterpartyIndex, event.target.value)}
-                      onKeyDown={(event) => handleCounterpartyNameKeyDown(event, counterpartyIndex)}
-                    />
 
                     <div className={styles.fieldGroup}>
                       <label
                         className={styles.label}
-                        htmlFor={`counterparty-background-of-request-${counterpartyIndex}`}
+                        htmlFor={`counterparty-${counterpartyIndex}-signatory-name-${signatoryIndex}`}
                       >
-                        Background of Request*
+                        Counterparty Signatory Name*
                       </label>
-                      <textarea
-                        id={`counterparty-background-of-request-${counterpartyIndex}`}
+                      <input
+                        id={`counterparty-${counterpartyIndex}-signatory-name-${signatoryIndex}`}
                         className={styles.input}
-                        value={counterparty.backgroundOfRequest}
+                        value={signatory.name}
                         disabled={isNotApplicableCounterparty}
                         onChange={(event) =>
-                          onCounterpartyBackgroundOfRequestChange(counterpartyIndex, event.target.value)
+                          onCounterpartySignatoryChange(counterpartyIndex, signatoryIndex, 'name', event.target.value)
                         }
-                        placeholder="Describe the request context"
-                        rows={4}
+                        placeholder="Enter signatory name"
                       />
                     </div>
 
                     <div className={styles.fieldGroup}>
-                      <label className={styles.label} htmlFor={`counterparty-budget-approved-${counterpartyIndex}`}>
-                        Budget Approved*
+                      <label
+                        className={styles.label}
+                        htmlFor={`counterparty-${counterpartyIndex}-signatory-designation-${signatoryIndex}`}
+                      >
+                        Counterparty Signatory Designation*
                       </label>
-                      <select
-                        id={`counterparty-budget-approved-${counterpartyIndex}`}
-                        className={styles.select}
-                        value={counterparty.budgetApproved ? 'true' : 'false'}
+                      <input
+                        id={`counterparty-${counterpartyIndex}-signatory-designation-${signatoryIndex}`}
+                        className={styles.input}
+                        value={signatory.designation}
                         disabled={isNotApplicableCounterparty}
                         onChange={(event) =>
-                          onCounterpartyBudgetApprovedChange(counterpartyIndex, event.target.value === 'true')
+                          onCounterpartySignatoryChange(
+                            counterpartyIndex,
+                            signatoryIndex,
+                            'designation',
+                            event.target.value
+                          )
                         }
-                      >
-                        <option value="false">No</option>
-                        <option value="true">Yes</option>
-                      </select>
+                        placeholder="Enter designation"
+                      />
                     </div>
 
-                    {counterparty.signatories.map((signatory, signatoryIndex) => (
-                      <div
-                        key={`counterparty-${counterpartyIndex}-signatory-${signatoryIndex}`}
-                        className={styles.counterpartyCard}
+                    <div className={styles.fieldGroup}>
+                      <label
+                        className={styles.label}
+                        htmlFor={`counterparty-${counterpartyIndex}-signatory-email-${signatoryIndex}`}
                       >
-                        <div className={styles.counterpartyHeader}>
-                          <label
-                            className={styles.label}
-                            htmlFor={`counterparty-${counterpartyIndex}-signatory-name-${signatoryIndex}`}
-                          >
-                            Counterparty Signatory {counterparty.signatories.length > 1 ? `${signatoryIndex + 1}` : ''}
-                          </label>
-                          <div className={styles.counterpartyActions}>
-                            {signatoryIndex > 0 ? (
-                              <button
-                                type="button"
-                                className={styles.counterpartyRemoveButton}
-                                disabled={isNotApplicableCounterparty}
-                                onClick={() => onCounterpartySignatoryRemove(counterpartyIndex, signatoryIndex)}
-                                aria-label={`Remove signatory ${signatoryIndex + 1}`}
-                              >
-                                −
-                              </button>
-                            ) : null}
-                            {signatoryIndex === counterparty.signatories.length - 1 ? (
-                              <button
-                                type="button"
-                                className={styles.counterpartyAddButton}
-                                disabled={isNotApplicableCounterparty}
-                                onClick={() => onCounterpartySignatoryAdd(counterpartyIndex)}
-                              >
-                                +
-                              </button>
-                            ) : null}
-                          </div>
-                        </div>
-
-                        <div className={styles.fieldGroup}>
-                          <label
-                            className={styles.label}
-                            htmlFor={`counterparty-${counterpartyIndex}-signatory-name-${signatoryIndex}`}
-                          >
-                            Counterparty Signatory Name*
-                          </label>
-                          <input
-                            id={`counterparty-${counterpartyIndex}-signatory-name-${signatoryIndex}`}
-                            className={styles.input}
-                            value={signatory.name}
-                            disabled={isNotApplicableCounterparty}
-                            onChange={(event) =>
-                              onCounterpartySignatoryChange(
-                                counterpartyIndex,
-                                signatoryIndex,
-                                'name',
-                                event.target.value
-                              )
-                            }
-                            placeholder="Enter signatory name"
-                          />
-                        </div>
-
-                        <div className={styles.fieldGroup}>
-                          <label
-                            className={styles.label}
-                            htmlFor={`counterparty-${counterpartyIndex}-signatory-designation-${signatoryIndex}`}
-                          >
-                            Counterparty Signatory Designation*
-                          </label>
-                          <input
-                            id={`counterparty-${counterpartyIndex}-signatory-designation-${signatoryIndex}`}
-                            className={styles.input}
-                            value={signatory.designation}
-                            disabled={isNotApplicableCounterparty}
-                            onChange={(event) =>
-                              onCounterpartySignatoryChange(
-                                counterpartyIndex,
-                                signatoryIndex,
-                                'designation',
-                                event.target.value
-                              )
-                            }
-                            placeholder="Enter designation"
-                          />
-                        </div>
-
-                        <div className={styles.fieldGroup}>
-                          <label
-                            className={styles.label}
-                            htmlFor={`counterparty-${counterpartyIndex}-signatory-email-${signatoryIndex}`}
-                          >
-                            Counterparty Signatory Email*
-                          </label>
-                          <input
-                            id={`counterparty-${counterpartyIndex}-signatory-email-${signatoryIndex}`}
-                            className={styles.input}
-                            type="email"
-                            value={signatory.email}
-                            disabled={isNotApplicableCounterparty}
-                            onChange={(event) =>
-                              onCounterpartySignatoryChange(
-                                counterpartyIndex,
-                                signatoryIndex,
-                                'email',
-                                event.target.value
-                              )
-                            }
-                            placeholder="name@company.com"
-                          />
-                        </div>
-                      </div>
-                    ))}
-
-                    {requiresSupportingDocs && (
-                      <div className={styles.fieldGroup}>
-                        <label className={styles.label} htmlFor={`supporting-docs-${counterpartyIndex}`}>
-                          Supporting Document*
-                        </label>
-                        <div className={styles.dropzone}>
-                          <span>Add supporting documents</span>
-                          <label className={styles.dropzoneButton} htmlFor={`supporting-docs-${counterpartyIndex}`}>
-                            Add files
-                          </label>
-                          <input
-                            id={`supporting-docs-${counterpartyIndex}`}
-                            className={styles.hiddenInput}
-                            type="file"
-                            multiple
-                            onChange={(event) => {
-                              const files = Array.from(event.target.files || [])
-                              if (files.length) {
-                                onSupportingFilesSelected(counterpartyIndex, files)
-                              }
-                            }}
-                          />
-                        </div>
-                        <div className={styles.supportingList}>
-                          {counterparty.supportingFiles.map((file, fileIndex) => (
-                            <div key={`${file.name}-${counterpartyIndex}-${fileIndex}`} className={styles.fileCard}>
-                              <div className={styles.fileMeta}>
-                                <span className={styles.fileName}>{file.name}</span>
-                                <span className={styles.fileSize}>{formatFileSize(file.size)}</span>
-                              </div>
-                              <button
-                                type="button"
-                                className={styles.removeButton}
-                                onClick={() => onSupportingFileRemoved(counterpartyIndex, fileIndex)}
-                              >
-                                Remove
-                              </button>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                        Counterparty Signatory Email*
+                      </label>
+                      <input
+                        id={`counterparty-${counterpartyIndex}-signatory-email-${signatoryIndex}`}
+                        className={styles.input}
+                        type="email"
+                        value={signatory.email}
+                        disabled={isNotApplicableCounterparty}
+                        onChange={(event) =>
+                          onCounterpartySignatoryChange(counterpartyIndex, signatoryIndex, 'email', event.target.value)
+                        }
+                        placeholder="name@company.com"
+                      />
+                    </div>
                   </div>
-                )
-              })
-            : null}
+                ))}
 
-          {isSendForSigningFlow ? (
-            <>
-              <div className={styles.fieldGroup}>
-                <label className={styles.label} htmlFor="signatory-name">
-                  Counterparty Name*
-                </label>
-                <input
-                  id="signatory-name"
-                  className={styles.input}
-                  value={legalCounterpartyName}
-                  onChange={(event) => onLegalCounterpartyNameChange(event.target.value)}
-                  placeholder="Enter counterparty name"
-                />
+                {requiresSupportingDocs && (
+                  <div className={styles.fieldGroup}>
+                    <label className={styles.label} htmlFor={`supporting-docs-${counterpartyIndex}`}>
+                      Supporting Document*
+                    </label>
+                    <div className={styles.dropzone}>
+                      <span>Add supporting documents</span>
+                      <label className={styles.dropzoneButton} htmlFor={`supporting-docs-${counterpartyIndex}`}>
+                        Add files
+                      </label>
+                      <input
+                        id={`supporting-docs-${counterpartyIndex}`}
+                        className={styles.hiddenInput}
+                        type="file"
+                        multiple
+                        onChange={(event) => {
+                          const files = Array.from(event.target.files || [])
+                          if (files.length) {
+                            onSupportingFilesSelected(counterpartyIndex, files)
+                          }
+                        }}
+                      />
+                    </div>
+                    <div className={styles.supportingList}>
+                      {counterparty.supportingFiles.map((file, fileIndex) => (
+                        <div key={`${file.name}-${counterpartyIndex}-${fileIndex}`} className={styles.fileCard}>
+                          <div className={styles.fileMeta}>
+                            <span className={styles.fileName}>{file.name}</span>
+                            <span className={styles.fileSize}>{formatFileSize(file.size)}</span>
+                          </div>
+                          <button
+                            type="button"
+                            className={styles.removeButton}
+                            onClick={() => onSupportingFileRemoved(counterpartyIndex, fileIndex)}
+                          >
+                            Remove
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
-            </>
-          ) : null}
+            )
+          })}
 
-          {!isSendForSigningFlow ? (
-            <datalist id="counterparty-options">
-              {loadedCounterpartyOptions.map((option) => (
-                <option key={option} value={option} />
-              ))}
-            </datalist>
-          ) : null}
+          <datalist id="counterparty-options">
+            {loadedCounterpartyOptions.map((option) => (
+              <option key={option} value={option} />
+            ))}
+          </datalist>
 
           {!isSendForSigningFlow && showCounterpartyModal ? <div className={styles.inlineModal} /> : null}
 

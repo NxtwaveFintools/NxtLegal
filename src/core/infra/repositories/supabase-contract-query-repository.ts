@@ -223,6 +223,7 @@ type SigningPreparationDraftEntity = {
     recipientType: 'INTERNAL' | 'EXTERNAL'
     routingOrder: number
     designation?: string
+    counterpartyId?: string
     counterpartyName?: string
     backgroundOfRequest?: string
     budgetApproved?: boolean
@@ -2218,6 +2219,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       recipientType: 'INTERNAL' | 'EXTERNAL'
       routingOrder: number
       designation?: string
+      counterpartyId?: string
       counterpartyName?: string
       backgroundOfRequest?: string
       budgetApproved?: boolean
@@ -2240,6 +2242,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       recipientType: 'INTERNAL' | 'EXTERNAL'
       routingOrder: number
       designation?: string
+      counterpartyId?: string
       counterpartyName?: string
       backgroundOfRequest?: string
       budgetApproved?: boolean
@@ -2341,6 +2344,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       recipientType: 'INTERNAL' | 'EXTERNAL'
       routingOrder: number
       designation?: string
+      counterpartyId?: string
       counterpartyName?: string
       backgroundOfRequest?: string
       budgetApproved?: boolean

@@ -304,4 +304,100 @@ describe('Contract action dialogs', () => {
     expect(screen.getByText('Counterparty 1 Budget Approved')).toBeTruthy()
     expect(screen.getAllByText('Yes').length).toBeGreaterThan(0)
   })
+
+  it('keeps second counterparty details visible when one recipient has unmatched counterparty name', async () => {
+    jest.spyOn(contractsClient, 'list').mockResolvedValue({
+      ok: true,
+      data: {
+        contracts: [baseContract],
+        pagination: { cursor: null, limit: 15, total: 1 },
+      },
+    } as never)
+
+    jest.spyOn(contractsClient, 'detail').mockResolvedValue({
+      ok: true,
+      data: {
+        ...buildDetail('UNDER_REVIEW', 'Under Review'),
+        counterparties: [
+          {
+            id: 'cp-1',
+            counterpartyName: 'Counterparty One',
+            sequenceOrder: 1,
+          },
+          {
+            id: 'cp-2',
+            counterpartyName: 'Counterparty Two',
+            sequenceOrder: 2,
+          },
+        ],
+      },
+    } as never)
+
+    jest.spyOn(contractsClient, 'timeline').mockResolvedValue({ ok: true, data: { events: [] } } as never)
+
+    jest.spyOn(contractsClient, 'getSigningPreparationDraft').mockResolvedValue({
+      ok: true,
+      data: {
+        contractId: 'contract-1',
+        recipients: [
+          {
+            name: 'Counterparty One Signatory A',
+            email: 'cp1-a@example.com',
+            recipientType: 'EXTERNAL',
+            routingOrder: 1,
+            designation: 'Director',
+            counterpartyId: 'cp-1',
+            counterpartyName: 'Counterparty One',
+            backgroundOfRequest: 'CP1 background',
+            budgetApproved: true,
+          },
+          {
+            name: 'Counterparty One Signatory B',
+            email: 'cp1-b@example.com',
+            recipientType: 'EXTERNAL',
+            routingOrder: 2,
+            designation: 'Manager',
+            counterpartyId: 'cp-1',
+            counterpartyName: 'Counterparty One',
+            backgroundOfRequest: 'CP1 background',
+            budgetApproved: true,
+          },
+          {
+            name: 'Counterparty Two Signatory A',
+            email: 'cp2-a@example.com',
+            recipientType: 'EXTERNAL',
+            routingOrder: 3,
+            designation: 'Lead',
+            counterpartyId: 'cp-2',
+            // Even if name drifts, mapping should stay stable via counterpartyId.
+            counterpartyName: 'Wrong display name from draft',
+            backgroundOfRequest: 'CP2 background',
+            budgetApproved: false,
+          },
+        ],
+        fields: [],
+        createdByEmployeeId: 'employee-legal',
+        updatedByEmployeeId: 'employee-legal',
+        createdAt: '2026-02-27T03:30:00.000Z',
+        updatedAt: '2026-02-27T03:30:00.000Z',
+      },
+    } as never)
+
+    render(
+      <ContractsWorkspace
+        session={{
+          employeeId: 'employee-legal',
+          role: 'LEGAL_TEAM',
+        }}
+      />
+    )
+
+    await waitFor(() => expect(screen.getByText('Board Meeting Documents - NA')).toBeTruthy())
+    await waitFor(() => expect(screen.getByLabelText('Legal status actions')).toBeTruthy())
+    await userEvent.click(screen.getByRole('button', { name: /Intake Details/i }))
+
+    expect(screen.getByText('Counterparty 2 Signatory 1 Email')).toBeTruthy()
+    expect(screen.getByText('cp2-a@example.com')).toBeTruthy()
+    expect(screen.getByText('Counterparty 2 Budget Approved')).toBeTruthy()
+  })
 })

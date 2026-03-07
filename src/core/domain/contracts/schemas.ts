@@ -275,6 +275,7 @@ const contractSigningPreparationRecipientSchema = z.object({
   recipient_type: z.enum(contractSignatoryRecipientTypeValues),
   routing_order: z.number().int().min(1),
   designation: z.string().trim().optional(),
+  counterparty_id: z.string().uuid('Valid counterparty ID is required').optional(),
   counterparty_name: z.string().trim().optional(),
   background_of_request: z.string().trim().optional(),
   budget_approved: z.boolean().optional(),
