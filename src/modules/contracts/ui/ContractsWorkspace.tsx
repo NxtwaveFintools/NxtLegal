@@ -1504,6 +1504,21 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
     return metadata
   }, [selectedContract])
+  const assignedToDisplay = useMemo(() => {
+    if (!selectedContract) {
+      return '—'
+    }
+
+    const assignedToUsers = Array.from(
+      new Set((selectedContract.assignedToUsers ?? []).map((email) => email.trim()).filter((email) => email.length > 0))
+    )
+
+    if (assignedToUsers.length > 0) {
+      return assignedToUsers.join(', ')
+    }
+
+    return selectedContract.currentAssigneeEmail?.trim() || '—'
+  }, [selectedContract])
   const canManageLegalWorkSharing = useMemo(() => {
     if (session.role !== 'LEGAL_TEAM') {
       return false
@@ -1956,9 +1971,13 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                 </div>
 
                 <div className={styles.sectionBlock}>
-                  <div className={styles.sectionLabel}>Assignee</div>
+                  <div className={styles.sectionLabel}>Assignment</div>
                   <div className={styles.row}>
-                    <span>Current</span>
+                    <span>Assigned To</span>
+                    <span className={styles.rowValue}>{assignedToDisplay}</span>
+                  </div>
+                  <div className={styles.row}>
+                    <span>Current Owner</span>
                     <span>{selectedContract.currentAssigneeEmail}</span>
                   </div>
                   <div className={styles.row}>

@@ -216,8 +216,22 @@ export class ContractQueryService {
         this.contractRepository.getSignatories(params.tenantId, params.contractId),
       ])
 
+    const assignedToUsers = Array.from(
+      new Set(
+        legalCollaborators
+          .map((collaborator) => collaborator.collaboratorEmail.trim().toLowerCase())
+          .filter((email) => email.length > 0)
+      )
+    )
+    const normalizedCurrentAssignee = contract.currentAssigneeEmail.trim().toLowerCase()
+    const contractWithAssignedUsers: ContractDetail = {
+      ...contract,
+      assignedToUsers:
+        assignedToUsers.length > 0 ? assignedToUsers : normalizedCurrentAssignee ? [normalizedCurrentAssignee] : [],
+    }
+
     return {
-      contract,
+      contract: contractWithAssignedUsers,
       counterparties,
       documents,
       availableActions,
