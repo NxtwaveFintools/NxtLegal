@@ -16,6 +16,7 @@ import {
 } from '@/core/client/contracts-client'
 import { publicConfig } from '@/core/config/public-config'
 import {
+  contractDocumentKinds,
   contractActionHodBypass,
   contractActionLegalReject,
   contractActionLegalReroute,
