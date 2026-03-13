@@ -1,6 +1,7 @@
 'use client'
 
 import EmployeeLoginForm from '@/components/auth/EmployeeLoginForm'
+import GoogleButton from '@/components/auth/GoogleButton'
 import MicrosoftButton from '@/components/auth/MicrosoftButton'
 import { publicConfig } from '@/core/config/public-config'
 import { useLoginPage } from '@/modules/auth/ui/use-login-page'
@@ -8,6 +9,7 @@ import { useLoginPage } from '@/modules/auth/ui/use-login-page'
 export default function LoginPageContent() {
   useLoginPage()
   const allowedDomainsText = publicConfig.auth.allowedDomains.join(', ')
+  const hasOAuthLogin = publicConfig.features.enableMicrosoftOAuth || publicConfig.features.enableGoogleOAuth
 
   return (
     <div
@@ -56,17 +58,20 @@ export default function LoginPageContent() {
             </h1>
             <p style={{ color: 'var(--color-text-muted)' }}>Employee Portal Login</p>
             <p className="text-sm font-medium mt-2" style={{ color: 'var(--color-accent)' }}>
-              Please use your Microsoft account to sign in
+              Please use your organization account to sign in
             </p>
           </div>
 
-          {publicConfig.features.enableMicrosoftOAuth && (
+          {hasOAuthLogin && (
             <div className="mb-6">
-              <MicrosoftButton />
+              <div className="space-y-3">
+                {publicConfig.features.enableMicrosoftOAuth && <MicrosoftButton />}
+                {publicConfig.features.enableGoogleOAuth && <GoogleButton />}
+              </div>
             </div>
           )}
 
-          {publicConfig.features.enableMicrosoftOAuth && publicConfig.features.enablePasswordLogin && (
+          {hasOAuthLogin && publicConfig.features.enablePasswordLogin && (
             <div className="relative mb-6">
               <div className="absolute inset-0 flex items-center">
                 <div className="w-full" style={{ borderTop: '1px solid var(--color-border)' }} />
@@ -79,7 +84,7 @@ export default function LoginPageContent() {
                     color: 'var(--color-text-muted)',
                   }}
                 >
-                  If Microsoft not available, use backup login
+                  If OAuth is unavailable, use backup login
                 </span>
               </div>
             </div>

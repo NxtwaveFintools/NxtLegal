@@ -5,10 +5,10 @@ export const publicConfig = {
   siteUrl: envPublic.siteUrl,
   auth: {
     allowedDomains: parseAllowedDomains(envPublic.allowedDomains ?? ''),
-    oauthProvider: envPublic.oauthProvider,
   },
   features: {
     enableMicrosoftOAuth: envPublic.featureMicrosoftOAuth.toLowerCase() !== 'false',
+    enableGoogleOAuth: envPublic.featureGoogleOAuth.toLowerCase() !== 'false',
     enablePasswordLogin: envPublic.featurePasswordLogin.toLowerCase() !== 'false',
   },
 } as const

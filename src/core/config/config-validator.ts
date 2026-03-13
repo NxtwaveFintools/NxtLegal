@@ -125,6 +125,9 @@ function validateEnvironmentSettings(): { valid: boolean; warnings: string[] } {
     if (envServer.featureMicrosoftOAuth === 'true' && !process.env.FEATURE_MICROSOFT_OAUTH) {
       warnings.push('FEATURE_MICROSOFT_OAUTH is using default value in production')
     }
+    if (envServer.featureGoogleOAuth === 'true' && !process.env.FEATURE_GOOGLE_OAUTH) {
+      warnings.push('FEATURE_GOOGLE_OAUTH is using default value in production')
+    }
 
     // Site URL should be HTTPS in production
     if (envPublic.siteUrl && !envPublic.siteUrl.startsWith('https://')) {
