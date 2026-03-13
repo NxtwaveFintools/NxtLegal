@@ -784,4 +784,98 @@ describe('supabaseContractQueryRepository action permissions', () => {
     expect(visibility.filter).toBe('current_assignee_employee_id.eq.hod-1,uploaded_by_employee_id.eq.hod-1')
     expect(visibility.hodDepartmentIds).toEqual([])
   })
+
+  it('applies POC department scoping for UNDER_REVIEW dashboard counts', async () => {
+    const countBuilder = {
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      in: jest.fn().mockReturnThis(),
+      or: jest.fn().mockReturnThis(),
+    }
+    countBuilder.select.mockReturnValue(countBuilder)
+    countBuilder.eq.mockReturnValue(countBuilder)
+    countBuilder.in.mockReturnValue(countBuilder)
+    countBuilder.or.mockResolvedValue({ count: 4, error: null })
+
+    const from = jest.fn().mockReturnValue(countBuilder)
+    ;(createServiceSupabase as jest.Mock).mockReturnValue({ from })
+
+    const getVisibilityFilterSpy = jest.spyOn(
+      supabaseContractQueryRepository as unknown as {
+        getVisibilityFilter: (
+          tenantId: string,
+          role: string | undefined,
+          employeeId: string
+        ) => Promise<{ filter: string | null; actionableContractIds: string[]; hodDepartmentIds?: string[] }>
+      },
+      'getVisibilityFilter'
+    )
+    getVisibilityFilterSpy.mockResolvedValue({
+      filter: 'uploaded_by_employee_id.eq.poc-1',
+      actionableContractIds: [],
+      hodDepartmentIds: [],
+    })
+
+    const getPocDepartmentIdsSpy = jest.spyOn(
+      supabaseContractQueryRepository as unknown as {
+        getPocDepartmentIds: (tenantId: string, employeeId: string, employeeEmail?: string | null) => Promise<string[]>
+      },
+      'getPocDepartmentIds'
+    )
+    getPocDepartmentIdsSpy.mockResolvedValue(['dept-sales'])
+
+    const count = await supabaseContractQueryRepository.getDashboardFilterCount({
+      tenantId: 'tenant-1',
+      employeeId: 'poc-1',
+      role: 'POC',
+      filter: 'UNDER_REVIEW',
+      scope: 'default',
+    })
+
+    expect(count).toBe(4)
+    expect(countBuilder.in).toHaveBeenCalledWith('department_id', ['dept-sales'])
+  })
+
+  it('applies HOD department scoping for UNDER_REVIEW dashboard counts', async () => {
+    const countBuilder = {
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      in: jest.fn().mockReturnThis(),
+      or: jest.fn().mockReturnThis(),
+    }
+    countBuilder.select.mockReturnValue(countBuilder)
+    countBuilder.eq.mockReturnValue(countBuilder)
+    countBuilder.in.mockReturnValue(countBuilder)
+    countBuilder.or.mockResolvedValue({ count: 6, error: null })
+
+    const from = jest.fn().mockReturnValue(countBuilder)
+    ;(createServiceSupabase as jest.Mock).mockReturnValue({ from })
+
+    const getVisibilityFilterSpy = jest.spyOn(
+      supabaseContractQueryRepository as unknown as {
+        getVisibilityFilter: (
+          tenantId: string,
+          role: string | undefined,
+          employeeId: string
+        ) => Promise<{ filter: string | null; actionableContractIds: string[]; hodDepartmentIds?: string[] }>
+      },
+      'getVisibilityFilter'
+    )
+    getVisibilityFilterSpy.mockResolvedValue({
+      filter: 'department_id.in.(dept-finance)',
+      actionableContractIds: [],
+      hodDepartmentIds: ['dept-finance'],
+    })
+
+    const count = await supabaseContractQueryRepository.getDashboardFilterCount({
+      tenantId: 'tenant-1',
+      employeeId: 'hod-1',
+      role: 'HOD',
+      filter: 'UNDER_REVIEW',
+      scope: 'default',
+    })
+
+    expect(count).toBe(6)
+    expect(countBuilder.in).toHaveBeenCalledWith('department_id', ['dept-finance'])
+  })
 })

@@ -672,6 +672,19 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
           : this.getVisibilityFilter(params.tenantId, params.role, params.employeeId),
         actorEmailPromise,
       ])
+      let underReviewDepartmentIds: string[] | null = null
+
+      if (!shouldUsePersonalScope && resolvedFilter === 'UNDER_REVIEW') {
+        if (params.role === 'HOD') {
+          underReviewDepartmentIds = visibilityFilterContext?.hodDepartmentIds ?? []
+        } else if (params.role === 'POC') {
+          underReviewDepartmentIds = await this.getPocDepartmentIds(params.tenantId, params.employeeId)
+        }
+
+        if (underReviewDepartmentIds && underReviewDepartmentIds.length === 0) {
+          return { items: [], total: 0 }
+        }
+      }
 
       const buildDashboardListQuery = (selectColumns: string) => {
         let query = supabase
@@ -692,6 +705,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
         if (assignedContractIds) {
           query = query.in('id', assignedContractIds)
+        }
+
+        if (underReviewDepartmentIds && underReviewDepartmentIds.length > 0) {
+          query = query.in('department_id', underReviewDepartmentIds)
         }
 
         if (shouldUsePersonalScope) {
@@ -722,6 +739,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
             if (assignedContractIds) {
               totalQuery = totalQuery.in('id', assignedContractIds)
+            }
+
+            if (underReviewDepartmentIds && underReviewDepartmentIds.length > 0) {
+              totalQuery = totalQuery.in('department_id', underReviewDepartmentIds)
             }
 
             if (shouldUsePersonalScope) {
@@ -922,6 +943,19 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     const visibilityFilterContext = shouldUsePersonalScope
       ? null
       : await this.getVisibilityFilter(params.tenantId, params.role, params.employeeId)
+    let underReviewDepartmentIds: string[] | null = null
+
+    if (!shouldUsePersonalScope && resolvedFilter === 'UNDER_REVIEW') {
+      if (params.role === 'HOD') {
+        underReviewDepartmentIds = visibilityFilterContext?.hodDepartmentIds ?? []
+      } else if (params.role === 'POC') {
+        underReviewDepartmentIds = await this.getPocDepartmentIds(params.tenantId, params.employeeId)
+      }
+
+      if (underReviewDepartmentIds && underReviewDepartmentIds.length === 0) {
+        return 0
+      }
+    }
 
     let countQuery = supabase
       .from('contracts_repository_view')
@@ -934,6 +968,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
     if (assignedContractIds) {
       countQuery = countQuery.in('id', assignedContractIds)
+    }
+
+    if (underReviewDepartmentIds && underReviewDepartmentIds.length > 0) {
+      countQuery = countQuery.in('department_id', underReviewDepartmentIds)
     }
 
     if (shouldUsePersonalScope) {
@@ -5069,6 +5107,73 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     }
 
     return Array.from(new Set((hodTeams ?? []).map((member) => member.team_id)))
+  }
+
+  private async getPocDepartmentIds(
+    tenantId: string,
+    employeeId: string,
+    preResolvedEmail?: string | null
+  ): Promise<string[]> {
+    const resolvedEmployeeEmail = preResolvedEmail ?? (await this.getEmployeeEmail(tenantId, employeeId))
+    if (!resolvedEmployeeEmail) {
+      return []
+    }
+
+    const supabase = createServiceSupabase()
+
+    const { data: pocTeams, error: pocTeamsError } = await supabase
+      .from('team_role_mappings')
+      .select('team_id')
+      .eq('tenant_id', tenantId)
+      .eq('email', resolvedEmployeeEmail)
+      .eq('role_type', 'POC')
+      .eq('active_flag', true)
+      .is('deleted_at', null)
+
+    if (pocTeamsError) {
+      if (
+        this.isMissingRelationError(pocTeamsError, 'team_role_mappings') ||
+        this.isMissingColumnError(pocTeamsError, 'team_role_mappings')
+      ) {
+        return []
+      }
+
+      throw new DatabaseError('Failed to resolve POC departments for access checks', new Error(pocTeamsError.message), {
+        code: pocTeamsError.code,
+      })
+    }
+
+    const mappedDepartmentIds = Array.from(new Set((pocTeams ?? []).map((member) => member.team_id)))
+    if (mappedDepartmentIds.length > 0) {
+      return mappedDepartmentIds
+    }
+
+    const { data: fallbackTeams, error: fallbackTeamsError } = await supabase
+      .from('teams')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('poc_email', resolvedEmployeeEmail)
+      .eq('is_active', true)
+      .is('deleted_at', null)
+
+    if (fallbackTeamsError) {
+      if (
+        this.isMissingRelationError(fallbackTeamsError, 'teams') ||
+        this.isMissingColumnError(fallbackTeamsError, 'teams')
+      ) {
+        return []
+      }
+
+      throw new DatabaseError(
+        'Failed to resolve fallback POC departments for access checks',
+        new Error(fallbackTeamsError.message),
+        {
+          code: fallbackTeamsError.code,
+        }
+      )
+    }
+
+    return Array.from(new Set((fallbackTeams ?? []).map((team) => team.id)))
   }
 
   private async getPendingApproverCount(tenantId: string, contractId: string): Promise<number> {
