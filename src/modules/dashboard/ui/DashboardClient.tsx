@@ -39,7 +39,7 @@ type DashboardClientProps = {
 
 type ActionCardProps = {
   title: string
-  count: number
+  count?: number
   description: string
   onClick?: () => void
   icon?: ReactNode
@@ -47,10 +47,7 @@ type ActionCardProps = {
 
 type DashboardRoleConfig = {
   defaultFilter: DashboardContractsFilter
-  approveFilter: DashboardContractsFilter
-  approveScope?: DashboardContractsScope
   filters: Array<{ value: DashboardContractsFilter; label: string }>
-  showApproveCard: boolean
 }
 
 const legacyDashboardFilterMap: Record<string, DashboardContractsFilter> = {
@@ -191,7 +188,7 @@ function DashboardActionCard({ title, count, description, onClick, icon }: Actio
           {icon && <span className={styles.actionCardIcon}>{icon}</span>}
           {title}
         </span>
-        <span className={styles.actionCardCount}>{count}</span>
+        {typeof count === 'number' ? <span className={styles.actionCardCount}>{count}</span> : null}
       </div>
       <span className={styles.actionCardMeta}>{description}</span>
     </button>
@@ -202,9 +199,6 @@ function getRoleConfig(role?: string): DashboardRoleConfig {
   if (role === contractWorkflowRoles.admin) {
     return {
       defaultFilter: 'ASSIGNED_TO_ME',
-      approveFilter: 'ASSIGNED_TO_ME',
-      approveScope: 'personal',
-      showApproveCard: true,
       filters: [
         { value: 'ASSIGNED_TO_ME', label: 'Assigned To Me' },
         { value: 'HOD_PENDING', label: 'All HOD Pending' },
@@ -219,8 +213,6 @@ function getRoleConfig(role?: string): DashboardRoleConfig {
   if (role === contractWorkflowRoles.legalTeam) {
     return {
       defaultFilter: 'UNDER_REVIEW',
-      approveFilter: 'UNDER_REVIEW',
-      showApproveCard: true,
       filters: [
         { value: 'ASSIGNED_TO_ME', label: 'Assigned To Me' },
         { value: 'UNDER_REVIEW', label: 'Under Review' },
@@ -234,10 +226,9 @@ function getRoleConfig(role?: string): DashboardRoleConfig {
   if (role === contractWorkflowRoles.hod) {
     return {
       defaultFilter: 'HOD_PENDING',
-      approveFilter: 'HOD_PENDING',
-      showApproveCard: true,
       filters: [
         { value: 'HOD_PENDING', label: 'HOD Pending' },
+        { value: 'ASSIGNED_TO_ME', label: 'Assigned To Me' },
         { value: 'UNDER_REVIEW', label: 'Under Review' },
         { value: 'COMPLETED', label: 'Completed' },
         { value: 'ON_HOLD', label: 'On Hold' },
@@ -247,8 +238,6 @@ function getRoleConfig(role?: string): DashboardRoleConfig {
 
   return {
     defaultFilter: 'HOD_PENDING',
-    approveFilter: 'HOD_PENDING',
-    showApproveCard: false,
     filters: [
       { value: 'HOD_PENDING', label: 'HOD Pending' },
       { value: 'UNDER_REVIEW', label: 'Under Review' },
@@ -283,7 +272,6 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   const [approvingContractId, setApprovingContractId] = useState<string | null>(null)
   const [rejectingContractId, setRejectingContractId] = useState<string | null>(null)
   const [rejectReasonDraft, setRejectReasonDraft] = useState('')
-  const [pendingApprovalsCount, setPendingApprovalsCount] = useState(0)
   const [activeFilter, setActiveFilter] = useState<DashboardContractsFilter>(() => {
     const requestedFilter = normalizeDashboardFilter(searchParams.get('filter'))
     const isAllowedFilter = roleConfig.filters.some((item) => item.value === requestedFilter)
@@ -298,7 +286,6 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   const [activeFilterTotal, setActiveFilterTotal] = useState(0)
   const [actionableAdditionalApprovals, setActionableAdditionalApprovals] = useState<ContractRecord[]>([])
   const [optimisticContracts, setOptimisticContracts] = useOptimistic<ContractRecord[]>(contracts)
-  const [optimisticPendingApprovalsCount, setOptimisticPendingApprovalsCount] = useOptimistic(pendingApprovalsCount)
   const [optimisticActiveFilterTotal, setOptimisticActiveFilterTotal] = useOptimistic(activeFilterTotal)
   const [optimisticActionableAdditionalApprovals, setOptimisticActionableAdditionalApprovals] =
     useOptimistic<ContractRecord[]>(actionableAdditionalApprovals)
@@ -331,14 +318,13 @@ export default function DashboardClient({ session }: DashboardClientProps) {
 
       const counts = response.data.counts
       setFilterCounts(counts)
-      setPendingApprovalsCount(roleConfig.showApproveCard ? (counts[roleConfig.approveFilter] ?? 0) : 0)
       return true
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to load dashboard counts'
       toast.error(errorMessage)
       return false
     }
-  }, [roleConfig.filters, roleConfig.approveFilter, roleConfig.showApproveCard])
+  }, [roleConfig.filters])
 
   const loadContractsForFilter = useCallback(
     async (
@@ -441,7 +427,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
       }
 
       setActiveFilter(filter)
-      router.replace(`/dashboard?filter=${filter}`)
+      router.replace(`/dashboard?filter=${filter}`, { scroll: false })
     },
     [activeFilter, router]
   )
@@ -550,7 +536,6 @@ export default function DashboardClient({ session }: DashboardClientProps) {
 
       const previousContracts = contracts
       const previousAdditionalApprovals = actionableAdditionalApprovals
-      const previousPendingCount = pendingApprovalsCount
       const previousFilterTotal = activeFilterTotal
 
       const nextContracts = contracts.filter((contract) => contract.id !== contractId)
@@ -558,7 +543,6 @@ export default function DashboardClient({ session }: DashboardClientProps) {
 
       setOptimisticContracts(nextContracts)
       setOptimisticActionableAdditionalApprovals(nextAdditionalApprovals)
-      setOptimisticPendingApprovalsCount((current) => Math.max(current - 1, 0))
       setOptimisticActiveFilterTotal((current) => Math.max(current - 1, 0))
 
       setMutatingContractId(contractId)
@@ -572,7 +556,6 @@ export default function DashboardClient({ session }: DashboardClientProps) {
         if (!response.ok) {
           setOptimisticContracts(previousContracts)
           setOptimisticActionableAdditionalApprovals(previousAdditionalApprovals)
-          setOptimisticPendingApprovalsCount(previousPendingCount)
           setOptimisticActiveFilterTotal(previousFilterTotal)
           toast.error(response.error?.message ?? 'Failed to complete contract action')
           return false
@@ -592,7 +575,6 @@ export default function DashboardClient({ session }: DashboardClientProps) {
       } catch (error) {
         setOptimisticContracts(previousContracts)
         setOptimisticActionableAdditionalApprovals(previousAdditionalApprovals)
-        setOptimisticPendingApprovalsCount(previousPendingCount)
         setOptimisticActiveFilterTotal(previousFilterTotal)
         const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred'
         toast.error(errorMessage)
@@ -605,13 +587,16 @@ export default function DashboardClient({ session }: DashboardClientProps) {
       activeFilter,
       actionableAdditionalApprovals,
       activeFilterTotal,
+      contractsPageLimit,
       contracts,
       loadContractsForFilter,
       loadDashboardCounts,
       mutatingContractId,
       pageCursors,
       pageIndex,
-      pendingApprovalsCount,
+      setOptimisticActionableAdditionalApprovals,
+      setOptimisticActiveFilterTotal,
+      setOptimisticContracts,
     ]
   )
 
@@ -730,7 +715,6 @@ export default function DashboardClient({ session }: DashboardClientProps) {
               {session.role !== contractWorkflowRoles.hod ? (
                 <DashboardActionCard
                   title="Upload Third-Party Contract"
-                  count={optimisticActiveFilterTotal}
                   description="Upload third-party contracts for review"
                   icon={uploadIcon}
                   onClick={() => {
@@ -739,10 +723,9 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                   }}
                 />
               ) : null}
-              {session.role === contractWorkflowRoles.legalTeam ? (
+              {session.role === contractWorkflowRoles.legalTeam || session.role === contractWorkflowRoles.admin ? (
                 <DashboardActionCard
                   title="Send for Signing"
-                  count={optimisticActiveFilterTotal}
                   description="Initiate legal signing workflow"
                   onClick={() => {
                     setUploadMode(contractUploadModes.legalSendForSigning)
@@ -750,28 +733,26 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                   }}
                 />
               ) : null}
-              {roleConfig.showApproveCard ? (
+              {session.role === contractWorkflowRoles.legalTeam || session.role === contractWorkflowRoles.hod ? (
                 <DashboardActionCard
-                  title="Approve"
-                  count={optimisticPendingApprovalsCount}
-                  description="Contracts waiting for approval"
+                  title="Assigned To Me"
+                  count={filterCounts.ASSIGNED_TO_ME ?? 0}
+                  description="Contracts assigned to your queue"
                   onClick={() => {
-                    applyFilter(roleConfig.approveFilter)
+                    applyFilter('ASSIGNED_TO_ME')
                     contractsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
                   }}
                 />
               ) : null}
-              <DashboardActionCard title="Review" count={0} description="Documents awaiting review" />
-            </div>
-          </div>
-          <div className={styles.secondaryTasks}>
-            <div className={styles.secondaryTaskCard}>
-              <span className={styles.secondaryTaskTitle}>Setup Signatures</span>
-              <span className={styles.secondaryTaskCount}>0</span>
-            </div>
-            <div className={styles.secondaryTaskCard}>
-              <span className={styles.secondaryTaskTitle}>Custom Task</span>
-              <span className={styles.secondaryTaskCount}>0</span>
+              <DashboardActionCard
+                title="Review"
+                count={filterCounts.UNDER_REVIEW ?? 0}
+                description="Documents awaiting review"
+                onClick={() => {
+                  applyFilter('UNDER_REVIEW')
+                  contractsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                }}
+              />
             </div>
           </div>
         </section>

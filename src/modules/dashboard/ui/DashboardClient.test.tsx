@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, within } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import DashboardClient from '@/modules/dashboard/ui/DashboardClient'
 import { contractsClient } from '@/core/client/contracts-client'
@@ -89,6 +89,26 @@ describe('DashboardClient legal upload action cards', () => {
 
     expect(screen.getByRole('button', { name: /Upload Third-Party Contract/i })).toBeTruthy()
     expect(screen.getByRole('button', { name: /Send for Signing/i })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: /Approve/i })).toBeNull()
+    expect(screen.queryByText(/Setup Signatures/i)).toBeNull()
+    expect(screen.queryByText(/Custom Task/i)).toBeNull()
+  })
+
+  it('shows Send for Signing card for ADMIN users', () => {
+    render(
+      <DashboardClient
+        session={{
+          employeeId: 'admin-1',
+          fullName: 'Admin User',
+          email: 'admin@nxtwave.co.in',
+          role: contractWorkflowRoles.admin,
+        }}
+      />
+    )
+
+    expect(screen.getByRole('button', { name: /Upload Third-Party Contract/i })).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Send for Signing/i })).toBeTruthy()
+    expect(screen.queryByText('Contracts assigned to your queue')).toBeNull()
   })
 
   it('hides Send for Signing card for non-legal users', () => {
@@ -105,6 +125,70 @@ describe('DashboardClient legal upload action cards', () => {
 
     expect(screen.getByRole('button', { name: /Upload Third-Party Contract/i })).toBeTruthy()
     expect(screen.queryByRole('button', { name: /Send for Signing/i })).toBeNull()
+  })
+
+  it('hides numeric count from upload and send-for-signing cards', () => {
+    render(
+      <DashboardClient
+        session={{
+          employeeId: 'employee-1',
+          fullName: 'Legal User',
+          email: 'legal@nxtwave.co.in',
+          role: contractWorkflowRoles.legalTeam,
+        }}
+      />
+    )
+
+    const uploadCard = screen.getByRole('button', { name: /Upload Third-Party Contract/i })
+    const sendForSigningCard = screen.getByRole('button', { name: /Send for Signing/i })
+
+    expect(within(uploadCard).queryByText(/^\d+$/)).toBeNull()
+    expect(within(sendForSigningCard).queryByText(/^\d+$/)).toBeNull()
+  })
+
+  it('shows review count using UNDER_REVIEW total and routes assigned-to-me card to filter', async () => {
+    Object.defineProperty(window.HTMLElement.prototype, 'scrollIntoView', {
+      value: jest.fn(),
+      configurable: true,
+      writable: true,
+    })
+
+    jest.spyOn(contractsClient, 'dashboardCounts').mockResolvedValue({
+      ok: true,
+      data: {
+        counts: { ALL: 0, HOD_PENDING: 0, UNDER_REVIEW: 9, COMPLETED: 0, ON_HOLD: 0, ASSIGNED_TO_ME: 3 },
+      },
+    } as never)
+
+    render(
+      <DashboardClient
+        session={{
+          employeeId: 'employee-1',
+          fullName: 'Legal User',
+          email: 'legal@nxtwave.co.in',
+          role: contractWorkflowRoles.legalTeam,
+        }}
+      />
+    )
+
+    const reviewMeta = await screen.findByText('Documents awaiting review')
+    const reviewCard = reviewMeta.closest('button')
+    expect(reviewCard).toBeTruthy()
+    if (!reviewCard) {
+      throw new Error('Review action card was not rendered')
+    }
+    expect(within(reviewCard).getByText('9')).toBeTruthy()
+
+    const assignedCardMeta = await screen.findByText('Contracts assigned to your queue')
+    const assignedCard = assignedCardMeta.closest('button')
+    expect(assignedCard).toBeTruthy()
+    if (!assignedCard) {
+      throw new Error('Assigned To Me action card was not rendered')
+    }
+    expect(within(assignedCard).getByText('3')).toBeTruthy()
+
+    fireEvent.click(assignedCard)
+    expect(mockReplace).toHaveBeenCalledWith('/dashboard?filter=ASSIGNED_TO_ME')
   })
 })
 
@@ -290,6 +374,7 @@ describe('DashboardClient HOD experience updates', () => {
 
     expect(await screen.findByText('My Contracts')).toBeTruthy()
     expect(screen.queryByRole('button', { name: /Upload Third-Party Contract/i })).toBeNull()
+    expect(screen.getByText('Contracts assigned to your queue')).toBeTruthy()
   })
 
   it('shows approval requested elapsed label for HOD pending contracts', async () => {
