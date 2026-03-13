@@ -29,7 +29,7 @@ export default function MicrosoftButton() {
   return (
     <button
       onClick={login}
-      className="w-full bg-blue-600 text-white px-4 py-3 rounded font-medium hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 disabled:opacity-65 disabled:cursor-not-allowed"
+      className="w-full bg-blue-600 text-white px-4 py-3 rounded font-medium hover:bg-blue-700 transition-colors flex items-center justify-center gap-2 cursor-pointer disabled:opacity-65 disabled:cursor-not-allowed"
       disabled={isSubmitting}
     >
       {isSubmitting ? <Spinner size={14} /> : null}

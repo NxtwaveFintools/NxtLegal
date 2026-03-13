@@ -21,6 +21,7 @@ export const envServer = {
   allowedDomains: requireEnv('AUTH_ALLOWED_DOMAINS'),
   siteUrl: requireEnv('NEXT_PUBLIC_SITE_URL'),
   featureMicrosoftOAuth: optionalEnv('FEATURE_MICROSOFT_OAUTH') ?? 'true',
+  featureGoogleOAuth: optionalEnv('FEATURE_GOOGLE_OAUTH') ?? 'true',
   featurePasswordLogin: optionalEnv('FEATURE_PASSWORD_LOGIN') ?? 'true',
   featureContractWorkflow: optionalEnv('FEATURE_CONTRACT_WORKFLOW') ?? 'false',
   featureAdminGovernance: optionalEnv('FEATURE_ADMIN_GOVERNANCE') ?? 'true',

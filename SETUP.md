@@ -39,7 +39,10 @@ NODE_ENV=development
 LOG_LEVEL=DEBUG
 
 # Features
+NEXT_PUBLIC_FEATURE_MICROSOFT_OAUTH=true
+NEXT_PUBLIC_FEATURE_GOOGLE_OAUTH=true
 FEATURE_MICROSOFT_OAUTH=true
+FEATURE_GOOGLE_OAUTH=true
 
 # Zoho Sign (India DC) OAuth + Webhook
 ZOHO_SIGN_API_BASE_URL=https://sign.zoho.in/api/v1
@@ -142,16 +145,17 @@ curl -X POST http://localhost:3000/api/auth/login \
   }'
 ```
 
-#### Microsoft OAuth
+#### OAuth (Microsoft / Google)
 
 1. Navigate to: http://localhost:3000/login
-2. Click "Sign in with Microsoft"
+2. Click "Sign in with Microsoft" or "Sign in with Google"
 3. Complete OAuth flow
 
-**Note:** Microsoft OAuth requires:
-- Azure AD app registration
+**Note:** OAuth requires:
+- Azure AD app registration (for Microsoft login)
+- Google OAuth app configuration in Supabase (for Google login)
 - Callback URL configured in Supabase: `https://your-project.supabase.co/auth/v1/callback`
-- `FEATURE_MICROSOFT_OAUTH=true` in `.env.local`
+- `NEXT_PUBLIC_FEATURE_MICROSOFT_OAUTH=true` and/or `NEXT_PUBLIC_FEATURE_GOOGLE_OAUTH=true` in `.env.local`
 
 ### Running Tests
 
@@ -219,7 +223,10 @@ NEXT_PUBLIC_SITE_URL=https://yourdomain.com
 NODE_ENV=production
 LOG_LEVEL=ERROR
 
+NEXT_PUBLIC_FEATURE_MICROSOFT_OAUTH=true
+NEXT_PUBLIC_FEATURE_GOOGLE_OAUTH=true
 FEATURE_MICROSOFT_OAUTH=true
+FEATURE_GOOGLE_OAUTH=true
 
 # Zoho Sign (India DC) OAuth + Webhook
 ZOHO_SIGN_API_BASE_URL=https://sign.zoho.in/api/v1
@@ -293,7 +300,7 @@ npm run seed:test-employee
 npx supabase db reset  # If database is corrupted
 ```
 
-### Microsoft OAuth fails with "Domain not allowed"
+### OAuth login fails with "Domain not allowed"
 
 **Cause:** Email domain not in `AUTH_ALLOWED_DOMAINS`
 
