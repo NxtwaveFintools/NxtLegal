@@ -228,8 +228,8 @@ function getRoleConfig(role?: string): DashboardRoleConfig {
       defaultFilter: 'HOD_PENDING',
       filters: [
         { value: 'HOD_PENDING', label: 'HOD Pending' },
-        { value: 'ASSIGNED_TO_ME', label: 'Assigned To Me' },
         { value: 'UNDER_REVIEW', label: 'Under Review' },
+        { value: 'REJECTED', label: 'Rejected' },
         { value: 'COMPLETED', label: 'Completed' },
         { value: 'ON_HOLD', label: 'On Hold' },
       ],
@@ -739,13 +739,24 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                   }}
                 />
               ) : null}
-              {session.role === contractWorkflowRoles.legalTeam || session.role === contractWorkflowRoles.hod ? (
+              {session.role === contractWorkflowRoles.legalTeam ? (
                 <DashboardActionCard
                   title="Assigned To Me"
                   count={filterCounts.ASSIGNED_TO_ME ?? 0}
                   description="Contracts assigned to your queue"
                   onClick={() => {
                     applyFilter('ASSIGNED_TO_ME')
+                    contractsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                  }}
+                />
+              ) : null}
+              {session.role === contractWorkflowRoles.hod ? (
+                <DashboardActionCard
+                  title="HOD Pending"
+                  count={filterCounts.HOD_PENDING ?? 0}
+                  description="Contracts waiting for your approval"
+                  onClick={() => {
+                    applyFilter('HOD_PENDING')
                     contractsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
                   }}
                 />

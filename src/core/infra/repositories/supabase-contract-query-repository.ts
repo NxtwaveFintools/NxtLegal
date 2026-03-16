@@ -5044,6 +5044,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       return contractStatuses.completed
     }
 
+    if (filter === 'REJECTED') {
+      return contractStatuses.rejected
+    }
+
     return contractStatuses.onHold
   }
 

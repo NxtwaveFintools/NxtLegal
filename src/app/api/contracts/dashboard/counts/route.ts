@@ -8,7 +8,14 @@ import { dashboardCountsQuerySchema } from '@/core/domain/contracts/schemas'
 import { contractWorkflowRoles } from '@/core/constants/contracts'
 import { logger } from '@/core/infra/logging/logger'
 
-type DashboardContractsFilter = 'ALL' | 'HOD_PENDING' | 'UNDER_REVIEW' | 'COMPLETED' | 'ON_HOLD' | 'ASSIGNED_TO_ME'
+type DashboardContractsFilter =
+  | 'ALL'
+  | 'HOD_PENDING'
+  | 'UNDER_REVIEW'
+  | 'COMPLETED'
+  | 'ON_HOLD'
+  | 'REJECTED'
+  | 'ASSIGNED_TO_ME'
 type DashboardContractsScope = 'default' | 'personal'
 
 /**

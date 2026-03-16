@@ -84,7 +84,7 @@ describe('dashboardContractsQuerySchema', () => {
   })
 
   it('accepts all valid filter values', () => {
-    const validFilters = ['ALL', 'HOD_PENDING', 'UNDER_REVIEW', 'COMPLETED', 'ON_HOLD', 'ASSIGNED_TO_ME']
+    const validFilters = ['ALL', 'HOD_PENDING', 'UNDER_REVIEW', 'COMPLETED', 'ON_HOLD', 'REJECTED', 'ASSIGNED_TO_ME']
     for (const filter of validFilters) {
       expect(() => dashboardContractsQuerySchema.parse({ filter })).not.toThrow()
     }

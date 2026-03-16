@@ -58,6 +58,7 @@ export type DashboardContractFilter =
   | 'UNDER_REVIEW'
   | 'COMPLETED'
   | 'ON_HOLD'
+  | 'REJECTED'
   | 'ASSIGNED_TO_ME'
 
 export type DashboardContractScope = 'default' | 'personal'
