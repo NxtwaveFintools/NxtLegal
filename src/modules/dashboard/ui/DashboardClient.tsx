@@ -1,7 +1,7 @@
 'use client'
 
 import type { FormEvent, ReactNode } from 'react'
-import { useCallback, useEffect, useMemo, useOptimistic, useRef, useState } from 'react'
+import { startTransition, useCallback, useEffect, useMemo, useOptimistic, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
@@ -228,8 +228,8 @@ function getRoleConfig(role?: string): DashboardRoleConfig {
       defaultFilter: 'HOD_PENDING',
       filters: [
         { value: 'HOD_PENDING', label: 'HOD Pending' },
-        { value: 'ASSIGNED_TO_ME', label: 'Assigned To Me' },
         { value: 'UNDER_REVIEW', label: 'Under Review' },
+        { value: 'REJECTED', label: 'Rejected' },
         { value: 'COMPLETED', label: 'Completed' },
         { value: 'ON_HOLD', label: 'On Hold' },
       ],
@@ -541,9 +541,11 @@ export default function DashboardClient({ session }: DashboardClientProps) {
       const nextContracts = contracts.filter((contract) => contract.id !== contractId)
       const nextAdditionalApprovals = actionableAdditionalApprovals.filter((contract) => contract.id !== contractId)
 
-      setOptimisticContracts(nextContracts)
-      setOptimisticActionableAdditionalApprovals(nextAdditionalApprovals)
-      setOptimisticActiveFilterTotal((current) => Math.max(current - 1, 0))
+      startTransition(() => {
+        setOptimisticContracts(nextContracts)
+        setOptimisticActionableAdditionalApprovals(nextAdditionalApprovals)
+        setOptimisticActiveFilterTotal((current) => Math.max(current - 1, 0))
+      })
 
       setMutatingContractId(contractId)
 
@@ -554,9 +556,11 @@ export default function DashboardClient({ session }: DashboardClientProps) {
         })
 
         if (!response.ok) {
-          setOptimisticContracts(previousContracts)
-          setOptimisticActionableAdditionalApprovals(previousAdditionalApprovals)
-          setOptimisticActiveFilterTotal(previousFilterTotal)
+          startTransition(() => {
+            setOptimisticContracts(previousContracts)
+            setOptimisticActionableAdditionalApprovals(previousAdditionalApprovals)
+            setOptimisticActiveFilterTotal(previousFilterTotal)
+          })
           toast.error(response.error?.message ?? 'Failed to complete contract action')
           return false
         }
@@ -573,9 +577,11 @@ export default function DashboardClient({ session }: DashboardClientProps) {
         toast.success(action === 'hod.approve' ? 'Contract approved successfully' : 'Contract rejected successfully')
         return true
       } catch (error) {
-        setOptimisticContracts(previousContracts)
-        setOptimisticActionableAdditionalApprovals(previousAdditionalApprovals)
-        setOptimisticActiveFilterTotal(previousFilterTotal)
+        startTransition(() => {
+          setOptimisticContracts(previousContracts)
+          setOptimisticActionableAdditionalApprovals(previousAdditionalApprovals)
+          setOptimisticActiveFilterTotal(previousFilterTotal)
+        })
         const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred'
         toast.error(errorMessage)
         return false
@@ -733,13 +739,24 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                   }}
                 />
               ) : null}
-              {session.role === contractWorkflowRoles.legalTeam || session.role === contractWorkflowRoles.hod ? (
+              {session.role === contractWorkflowRoles.legalTeam ? (
                 <DashboardActionCard
                   title="Assigned To Me"
                   count={filterCounts.ASSIGNED_TO_ME ?? 0}
                   description="Contracts assigned to your queue"
                   onClick={() => {
                     applyFilter('ASSIGNED_TO_ME')
+                    contractsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                  }}
+                />
+              ) : null}
+              {session.role === contractWorkflowRoles.hod ? (
+                <DashboardActionCard
+                  title="HOD Pending"
+                  count={filterCounts.HOD_PENDING ?? 0}
+                  description="Contracts waiting for your approval"
+                  onClick={() => {
+                    applyFilter('HOD_PENDING')
                     contractsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
                   }}
                 />

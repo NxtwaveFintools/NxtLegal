@@ -188,7 +188,7 @@ describe('DashboardClient legal upload action cards', () => {
     expect(within(assignedCard).getByText('3')).toBeTruthy()
 
     fireEvent.click(assignedCard)
-    expect(mockReplace).toHaveBeenCalledWith('/dashboard?filter=ASSIGNED_TO_ME')
+    expect(mockReplace).toHaveBeenCalledWith('/dashboard?filter=ASSIGNED_TO_ME', { scroll: false })
   })
 })
 
@@ -374,7 +374,8 @@ describe('DashboardClient HOD experience updates', () => {
 
     expect(await screen.findByText('My Contracts')).toBeTruthy()
     expect(screen.queryByRole('button', { name: /Upload Third-Party Contract/i })).toBeNull()
-    expect(screen.getByText('Contracts assigned to your queue')).toBeTruthy()
+    expect(screen.getByText('Contracts waiting for your approval')).toBeTruthy()
+    expect(screen.getByRole('button', { name: /Rejected \(0\)/i })).toBeTruthy()
   })
 
   it('shows approval requested elapsed label for HOD pending contracts', async () => {

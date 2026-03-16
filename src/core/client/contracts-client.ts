@@ -94,7 +94,14 @@ type ContractDocument = {
   createdAt: string
 }
 
-type DashboardContractsFilter = 'ALL' | 'HOD_PENDING' | 'UNDER_REVIEW' | 'COMPLETED' | 'ON_HOLD' | 'ASSIGNED_TO_ME'
+type DashboardContractsFilter =
+  | 'ALL'
+  | 'HOD_PENDING'
+  | 'UNDER_REVIEW'
+  | 'COMPLETED'
+  | 'ON_HOLD'
+  | 'REJECTED'
+  | 'ASSIGNED_TO_ME'
 type DashboardContractsScope = 'default' | 'personal'
 
 type RepositorySortBy = 'title' | 'created_at' | 'hod_approved_at' | 'status' | 'tat_deadline_at'

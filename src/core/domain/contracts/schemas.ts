@@ -37,6 +37,7 @@ export const dashboardContractsFilterValues = [
   'UNDER_REVIEW',
   'COMPLETED',
   'ON_HOLD',
+  'REJECTED',
   'ASSIGNED_TO_ME',
 ] as const
 
