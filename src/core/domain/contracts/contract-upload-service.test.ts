@@ -1037,3 +1037,96 @@ describe('ContractUploadService replace supporting document', () => {
     expect(contractStorageRepository.upload).not.toHaveBeenCalled()
   })
 })
+
+describe('ContractUploadService direct-to-storage init/finalize', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  const buildDirectUploadInput = () => ({
+    tenantId: 'tenant-1',
+    uploadedByEmployeeId: 'admin-1',
+    uploadedByEmail: 'admin@nxtwave.co.in',
+    uploadedByRole: 'ADMIN',
+    uploadMode: contractUploadModes.default,
+    title: 'Master Service Agreement',
+    contractTypeId: 'type-1',
+    signatoryName: 'NA',
+    signatoryDesignation: 'NA',
+    signatoryEmail: 'NA',
+    backgroundOfRequest: 'NA',
+    departmentId: 'dept-1',
+    budgetApproved: false,
+    counterparties: [
+      {
+        counterpartyName: 'NA',
+        supportingFiles: [],
+        signatories: [],
+      },
+    ],
+    file: {
+      fileName: 'direct-upload.docx',
+      fileSizeBytes: 1024,
+      fileMimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    },
+    supportingFiles: [],
+  })
+
+  it('creates signed upload plan for primary document', async () => {
+    const contractRepository = {}
+    const contractStorageRepository = {
+      createSignedUploadUrl: jest.fn().mockImplementation(async (path: string) => ({
+        path,
+        token: 'token-1',
+        signedUrl: `https://upload.example/${encodeURIComponent(path)}`,
+      })),
+    }
+
+    const service = new ContractUploadService(contractRepository as never, contractStorageRepository as never, logger)
+    const result = await service.initiateUploadContract(buildDirectUploadInput())
+
+    expect(result.contractId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i)
+    expect(result.primaryUpload.path).toContain(`tenant-1/${result.contractId}/`)
+    expect(result.primaryUpload.fileName).toBe('direct-upload.docx')
+    expect(contractStorageRepository.createSignedUploadUrl).toHaveBeenCalledTimes(1)
+  })
+
+  it('finalizes metadata-only upload when files exist in storage', async () => {
+    const contractRepository = {
+      createWithAudit: jest.fn().mockResolvedValue({
+        id: 'contract-1',
+        title: 'Master Service Agreement',
+        status: contractStatuses.uploaded,
+        currentAssigneeEmployeeId: 'legal-1',
+        currentAssigneeEmail: 'legal@nxtwave.co.in',
+        fileName: 'direct-upload.docx',
+        fileSizeBytes: 1024,
+      }),
+      createCounterparties: jest.fn().mockResolvedValue([{ id: 'cp-1', sequenceOrder: 1 }]),
+      setCounterpartyName: jest.fn().mockResolvedValue(undefined),
+      createDocument: jest.fn().mockResolvedValue(undefined),
+      upsertMasterCounterpartyNames: jest.fn().mockResolvedValue(undefined),
+      seedSigningPreparationDraft: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const contractStorageRepository = {
+      exists: jest.fn().mockResolvedValue(true),
+    }
+
+    const service = new ContractUploadService(contractRepository as never, contractStorageRepository as never, logger)
+    const result = await service.finalizeUploadContract({
+      ...buildDirectUploadInput(),
+      contractId: '0d9d53a8-0f15-4dd0-ae8b-2ec672f11f92',
+    })
+
+    expect(contractStorageRepository.exists).toHaveBeenCalled()
+    expect(contractRepository.createWithAudit).toHaveBeenCalled()
+    expect(contractRepository.createDocument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        documentKind: 'PRIMARY',
+        fileName: 'direct-upload.docx',
+      })
+    )
+    expect(result.id).toBe('contract-1')
+  })
+})
