@@ -78,6 +78,19 @@ export type ReplacePrimaryDocumentInput = {
   fileBody: Blob
 }
 
+export type ReplaceSupportingDocumentInput = {
+  tenantId: string
+  contractId: string
+  sourceDocumentId: string
+  uploadedByEmployeeId: string
+  uploadedByEmail: string
+  uploadedByRole: string
+  fileName: string
+  fileSizeBytes: number
+  fileMimeType: string
+  fileBody: Blob
+}
+
 export class ContractUploadService {
   private readonly allowedInitialUploadRoles = new Set(contractDocumentUploadRules.initialAllowedRoles)
   private readonly allowedReplacementUploadRoles = new Set(contractDocumentUploadRules.replacementAllowedRoles)
@@ -415,17 +428,6 @@ export class ContractUploadService {
   async replacePrimaryDocument(input: ReplacePrimaryDocumentInput): Promise<ContractDocumentRecord> {
     this.validateReplacementInput(input)
 
-    if (
-      !this.allowedReplacementUploadRoles.has(
-        input.uploadedByRole as (typeof contractDocumentUploadRules.replacementAllowedRoles)[number]
-      )
-    ) {
-      throw new AuthorizationError(
-        'CONTRACT_REPLACEMENT_FORBIDDEN',
-        'Only LEGAL_TEAM or ADMIN can replace main contract documents'
-      )
-    }
-
     if (!this.isAllowedReplacementUpload(input.fileName, input.fileMimeType)) {
       throw new BusinessRuleError('CONTRACT_REPLACEMENT_FILE_FORMAT_INVALID', 'Replacement must be DOCX or PDF')
     }
@@ -433,6 +435,17 @@ export class ContractUploadService {
     const contract = await this.contractRepository.getForAccess(input.contractId, input.tenantId)
     if (!contract) {
       throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found for tenant')
+    }
+
+    const isPrivilegedReplacementActor = this.allowedReplacementUploadRoles.has(
+      input.uploadedByRole as (typeof contractDocumentUploadRules.replacementAllowedRoles)[number]
+    )
+    const isOriginalUploader = contract.uploadedByEmployeeId === input.uploadedByEmployeeId
+    if (!isPrivilegedReplacementActor && !isOriginalUploader) {
+      throw new AuthorizationError(
+        'CONTRACT_REPLACEMENT_FORBIDDEN',
+        'Only LEGAL_TEAM, ADMIN, or the original uploader can replace main contract documents'
+      )
     }
 
     if (contract.status === contractStatuses.signing || contract.status === contractStatuses.pendingExternal) {
@@ -464,13 +477,22 @@ export class ContractUploadService {
         uploadedByRole: input.uploadedByRole,
       })
 
-      const updateStatusPromise = input.isFinalExecuted
-        ? this.contractRepository.updateContractStatus({
-            tenantId: input.tenantId,
-            contractId: input.contractId,
-            status: contractStatuses.executed,
-          })
-        : Promise.resolve()
+      const shouldRemainOrRouteToHodPendingForPoc =
+        input.uploadedByRole === 'POC' &&
+        (contract.status === contractStatuses.hodPending || contract.status === contractStatuses.rejected)
+      const targetStatus = input.isFinalExecuted
+        ? contractStatuses.executed
+        : shouldRemainOrRouteToHodPendingForPoc
+          ? contractStatuses.hodPending
+          : contractStatuses.underReview
+      const updateStatusPromise =
+        targetStatus !== contract.status
+          ? this.contractRepository.updateContractStatus({
+              tenantId: input.tenantId,
+              contractId: input.contractId,
+              status: targetStatus,
+            })
+          : Promise.resolve()
 
       const [document] = await Promise.all([replaceDocumentPromise, updateStatusPromise])
       return document
@@ -489,6 +511,90 @@ export class ContractUploadService {
       throw new DatabaseError('Failed to replace main contract document', error as Error, {
         tenantId: input.tenantId,
         contractId: input.contractId,
+      })
+    }
+  }
+
+  async replaceSupportingDocument(input: ReplaceSupportingDocumentInput): Promise<void> {
+    this.validateSupportingReplacementInput(input)
+
+    if (!this.isAllowedReplacementUpload(input.fileName, input.fileMimeType)) {
+      throw new BusinessRuleError('CONTRACT_REPLACEMENT_FILE_FORMAT_INVALID', 'Replacement must be DOCX or PDF')
+    }
+
+    const contract = await this.contractRepository.getForAccess(input.contractId, input.tenantId)
+    if (!contract) {
+      throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found for tenant')
+    }
+
+    const isPrivilegedReplacementActor = this.allowedReplacementUploadRoles.has(
+      input.uploadedByRole as (typeof contractDocumentUploadRules.replacementAllowedRoles)[number]
+    )
+    const isOriginalUploader = contract.uploadedByEmployeeId === input.uploadedByEmployeeId
+    if (!isPrivilegedReplacementActor && !isOriginalUploader) {
+      throw new AuthorizationError(
+        'CONTRACT_REPLACEMENT_FORBIDDEN',
+        'Only LEGAL_TEAM, ADMIN, or the original uploader can replace supporting documents'
+      )
+    }
+
+    if (contract.status === contractStatuses.signing) {
+      throw new BusinessRuleError(
+        'CONTRACT_IN_SIGNATURE_REPLACEMENT_FORBIDDEN',
+        'Supporting document replacement is blocked while contract is in signature'
+      )
+    }
+
+    const sourceDocument = await this.contractRepository.getDocumentForAccess({
+      tenantId: input.tenantId,
+      contractId: input.contractId,
+      documentId: input.sourceDocumentId,
+    })
+    if (!sourceDocument || sourceDocument.documentKind !== 'COUNTERPARTY_SUPPORTING') {
+      throw new BusinessRuleError('DOCUMENT_NOT_FOUND', 'Supporting document not found for replacement')
+    }
+
+    const safeFileName = this.sanitizeFileName(input.fileName)
+    const filePath = `${input.tenantId}/${input.contractId}/counterparty-replacements/${randomUUID()}-${safeFileName}`
+
+    await this.contractStorageRepository.upload({
+      path: filePath,
+      fileBody: input.fileBody,
+      contentType: input.fileMimeType,
+    })
+
+    try {
+      await this.contractRepository.replaceSupportingDocument({
+        tenantId: input.tenantId,
+        contractId: input.contractId,
+        sourceDocumentId: input.sourceDocumentId,
+        counterpartyId: sourceDocument.counterpartyId ?? null,
+        displayName: sourceDocument.displayName ?? 'Counterparty Supporting Document',
+        fileName: safeFileName,
+        filePath,
+        fileSizeBytes: input.fileSizeBytes,
+        fileMimeType: input.fileMimeType,
+        uploadedByEmployeeId: input.uploadedByEmployeeId,
+        uploadedByEmail: input.uploadedByEmail,
+        uploadedByRole: input.uploadedByRole,
+      })
+    } catch (error) {
+      try {
+        await this.contractStorageRepository.remove(filePath)
+      } catch (rollbackError) {
+        this.logger.error('Supporting document replacement rollback failed', {
+          tenantId: input.tenantId,
+          contractId: input.contractId,
+          sourceDocumentId: input.sourceDocumentId,
+          filePath,
+          rollbackError: String(rollbackError),
+        })
+      }
+
+      throw new DatabaseError('Failed to replace supporting contract document', error as Error, {
+        tenantId: input.tenantId,
+        contractId: input.contractId,
+        sourceDocumentId: input.sourceDocumentId,
       })
     }
   }
@@ -856,6 +962,33 @@ export class ContractUploadService {
   private validateReplacementInput(input: ReplacePrimaryDocumentInput): void {
     if (!input.contractId.trim()) {
       throw new BusinessRuleError('CONTRACT_ID_REQUIRED', 'Contract ID is required')
+    }
+
+    if (!input.fileName.trim()) {
+      throw new BusinessRuleError('CONTRACT_FILE_REQUIRED', 'A contract file is required')
+    }
+
+    if (input.fileSizeBytes <= 0) {
+      throw new BusinessRuleError('CONTRACT_FILE_EMPTY', 'Uploaded contract file is empty')
+    }
+
+    const maxFileSizeBytes = limits.maxUploadSizeMb * 1024 * 1024
+    if (input.fileSizeBytes > maxFileSizeBytes) {
+      throw new BusinessRuleError('CONTRACT_FILE_TOO_LARGE', `Uploaded file exceeds ${limits.maxUploadSizeMb}MB limit`)
+    }
+
+    if (!input.fileMimeType.trim()) {
+      throw new BusinessRuleError('CONTRACT_FILE_MIME_REQUIRED', 'File MIME type is required')
+    }
+  }
+
+  private validateSupportingReplacementInput(input: ReplaceSupportingDocumentInput): void {
+    if (!input.contractId.trim()) {
+      throw new BusinessRuleError('CONTRACT_ID_REQUIRED', 'Contract ID is required')
+    }
+
+    if (!input.sourceDocumentId.trim()) {
+      throw new BusinessRuleError('DOCUMENT_ID_REQUIRED', 'Document ID is required')
     }
 
     if (!input.fileName.trim()) {

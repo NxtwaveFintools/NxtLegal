@@ -1008,6 +1008,29 @@ export const contractsClient = {
     )
   },
 
+  async replaceSupportingDocument(params: {
+    contractId: string
+    documentId: string
+    file: File
+    idempotencyKey: string
+  }): Promise<ApiResponse<{ success: true }>> {
+    const formData = new FormData()
+    formData.set('file', params.file)
+    formData.set('documentId', params.documentId)
+
+    return safeFetch<{ success: true }>(
+      resolveContractPath(routeRegistry.api.contracts.replaceSupportingDocument, params.contractId),
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Idempotency-Key': params.idempotencyKey,
+        },
+        body: formData,
+      }
+    )
+  },
+
   async action(
     contractId: string,
     payload:

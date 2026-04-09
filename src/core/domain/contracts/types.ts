@@ -91,6 +91,9 @@ export type ContractDocumentAccessRecord = {
   id: string
   tenantId: string
   contractId: string
+  documentKind?: ContractDocumentKind
+  counterpartyId?: string | null
+  displayName?: string
   versionNumber?: number
   filePath: string
   fileName: string

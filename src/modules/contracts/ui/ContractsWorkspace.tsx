@@ -2244,6 +2244,16 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                       </button>
                     )
                   })}
+                  <div className={styles.tabHeaderActions}>
+                    <button
+                      type="button"
+                      className={`${styles.button} ${styles.buttonPrimary}`}
+                      onClick={() => void handleViewDocument()}
+                      disabled={!selectedContractId}
+                    >
+                      Preview
+                    </button>
+                  </div>
                 </div>
 
                 <div
@@ -2675,6 +2685,8 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                       contractId={selectedContract.id}
                       contractStatus={selectedContract.status}
                       userRole={session.role}
+                      actorEmployeeId={session.employeeId}
+                      uploadedByEmployeeId={selectedContract.uploadedByEmployeeId}
                       currentDocumentId={selectedContract.currentDocumentId}
                       documents={documents}
                       defaultUploaderEmail={selectedContract.uploadedByEmail}
