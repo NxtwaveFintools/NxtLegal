@@ -46,6 +46,20 @@ export interface ContractRepository {
     contractId: string
   }): Promise<ContractDocumentAccessRecord | null>
   replacePrimaryDocument(input: ReplacePrimaryContractDocumentInput): Promise<ContractDocumentRecord>
+  replaceSupportingDocument(input: {
+    tenantId: string
+    contractId: string
+    sourceDocumentId: string
+    counterpartyId?: string | null
+    displayName: string
+    fileName: string
+    filePath: string
+    fileSizeBytes: number
+    fileMimeType: string
+    uploadedByEmployeeId: string
+    uploadedByEmail: string
+    uploadedByRole: string
+  }): Promise<void>
   updateContractStatus(input: UpdateContractStatusInput): Promise<void>
   isPocAssignedToDepartment(params: { tenantId: string; pocEmail: string; departmentId: string }): Promise<boolean>
   isHodAssignedToDepartment(params: { tenantId: string; hodEmail: string; departmentId: string }): Promise<boolean>

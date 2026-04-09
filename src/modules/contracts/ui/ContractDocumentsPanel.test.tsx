@@ -24,6 +24,19 @@ const makeDoc = (overrides: Partial<ContractDocument> = {}): ContractDocument =>
   ...overrides,
 })
 
+const makeSupportingDoc = (overrides: Partial<ContractDocument> = {}): ContractDocument => ({
+  id: 'supporting-doc-1',
+  documentKind: 'COUNTERPARTY_SUPPORTING',
+  displayName: 'Counterparty Docs - Acme Corp (1)',
+  counterpartyId: 'counterparty-1',
+  counterpartyName: 'Acme Corp',
+  fileName: 'acme-supporting-v1.pdf',
+  fileSizeBytes: 1024,
+  fileMimeType: 'application/pdf',
+  createdAt: '2026-02-24T11:00:00.000Z',
+  ...overrides,
+})
+
 describe('ContractDocumentsPanel', () => {
   beforeEach(() => {
     jest.restoreAllMocks()
@@ -35,6 +48,44 @@ describe('ContractDocumentsPanel', () => {
         contractId="contract-1"
         contractStatus="COMPLETED"
         userRole="POC"
+        currentDocumentId="doc-1"
+        documents={[makeDoc()]}
+        onPreviewDocument={jest.fn()}
+        onDownloadDocument={jest.fn()}
+        onRefreshDocuments={async () => undefined}
+      />
+    )
+
+    expect(screen.queryByRole('button', { name: 'Replace Document' })).toBeNull()
+  })
+
+  it('shows Replace button for original uploader even when role is POC', async () => {
+    render(
+      <ContractDocumentsPanel
+        contractId="contract-1"
+        contractStatus="COMPLETED"
+        userRole="POC"
+        actorEmployeeId="poc-1"
+        uploadedByEmployeeId="poc-1"
+        currentDocumentId="doc-1"
+        documents={[makeDoc()]}
+        onPreviewDocument={jest.fn()}
+        onDownloadDocument={jest.fn()}
+        onRefreshDocuments={async () => undefined}
+      />
+    )
+
+    expect(screen.getByRole('button', { name: 'Replace Document' })).toBeTruthy()
+  })
+
+  it('hides Replace button for POC when actor is not original uploader', async () => {
+    render(
+      <ContractDocumentsPanel
+        contractId="contract-1"
+        contractStatus="COMPLETED"
+        userRole="POC"
+        actorEmployeeId="poc-2"
+        uploadedByEmployeeId="poc-1"
         currentDocumentId="doc-1"
         documents={[makeDoc()]}
         onPreviewDocument={jest.fn()}
@@ -210,6 +261,43 @@ describe('ContractDocumentsPanel', () => {
     )
   })
 
+  it('does not show final executed checkbox for POC uploader replacement', async () => {
+    const replaceSpy = jest.spyOn(contractsClient, 'replaceMainDocument').mockResolvedValue({
+      ok: true,
+      data: { document: makeDoc({ id: 'doc-2', versionNumber: 2 }) },
+    } as never)
+
+    render(
+      <ContractDocumentsPanel
+        contractId="contract-1"
+        contractStatus="COMPLETED"
+        userRole="POC"
+        actorEmployeeId="poc-1"
+        uploadedByEmployeeId="poc-1"
+        currentDocumentId="doc-1"
+        documents={[makeDoc()]}
+        onPreviewDocument={jest.fn()}
+        onDownloadDocument={jest.fn()}
+        onRefreshDocuments={async () => undefined}
+      />
+    )
+
+    fireEvent.click(screen.getByRole('button', { name: 'Replace Document' }))
+    expect(screen.queryByRole('checkbox', { name: 'Is this the final executed document?' })).toBeNull()
+
+    fireEvent.change(screen.getByLabelText('Replacement file'), {
+      target: { files: [new File(['new version'], 'contract-v2.pdf', { type: 'application/pdf' })] },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
+
+    await waitFor(() => expect(replaceSpy).toHaveBeenCalled())
+    expect(replaceSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        isFinalExecuted: false,
+      })
+    )
+  })
+
   it('closes modal immediately after submit while upload continues in background', async () => {
     let resolveUpload!: (value: Awaited<ReturnType<typeof contractsClient.replaceMainDocument>>) => void
     const pendingUpload: ReturnType<typeof contractsClient.replaceMainDocument> = new Promise((resolve) => {
@@ -276,5 +364,82 @@ describe('ContractDocumentsPanel', () => {
 
     expect(onPreview).toHaveBeenCalled()
     expect(onDownload).toHaveBeenCalled()
+  })
+
+  it('shows replace option for counterparty supporting docs for allowed actors', async () => {
+    render(
+      <ContractDocumentsPanel
+        contractId="contract-1"
+        contractStatus="COMPLETED"
+        userRole="LEGAL_TEAM"
+        actorEmployeeId="legal-1"
+        uploadedByEmployeeId="poc-1"
+        currentDocumentId="doc-1"
+        documents={[
+          makeDoc(),
+          makeSupportingDoc({ id: 'supporting-doc-1', createdAt: '2026-02-24T11:00:00.000Z' }),
+          makeSupportingDoc({ id: 'supporting-doc-2', createdAt: '2026-02-24T10:00:00.000Z' }),
+        ]}
+        onPreviewDocument={jest.fn()}
+        onDownloadDocument={jest.fn()}
+        onRefreshDocuments={async () => undefined}
+      />
+    )
+
+    const replaceButtons = screen.getAllByRole('button', { name: 'Replace Document' })
+    expect(replaceButtons.length).toBe(2)
+  })
+
+  it('hides counterparty replace option once contract status is SIGNING', async () => {
+    render(
+      <ContractDocumentsPanel
+        contractId="contract-1"
+        contractStatus="SIGNING"
+        userRole="LEGAL_TEAM"
+        currentDocumentId="doc-1"
+        documents={[makeDoc(), makeSupportingDoc()]}
+        onPreviewDocument={jest.fn()}
+        onDownloadDocument={jest.fn()}
+        onRefreshDocuments={async () => undefined}
+      />
+    )
+
+    expect(screen.queryByRole('dialog', { name: 'Replace supporting document' })).toBeNull()
+    expect(screen.getByText('Supporting document replacement is unavailable after signing starts.')).toBeTruthy()
+  })
+
+  it('calls supporting replacement API with selected supporting document id', async () => {
+    const replaceSupportingSpy = jest.spyOn(contractsClient, 'replaceSupportingDocument').mockResolvedValue({
+      ok: true,
+      data: { success: true },
+    } as never)
+
+    render(
+      <ContractDocumentsPanel
+        contractId="contract-1"
+        contractStatus="COMPLETED"
+        userRole="LEGAL_TEAM"
+        currentDocumentId="doc-1"
+        documents={[makeDoc(), makeSupportingDoc({ id: 'supporting-doc-42' })]}
+        onPreviewDocument={jest.fn()}
+        onDownloadDocument={jest.fn()}
+        onRefreshDocuments={async () => undefined}
+      />
+    )
+
+    const replaceButtons = screen.getAllByRole('button', { name: 'Replace Document' })
+    fireEvent.click(replaceButtons[1])
+    fireEvent.change(screen.getByLabelText('Replacement file'), {
+      target: { files: [new File(['updated'], 'acme-supporting-v2.pdf', { type: 'application/pdf' })] },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
+
+    await waitFor(() => expect(replaceSupportingSpy).toHaveBeenCalled())
+    expect(replaceSupportingSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contractId: 'contract-1',
+        documentId: 'supporting-doc-42',
+      })
+    )
   })
 })

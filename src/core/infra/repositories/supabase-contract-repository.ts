@@ -481,7 +481,9 @@ class SupabaseContractRepository implements ContractRepository {
 
     const { data, error } = await supabase
       .from('contract_documents')
-      .select('id, tenant_id, contract_id, file_path, file_name, version_number')
+      .select(
+        'id, tenant_id, contract_id, document_kind, counterparty_id, display_name, file_path, file_name, version_number'
+      )
       .eq('tenant_id', params.tenantId)
       .eq('contract_id', params.contractId)
       .eq('id', params.documentId)
@@ -490,6 +492,9 @@ class SupabaseContractRepository implements ContractRepository {
         id: string
         tenant_id: string
         contract_id: string
+        document_kind: 'PRIMARY' | 'COUNTERPARTY_SUPPORTING' | 'EXECUTED_CONTRACT' | 'AUDIT_CERTIFICATE'
+        counterparty_id: string | null
+        display_name: string
         file_path: string
         file_name: string
         version_number: number | null
@@ -509,6 +514,9 @@ class SupabaseContractRepository implements ContractRepository {
       id: data.id,
       tenantId: data.tenant_id,
       contractId: data.contract_id,
+      documentKind: data.document_kind,
+      counterpartyId: data.counterparty_id,
+      displayName: data.display_name,
       versionNumber: data.version_number ?? undefined,
       filePath: data.file_path,
       fileName: data.file_name,
@@ -636,6 +644,75 @@ class SupabaseContractRepository implements ContractRepository {
       uploadedRole: input.uploadedByRole,
       replacedDocumentId: payload.replaced_document_id,
       createdAt: new Date().toISOString(),
+    }
+  }
+
+  async replaceSupportingDocument(input: {
+    tenantId: string
+    contractId: string
+    sourceDocumentId: string
+    counterpartyId?: string | null
+    displayName: string
+    fileName: string
+    filePath: string
+    fileSizeBytes: number
+    fileMimeType: string
+    uploadedByEmployeeId: string
+    uploadedByEmail: string
+    uploadedByRole: string
+  }): Promise<void> {
+    const supabase = createServiceSupabase()
+
+    const { error: insertError } = await supabase.from('contract_documents').insert({
+      tenant_id: input.tenantId,
+      contract_id: input.contractId,
+      document_kind: 'COUNTERPARTY_SUPPORTING',
+      counterparty_id: input.counterpartyId ?? null,
+      display_name: input.displayName,
+      file_name: input.fileName,
+      file_path: input.filePath,
+      file_size_bytes: input.fileSizeBytes,
+      file_mime_type: input.fileMimeType,
+      uploaded_by_employee_id: input.uploadedByEmployeeId,
+      uploaded_by_email: input.uploadedByEmail,
+      uploaded_role: input.uploadedByRole,
+      replaced_document_id: input.sourceDocumentId,
+    })
+
+    if (insertError) {
+      throw new DatabaseError('Failed to replace supporting contract document', new Error(insertError.message), {
+        code: insertError.code,
+        details: insertError.details,
+      })
+    }
+
+    const { error: auditError } = await supabase.from('audit_logs').insert([
+      {
+        tenant_id: input.tenantId,
+        user_id: input.uploadedByEmployeeId,
+        event_type: null,
+        action: 'contract.supporting_document.replaced',
+        actor_email: input.uploadedByEmail,
+        actor_role: input.uploadedByRole,
+        resource_type: 'contract',
+        resource_id: input.contractId,
+        metadata: {
+          replaced_document_id: input.sourceDocumentId,
+          file_name: input.fileName,
+          file_mime_type: input.fileMimeType,
+          file_size_bytes: input.fileSizeBytes,
+        },
+      },
+    ])
+
+    if (auditError) {
+      throw new DatabaseError(
+        'Failed to write supporting document replacement audit event',
+        new Error(auditError.message),
+        {
+          code: auditError.code,
+        }
+      )
     }
   }
 

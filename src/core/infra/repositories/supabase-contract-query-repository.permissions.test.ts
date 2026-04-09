@@ -1,4 +1,4 @@
-import { AuthorizationError } from '@/core/http/errors'
+import { AuthorizationError, BusinessRuleError } from '@/core/http/errors'
 
 jest.mock('@/lib/supabase/service', () => ({
   createServiceSupabase: jest.fn(),
@@ -877,5 +877,170 @@ describe('supabaseContractQueryRepository action permissions', () => {
 
     expect(count).toBe(6)
     expect(countBuilder.in).toHaveBeenCalledWith('department_id', ['dept-finance'])
+  })
+
+  it('shows legal.void action for uploader POC while contract is HOD_PENDING', async () => {
+    const transitionsSpy = jest.spyOn(
+      supabaseContractQueryRepository as unknown as {
+        getTransitionsForStatus: (
+          tenantId: string,
+          fromStatus: string,
+          actorRole?: string
+        ) => Promise<Array<{ to_status: string; trigger_action: string }>>
+      },
+      'getTransitionsForStatus'
+    )
+    transitionsSpy.mockResolvedValue([{ to_status: 'VOID', trigger_action: 'legal.void' }])
+
+    const pendingCountSpy = jest.spyOn(
+      supabaseContractQueryRepository as unknown as {
+        getPendingApproverCount: (tenantId: string, contractId: string) => Promise<number>
+      },
+      'getPendingApproverCount'
+    )
+    pendingCountSpy.mockResolvedValue(0)
+
+    const firstPendingSpy = jest.spyOn(
+      supabaseContractQueryRepository as unknown as {
+        getFirstPendingApprover: (
+          tenantId: string,
+          contractId: string
+        ) => Promise<{ approverEmployeeId: string } | null>
+      },
+      'getFirstPendingApprover'
+    )
+    firstPendingSpy.mockResolvedValue(null)
+
+    const actions = await supabaseContractQueryRepository.getAvailableActions({
+      tenantId: 'tenant-1',
+      actorEmployeeId: 'poc-1',
+      actorRole: 'POC',
+      contract: {
+        id: 'contract-1',
+        title: 'Contract A',
+        contractTypeId: 'type-1',
+        status: 'HOD_PENDING',
+        uploadedByEmployeeId: 'poc-1',
+        uploadedByEmail: 'poc@nxtwave.co.in',
+        currentAssigneeEmployeeId: 'hod-1',
+        currentAssigneeEmail: 'hod@nxtwave.co.in',
+        departmentId: 'dept-1',
+        signatoryName: 'Sig Name',
+        signatoryDesignation: 'Manager',
+        signatoryEmail: 'sig@nxtwave.co.in',
+        backgroundOfRequest: 'Need review',
+        budgetApproved: true,
+        requestCreatedAt: new Date().toISOString(),
+        fileName: 'file.docx',
+        fileSizeBytes: 1024,
+        fileMimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        filePath: 'tenant/contract-1/file.docx',
+        rowVersion: 1,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    })
+
+    expect(actions.some((item) => item.action === 'legal.void')).toBe(true)
+  })
+
+  it('allows uploader POC pre-HOD void path to pass assignee gate', async () => {
+    const getByIdSpy = jest.spyOn(supabaseContractQueryRepository, 'getById')
+    const canActorAccessSpy = jest.spyOn(
+      supabaseContractQueryRepository as unknown as {
+        canActorAccessContract: (...args: unknown[]) => Promise<boolean>
+      },
+      'canActorAccessContract'
+    )
+
+    canActorAccessSpy.mockResolvedValue(true)
+    getByIdSpy.mockResolvedValue({
+      id: 'contract-1',
+      title: 'Contract A',
+      contractTypeId: 'type-1',
+      status: 'HOD_PENDING',
+      uploadedByEmployeeId: 'poc-1',
+      uploadedByEmail: 'poc@nxtwave.co.in',
+      currentAssigneeEmployeeId: 'hod-1',
+      currentAssigneeEmail: 'hod@nxtwave.co.in',
+      departmentId: 'dept-1',
+      signatoryName: 'Sig Name',
+      signatoryDesignation: 'Manager',
+      signatoryEmail: 'sig@nxtwave.co.in',
+      backgroundOfRequest: 'Need review',
+      budgetApproved: true,
+      requestCreatedAt: new Date().toISOString(),
+      fileName: 'file.docx',
+      fileSizeBytes: 1024,
+      fileMimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      filePath: 'tenant/contract-1/file.docx',
+      rowVersion: 1,
+      uploadMode: 'DEFAULT',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+
+    await expect(
+      supabaseContractQueryRepository.applyAction({
+        tenantId: 'tenant-1',
+        contractId: 'contract-1',
+        action: 'legal.void',
+        actorEmployeeId: 'poc-1',
+        actorRole: 'POC',
+        actorEmail: 'poc@nxtwave.co.in',
+      })
+    ).rejects.toMatchObject<Partial<BusinessRuleError>>({
+      code: 'REMARK_REQUIRED',
+    })
+  })
+
+  it('blocks uploader POC void once contract leaves HOD_PENDING', async () => {
+    const getByIdSpy = jest.spyOn(supabaseContractQueryRepository, 'getById')
+    const canActorAccessSpy = jest.spyOn(
+      supabaseContractQueryRepository as unknown as {
+        canActorAccessContract: (...args: unknown[]) => Promise<boolean>
+      },
+      'canActorAccessContract'
+    )
+
+    canActorAccessSpy.mockResolvedValue(true)
+    getByIdSpy.mockResolvedValue({
+      id: 'contract-1',
+      title: 'Contract A',
+      contractTypeId: 'type-1',
+      status: 'UNDER_REVIEW',
+      uploadedByEmployeeId: 'poc-1',
+      uploadedByEmail: 'poc@nxtwave.co.in',
+      currentAssigneeEmployeeId: 'legal-1',
+      currentAssigneeEmail: 'legal@nxtwave.co.in',
+      departmentId: 'dept-1',
+      signatoryName: 'Sig Name',
+      signatoryDesignation: 'Manager',
+      signatoryEmail: 'sig@nxtwave.co.in',
+      backgroundOfRequest: 'Need review',
+      budgetApproved: true,
+      requestCreatedAt: new Date().toISOString(),
+      fileName: 'file.docx',
+      fileSizeBytes: 1024,
+      fileMimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      filePath: 'tenant/contract-1/file.docx',
+      rowVersion: 1,
+      uploadMode: 'DEFAULT',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+
+    await expect(
+      supabaseContractQueryRepository.applyAction({
+        tenantId: 'tenant-1',
+        contractId: 'contract-1',
+        action: 'legal.void',
+        actorEmployeeId: 'poc-1',
+        actorRole: 'POC',
+        actorEmail: 'poc@nxtwave.co.in',
+      })
+    ).rejects.toMatchObject<Partial<AuthorizationError>>({
+      code: 'CONTRACT_ACTION_FORBIDDEN',
+    })
   })
 })

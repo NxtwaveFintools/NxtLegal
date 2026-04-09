@@ -704,35 +704,40 @@ describe('ContractUploadService replace primary document', () => {
     ...overrides,
   })
 
+  const buildContractForReplacement = (overrides?: Record<string, unknown>) => ({
+    id: 'contract-1',
+    tenantId: 'tenant-1',
+    uploadedByEmployeeId: 'legal-1',
+    currentAssigneeEmployeeId: 'legal-1',
+    status: contractStatuses.completed,
+    currentDocumentId: 'doc-1',
+    filePath: 'tenant-1/contract-1/versions/v1.pdf',
+    fileName: 'v1.pdf',
+    ...overrides,
+  })
+
+  const buildReplacedDocument = () => ({
+    id: 'doc-2',
+    tenantId: 'tenant-1',
+    contractId: 'contract-1',
+    documentKind: 'PRIMARY',
+    versionNumber: 2,
+    displayName: 'Primary Contract',
+    fileName: 'contract-v2.pdf',
+    filePath: 'tenant-1/contract-1/versions/v2.pdf',
+    fileSizeBytes: 2048,
+    fileMimeType: 'application/pdf',
+    createdAt: new Date().toISOString(),
+  })
+
   it('runs document version replace and status update concurrently when final executed is checked', async () => {
     let statusUpdateStarted = false
     const contractRepository = {
-      getForAccess: jest.fn().mockResolvedValue({
-        id: 'contract-1',
-        tenantId: 'tenant-1',
-        uploadedByEmployeeId: 'legal-1',
-        currentAssigneeEmployeeId: 'legal-1',
-        status: contractStatuses.completed,
-        currentDocumentId: 'doc-1',
-        filePath: 'tenant-1/contract-1/versions/v1.pdf',
-        fileName: 'v1.pdf',
-      }),
+      getForAccess: jest.fn().mockResolvedValue(buildContractForReplacement()),
       replacePrimaryDocument: jest.fn().mockImplementation(async () => {
         await new Promise((resolve) => setTimeout(resolve, 0))
         expect(statusUpdateStarted).toBe(true)
-        return {
-          id: 'doc-2',
-          tenantId: 'tenant-1',
-          contractId: 'contract-1',
-          documentKind: 'PRIMARY',
-          versionNumber: 2,
-          displayName: 'Primary Contract',
-          fileName: 'contract-v2.pdf',
-          filePath: 'tenant-1/contract-1/versions/v2.pdf',
-          fileSizeBytes: 2048,
-          fileMimeType: 'application/pdf',
-          createdAt: new Date().toISOString(),
-        }
+        return buildReplacedDocument()
       }),
       updateContractStatus: jest.fn().mockImplementation(async () => {
         statusUpdateStarted = true
@@ -756,31 +761,10 @@ describe('ContractUploadService replace primary document', () => {
     })
   })
 
-  it('does not update contract status when final executed is not checked', async () => {
+  it('moves replacement back to UNDER_REVIEW when final executed is not checked', async () => {
     const contractRepository = {
-      getForAccess: jest.fn().mockResolvedValue({
-        id: 'contract-1',
-        tenantId: 'tenant-1',
-        uploadedByEmployeeId: 'legal-1',
-        currentAssigneeEmployeeId: 'legal-1',
-        status: contractStatuses.completed,
-        currentDocumentId: 'doc-1',
-        filePath: 'tenant-1/contract-1/versions/v1.pdf',
-        fileName: 'v1.pdf',
-      }),
-      replacePrimaryDocument: jest.fn().mockResolvedValue({
-        id: 'doc-2',
-        tenantId: 'tenant-1',
-        contractId: 'contract-1',
-        documentKind: 'PRIMARY',
-        versionNumber: 2,
-        displayName: 'Primary Contract',
-        fileName: 'contract-v2.pdf',
-        filePath: 'tenant-1/contract-1/versions/v2.pdf',
-        fileSizeBytes: 2048,
-        fileMimeType: 'application/pdf',
-        createdAt: new Date().toISOString(),
-      }),
+      getForAccess: jest.fn().mockResolvedValue(buildContractForReplacement({ status: contractStatuses.completed })),
+      replacePrimaryDocument: jest.fn().mockResolvedValue(buildReplacedDocument()),
       updateContractStatus: jest.fn().mockResolvedValue(undefined),
     }
 
@@ -794,6 +778,262 @@ describe('ContractUploadService replace primary document', () => {
     await service.replacePrimaryDocument(buildReplaceInput({ isFinalExecuted: false }) as never)
 
     expect(contractRepository.replacePrimaryDocument).toHaveBeenCalledTimes(1)
+    expect(contractRepository.updateContractStatus).toHaveBeenCalledWith({
+      tenantId: 'tenant-1',
+      contractId: 'contract-1',
+      status: contractStatuses.underReview,
+    })
+  })
+
+  it('keeps status in HOD_PENDING when POC uploader replaces while HOD approval is pending', async () => {
+    const contractRepository = {
+      getForAccess: jest.fn().mockResolvedValue(
+        buildContractForReplacement({
+          uploadedByEmployeeId: 'poc-1',
+          status: contractStatuses.hodPending,
+        })
+      ),
+      replacePrimaryDocument: jest.fn().mockResolvedValue(buildReplacedDocument()),
+      updateContractStatus: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const contractStorageRepository = {
+      upload: jest.fn().mockResolvedValue(undefined),
+      remove: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const service = new ContractUploadService(contractRepository as never, contractStorageRepository as never, logger)
+
+    await service.replacePrimaryDocument(
+      buildReplaceInput({
+        uploadedByEmployeeId: 'poc-1',
+        uploadedByRole: 'POC',
+        uploadedByEmail: 'poc@nxtwave.co.in',
+      }) as never
+    )
+
+    expect(contractRepository.replacePrimaryDocument).toHaveBeenCalledTimes(1)
     expect(contractRepository.updateContractStatus).not.toHaveBeenCalled()
+  })
+
+  it('routes to HOD_PENDING when POC uploader replaces a rejected contract', async () => {
+    const contractRepository = {
+      getForAccess: jest.fn().mockResolvedValue(
+        buildContractForReplacement({
+          uploadedByEmployeeId: 'poc-1',
+          status: contractStatuses.rejected,
+        })
+      ),
+      replacePrimaryDocument: jest.fn().mockResolvedValue(buildReplacedDocument()),
+      updateContractStatus: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const contractStorageRepository = {
+      upload: jest.fn().mockResolvedValue(undefined),
+      remove: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const service = new ContractUploadService(contractRepository as never, contractStorageRepository as never, logger)
+
+    await service.replacePrimaryDocument(
+      buildReplaceInput({
+        uploadedByEmployeeId: 'poc-1',
+        uploadedByRole: 'POC',
+        uploadedByEmail: 'poc@nxtwave.co.in',
+      }) as never
+    )
+
+    expect(contractRepository.replacePrimaryDocument).toHaveBeenCalledTimes(1)
+    expect(contractRepository.updateContractStatus).toHaveBeenCalledWith({
+      tenantId: 'tenant-1',
+      contractId: 'contract-1',
+      status: contractStatuses.hodPending,
+    })
+  })
+
+  it('allows original uploader POC to replace even when not legal/admin', async () => {
+    const contractRepository = {
+      getForAccess: jest.fn().mockResolvedValue(
+        buildContractForReplacement({
+          uploadedByEmployeeId: 'poc-1',
+          status: contractStatuses.onHold,
+        })
+      ),
+      replacePrimaryDocument: jest.fn().mockResolvedValue(buildReplacedDocument()),
+      updateContractStatus: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const contractStorageRepository = {
+      upload: jest.fn().mockResolvedValue(undefined),
+      remove: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const service = new ContractUploadService(contractRepository as never, contractStorageRepository as never, logger)
+
+    await service.replacePrimaryDocument(
+      buildReplaceInput({
+        uploadedByEmployeeId: 'poc-1',
+        uploadedByRole: 'POC',
+        uploadedByEmail: 'poc@nxtwave.co.in',
+      }) as never
+    )
+
+    expect(contractRepository.replacePrimaryDocument).toHaveBeenCalledTimes(1)
+  })
+
+  it('blocks replacement for non-uploader non-legal users', async () => {
+    const contractRepository = {
+      getForAccess: jest.fn().mockResolvedValue(
+        buildContractForReplacement({
+          uploadedByEmployeeId: 'poc-1',
+          status: contractStatuses.onHold,
+        })
+      ),
+      replacePrimaryDocument: jest.fn(),
+      updateContractStatus: jest.fn(),
+    }
+
+    const contractStorageRepository = {
+      upload: jest.fn().mockResolvedValue(undefined),
+      remove: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const service = new ContractUploadService(contractRepository as never, contractStorageRepository as never, logger)
+
+    await expect(
+      service.replacePrimaryDocument(
+        buildReplaceInput({
+          uploadedByEmployeeId: 'poc-2',
+          uploadedByRole: 'POC',
+          uploadedByEmail: 'other.poc@nxtwave.co.in',
+        }) as never
+      )
+    ).rejects.toMatchObject<Partial<AuthorizationError>>({
+      code: 'CONTRACT_REPLACEMENT_FORBIDDEN',
+    })
+
+    expect(contractRepository.replacePrimaryDocument).not.toHaveBeenCalled()
+  })
+})
+
+describe('ContractUploadService replace supporting document', () => {
+  const buildReplaceInput = (overrides?: Record<string, unknown>) => ({
+    tenantId: 'tenant-1',
+    contractId: 'contract-1',
+    sourceDocumentId: 'supporting-doc-1',
+    uploadedByEmployeeId: 'legal-1',
+    uploadedByEmail: 'legal@nxtwave.co.in',
+    uploadedByRole: 'LEGAL_TEAM',
+    fileName: 'supporting-v2.pdf',
+    fileSizeBytes: 2048,
+    fileMimeType: 'application/pdf',
+    fileBody: new Blob([new Uint8Array([1, 2, 3])]),
+    ...overrides,
+  })
+
+  const buildContractForReplacement = (overrides?: Record<string, unknown>) => ({
+    id: 'contract-1',
+    tenantId: 'tenant-1',
+    uploadedByEmployeeId: 'legal-1',
+    currentAssigneeEmployeeId: 'legal-1',
+    status: contractStatuses.completed,
+    currentDocumentId: 'doc-1',
+    filePath: 'tenant-1/contract-1/versions/v1.pdf',
+    fileName: 'v1.pdf',
+    ...overrides,
+  })
+
+  const buildSupportingDocument = (overrides?: Record<string, unknown>) => ({
+    id: 'supporting-doc-1',
+    tenantId: 'tenant-1',
+    contractId: 'contract-1',
+    documentKind: 'COUNTERPARTY_SUPPORTING',
+    counterpartyId: 'counterparty-1',
+    displayName: 'Counterparty Docs - Acme Corp (1)',
+    versionNumber: 1,
+    filePath: 'tenant-1/contract-1/counterparty/001/001-supporting.pdf',
+    fileName: 'supporting.pdf',
+    ...overrides,
+  })
+
+  it('replaces supporting document for legal/admin or original uploader when not in signing', async () => {
+    const contractRepository = {
+      getForAccess: jest.fn().mockResolvedValue(buildContractForReplacement()),
+      getDocumentForAccess: jest.fn().mockResolvedValue(buildSupportingDocument()),
+      replaceSupportingDocument: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const contractStorageRepository = {
+      upload: jest.fn().mockResolvedValue(undefined),
+      remove: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const service = new ContractUploadService(contractRepository as never, contractStorageRepository as never, logger)
+    await service.replaceSupportingDocument(buildReplaceInput() as never)
+
+    expect(contractStorageRepository.upload).toHaveBeenCalledTimes(1)
+    expect(contractRepository.replaceSupportingDocument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sourceDocumentId: 'supporting-doc-1',
+        counterpartyId: 'counterparty-1',
+      })
+    )
+  })
+
+  it('blocks supporting replacement once contract enters SIGNING', async () => {
+    const contractRepository = {
+      getForAccess: jest.fn().mockResolvedValue(buildContractForReplacement({ status: contractStatuses.signing })),
+      getDocumentForAccess: jest.fn(),
+      replaceSupportingDocument: jest.fn(),
+    }
+
+    const contractStorageRepository = {
+      upload: jest.fn().mockResolvedValue(undefined),
+      remove: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const service = new ContractUploadService(contractRepository as never, contractStorageRepository as never, logger)
+
+    await expect(service.replaceSupportingDocument(buildReplaceInput() as never)).rejects.toMatchObject<
+      Partial<BusinessRuleError>
+    >({
+      code: 'CONTRACT_IN_SIGNATURE_REPLACEMENT_FORBIDDEN',
+    })
+
+    expect(contractStorageRepository.upload).not.toHaveBeenCalled()
+    expect(contractRepository.replaceSupportingDocument).not.toHaveBeenCalled()
+  })
+
+  it('blocks supporting replacement for non-uploader non-legal actor', async () => {
+    const contractRepository = {
+      getForAccess: jest.fn().mockResolvedValue(
+        buildContractForReplacement({
+          uploadedByEmployeeId: 'poc-1',
+          status: contractStatuses.onHold,
+        })
+      ),
+      getDocumentForAccess: jest.fn().mockResolvedValue(buildSupportingDocument()),
+      replaceSupportingDocument: jest.fn(),
+    }
+
+    const contractStorageRepository = {
+      upload: jest.fn().mockResolvedValue(undefined),
+      remove: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const service = new ContractUploadService(contractRepository as never, contractStorageRepository as never, logger)
+
+    await expect(
+      service.replaceSupportingDocument(
+        buildReplaceInput({
+          uploadedByEmployeeId: 'poc-2',
+          uploadedByRole: 'POC',
+          uploadedByEmail: 'other.poc@nxtwave.co.in',
+        }) as never
+      )
+    ).rejects.toMatchObject<Partial<AuthorizationError>>({
+      code: 'CONTRACT_REPLACEMENT_FORBIDDEN',
+    })
+    expect(contractStorageRepository.upload).not.toHaveBeenCalled()
   })
 })

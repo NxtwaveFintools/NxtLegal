@@ -46,6 +46,7 @@ export const routeRegistry = {
       upload: '/api/contracts/upload',
       detail: '/api/contracts/:contractId',
       replaceMainDocument: '/api/contracts/:contractId/replace-main-document',
+      replaceSupportingDocument: '/api/contracts/:contractId/replace-supporting-document',
       download: '/api/contracts/:contractId/download',
       preview: '/api/contracts/:contractId/preview',
       timeline: '/api/contracts/:contractId/timeline',

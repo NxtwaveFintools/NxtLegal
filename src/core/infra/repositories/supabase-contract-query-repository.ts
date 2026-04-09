@@ -2650,12 +2650,18 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
     const actions = actionsFromGraph.filter((item) => {
       const isAdditionalApproverAction = item.action === 'approver.approve' || item.action === 'approver.reject'
+      const canUploaderPocPreHodVoid =
+        item.action === 'legal.void' &&
+        params.actorRole === 'POC' &&
+        params.contract.status === contractStatuses.hodPending &&
+        params.contract.uploadedByEmployeeId === params.actorEmployeeId
 
       if (
         params.actorRole !== 'ADMIN' &&
         params.actorRole !== 'LEGAL_TEAM' &&
         !isAdditionalApproverAction &&
-        !isAssignee
+        !isAssignee &&
+        !canUploaderPocPreHodVoid
       ) {
         const isHodAction =
           item.action === 'hod.approve' || item.action === 'hod.reject' || item.action === 'hod.bypass'
@@ -2729,6 +2735,11 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     const isAssignee = contract.currentAssigneeEmployeeId === params.actorEmployeeId
     const isHodAction =
       effectiveAction === 'hod.approve' || effectiveAction === 'hod.reject' || effectiveAction === 'hod.bypass'
+    const canUploaderPocPreHodVoid =
+      effectiveAction === 'legal.void' &&
+      params.actorRole === 'POC' &&
+      contract.status === contractStatuses.hodPending &&
+      contract.uploadedByEmployeeId === params.actorEmployeeId
     const allowMappedHodAction =
       params.actorRole === 'HOD' &&
       isHodAction &&
@@ -2742,7 +2753,8 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       params.actorRole !== 'ADMIN' &&
       params.actorRole !== 'LEGAL_TEAM' &&
       !isAssignee &&
-      !allowMappedHodAction
+      !allowMappedHodAction &&
+      !canUploaderPocPreHodVoid
     ) {
       throw new AuthorizationError('CONTRACT_ACTION_FORBIDDEN', 'Only the current assignee can perform this action')
     }
