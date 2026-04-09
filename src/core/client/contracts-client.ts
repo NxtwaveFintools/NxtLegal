@@ -1,6 +1,7 @@
 import { routeRegistry } from '@/core/config/route-registry'
 import type { ApiResponse } from '@/core/http/response'
 import type { ContractUploadMode } from '@/core/constants/contracts'
+import { envPublic } from '@/core/config/env.public'
 
 type ContractActionName =
   | 'hod.approve'
@@ -501,6 +502,63 @@ function xhrUpload<T>(
   })
 }
 
+function resolveSupabaseSignedUploadUrl(signedUrl: string): string {
+  if (/^https?:\/\//i.test(signedUrl)) {
+    return signedUrl
+  }
+
+  const baseUrl = envPublic.supabaseUrl.replace(/\/+$/, '')
+  if (signedUrl.startsWith('/')) {
+    return `${baseUrl}${signedUrl}`
+  }
+
+  return `${baseUrl}/${signedUrl}`
+}
+
+function xhrSignedUpload(
+  signedUrl: string,
+  file: File,
+  options?: {
+    signal?: AbortSignal
+    onProgress?: (loadedBytes: number) => void
+  }
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('PUT', resolveSupabaseSignedUploadUrl(signedUrl))
+
+    xhr.upload.addEventListener('progress', (event) => {
+      if (event.lengthComputable && options?.onProgress) {
+        options.onProgress(event.loaded)
+      }
+    })
+
+    xhr.addEventListener('load', () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve()
+        return
+      }
+
+      reject(new Error(`Signed upload failed with status ${xhr.status}`))
+    })
+
+    xhr.addEventListener('error', () => reject(new Error('Signed upload failed due to a network error')))
+    xhr.addEventListener('abort', () => reject(new Error('Signed upload was cancelled')))
+
+    if (options?.signal) {
+      if (options.signal.aborted) {
+        reject(new Error('Signed upload was cancelled'))
+        return
+      }
+      options.signal.addEventListener('abort', () => xhr.abort(), { once: true })
+    }
+
+    xhr.setRequestHeader('x-upsert', 'false')
+    xhr.setRequestHeader('content-type', file.type || 'application/octet-stream')
+    xhr.send(file)
+  })
+}
+
 /**
  * In-flight GET request deduplication map.
  *
@@ -915,72 +973,157 @@ export const contractsClient = {
     /** AbortSignal to cancel the upload mid-flight */
     signal?: AbortSignal
   }): Promise<ApiResponse<{ contract: ContractRecord }>> {
-    const formData = new FormData()
-    formData.set('title', params.title)
-    formData.set('contractTypeId', params.contractTypeId)
-    if (params.signatoryName) {
-      formData.set('signatoryName', params.signatoryName)
-    }
-    if (params.signatoryDesignation) {
-      formData.set('signatoryDesignation', params.signatoryDesignation)
-    }
-    if (params.signatoryEmail) {
-      formData.set('signatoryEmail', params.signatoryEmail)
-    }
-    if (params.backgroundOfRequest) {
-      formData.set('backgroundOfRequest', params.backgroundOfRequest)
-    }
-    if (params.departmentId) {
-      formData.set('departmentId', params.departmentId)
-    }
-    if (typeof params.budgetApproved === 'boolean') {
-      formData.set('budgetApproved', String(params.budgetApproved))
-    }
-    if (params.uploadMode) {
-      formData.set('uploadMode', params.uploadMode)
-    }
-    if (typeof params.bypassHodApproval === 'boolean') {
-      formData.set('bypassHodApproval', String(params.bypassHodApproval))
-    }
-    if (params.bypassReason?.trim()) {
-      formData.set('bypassReason', params.bypassReason.trim())
-    }
-    if (params.counterpartyName?.trim()) {
-      formData.set('counterpartyName', params.counterpartyName.trim())
-    }
-    formData.set('file', params.file)
-
-    if (params.counterparties && params.counterparties.length > 0) {
-      const flattenedSupportingFiles: File[] = []
-      const counterpartiesPayload = params.counterparties.map((counterparty) => {
-        const supportingFileIndices: number[] = []
-        for (const file of counterparty.supportingFiles) {
-          supportingFileIndices.push(flattenedSupportingFiles.length)
-          flattenedSupportingFiles.push(file)
-        }
-
-        return {
+    const initPayload = {
+      title: params.title,
+      contractTypeId: params.contractTypeId,
+      signatoryName: params.signatoryName,
+      signatoryDesignation: params.signatoryDesignation,
+      signatoryEmail: params.signatoryEmail,
+      backgroundOfRequest: params.backgroundOfRequest,
+      departmentId: params.departmentId,
+      budgetApproved: params.budgetApproved,
+      uploadMode: params.uploadMode,
+      bypassHodApproval: params.bypassHodApproval,
+      bypassReason: params.bypassReason,
+      counterpartyName: params.counterpartyName,
+      file: {
+        fileName: params.file.name,
+        fileSizeBytes: params.file.size,
+        fileMimeType: params.file.type || 'application/octet-stream',
+      },
+      counterparties:
+        params.counterparties?.map((counterparty) => ({
           counterpartyName: counterparty.counterpartyName,
-          supportingFileIndices,
           backgroundOfRequest: counterparty.backgroundOfRequest,
           budgetApproved: counterparty.budgetApproved,
           signatories: counterparty.signatories ?? [],
-        }
-      })
+          supportingFiles: counterparty.supportingFiles.map((file) => ({
+            fileName: file.name,
+            fileSizeBytes: file.size,
+            fileMimeType: file.type || 'application/octet-stream',
+          })),
+        })) ?? [],
+      supportingFiles: (params.supportingFiles ?? []).map((file) => ({
+        fileName: file.name,
+        fileSizeBytes: file.size,
+        fileMimeType: file.type || 'application/octet-stream',
+      })),
+    }
 
-      formData.set('counterparties', JSON.stringify(counterpartiesPayload))
-      for (const supportingFile of flattenedSupportingFiles) {
-        formData.append('supportingFiles', supportingFile)
+    const initResponse = await safeFetch<{
+      contractId: string
+      primaryUpload: { signedUrl: string }
+      counterpartySupportingUploads: Array<{ counterpartyIndex: number; supportingIndex: number; signedUrl: string }>
+      commonSupportingUploads: Array<{ supportingIndex: number; signedUrl: string }>
+    }>(routeRegistry.api.contracts.uploadInit, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': `${params.idempotencyKey}:init`,
+      },
+      body: JSON.stringify(initPayload),
+      signal: params.signal,
+    })
+
+    if (!initResponse.ok || !initResponse.data) {
+      return initResponse as unknown as ApiResponse<{ contract: ContractRecord }>
+    }
+
+    const allFiles = [
+      params.file,
+      ...(params.counterparties ?? []).flatMap((counterparty) => counterparty.supportingFiles),
+      ...(params.supportingFiles ?? []),
+    ]
+    const totalBytes = Math.max(
+      allFiles.reduce((sum, file) => sum + Math.max(file.size, 0), 0),
+      1
+    )
+    let uploadedCommittedBytes = 0
+
+    const emitAggregatedProgress = (currentFileSize: number, currentFileLoaded: number): void => {
+      if (!params.onProgress) {
+        return
+      }
+
+      const boundedLoaded = Math.min(Math.max(currentFileLoaded, 0), currentFileSize)
+      const overallLoaded = Math.min(uploadedCommittedBytes + boundedLoaded, totalBytes)
+      params.onProgress(Math.round((overallLoaded / totalBytes) * 100))
+    }
+
+    try {
+      emitAggregatedProgress(1, 0)
+      await xhrSignedUpload(initResponse.data.primaryUpload.signedUrl, params.file, {
+        signal: params.signal,
+        onProgress: (loadedBytes) => emitAggregatedProgress(params.file.size, loadedBytes),
+      })
+      uploadedCommittedBytes += params.file.size
+
+      for (const plannedUpload of initResponse.data.counterpartySupportingUploads) {
+        const file =
+          params.counterparties?.[plannedUpload.counterpartyIndex]?.supportingFiles?.[plannedUpload.supportingIndex]
+        if (!file) {
+          return {
+            ok: false,
+            error: {
+              code: 'upload_mapping_invalid',
+              message: 'Counterparty supporting upload mapping failed.',
+            },
+          }
+        }
+
+        await xhrSignedUpload(plannedUpload.signedUrl, file, {
+          signal: params.signal,
+          onProgress: (loadedBytes) => emitAggregatedProgress(file.size, loadedBytes),
+        })
+        uploadedCommittedBytes += file.size
+      }
+
+      for (const plannedUpload of initResponse.data.commonSupportingUploads) {
+        const file = params.supportingFiles?.[plannedUpload.supportingIndex]
+        if (!file) {
+          return {
+            ok: false,
+            error: {
+              code: 'upload_mapping_invalid',
+              message: 'Common supporting upload mapping failed.',
+            },
+          }
+        }
+
+        await xhrSignedUpload(plannedUpload.signedUrl, file, {
+          signal: params.signal,
+          onProgress: (loadedBytes) => emitAggregatedProgress(file.size, loadedBytes),
+        })
+        uploadedCommittedBytes += file.size
+      }
+    } catch (error) {
+      if (String(error).toLowerCase().includes('cancel')) {
+        return {
+          ok: false,
+          error: { code: 'upload_cancelled', message: 'Upload was cancelled.' },
+        }
+      }
+
+      return {
+        ok: false,
+        error: { code: 'signed_upload_failed', message: 'File upload to storage failed.' },
       }
     }
 
-    for (const supportingFile of params.supportingFiles ?? []) {
-      formData.append('supportingFiles', supportingFile)
-    }
+    params.onProgress?.(100)
 
-    return xhrUpload<{ contract: ContractRecord }>(routeRegistry.api.contracts.upload, formData, {
-      headers: { 'Idempotency-Key': params.idempotencyKey },
-      onProgress: params.onProgress,
+    return safeFetch<{ contract: ContractRecord }>(routeRegistry.api.contracts.uploadFinalize, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': `${params.idempotencyKey}:finalize`,
+      },
+      body: JSON.stringify({
+        ...initPayload,
+        contractId: initResponse.data.contractId,
+      }),
       signal: params.signal,
     })
   },
@@ -991,19 +1134,63 @@ export const contractsClient = {
     idempotencyKey: string
     isFinalExecuted?: boolean
   }): Promise<ApiResponse<{ document: ContractDocument }>> {
-    const formData = new FormData()
-    formData.set('file', params.file)
-    formData.set('isFinalExecuted', params.isFinalExecuted ? 'true' : 'false')
-
-    return safeFetch<{ document: ContractDocument }>(
-      resolveContractPath(routeRegistry.api.contracts.replaceMainDocument, params.contractId),
+    const initResponse = await safeFetch<{ upload: { signedUrl: string; path: string; fileName: string } }>(
+      resolveContractPath(routeRegistry.api.contracts.replaceMainDocumentInit, params.contractId),
       {
         method: 'POST',
         credentials: 'include',
         headers: {
-          'Idempotency-Key': params.idempotencyKey,
+          'Content-Type': 'application/json',
+          'Idempotency-Key': `${params.idempotencyKey}:init`,
         },
-        body: formData,
+        body: JSON.stringify({
+          file: {
+            fileName: params.file.name,
+            fileSizeBytes: params.file.size,
+            fileMimeType: params.file.type || 'application/octet-stream',
+          },
+          isFinalExecuted: Boolean(params.isFinalExecuted),
+        }),
+      }
+    )
+
+    if (!initResponse.ok || !initResponse.data) {
+      return initResponse as unknown as ApiResponse<{ document: ContractDocument }>
+    }
+
+    try {
+      await xhrSignedUpload(initResponse.data.upload.signedUrl, params.file)
+    } catch (error) {
+      if (String(error).toLowerCase().includes('cancel')) {
+        return {
+          ok: false,
+          error: { code: 'upload_cancelled', message: 'Upload was cancelled.' },
+        }
+      }
+      return {
+        ok: false,
+        error: { code: 'signed_upload_failed', message: 'File upload to storage failed.' },
+      }
+    }
+
+    return safeFetch<{ document: ContractDocument }>(
+      resolveContractPath(routeRegistry.api.contracts.replaceMainDocumentFinalize, params.contractId),
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': `${params.idempotencyKey}:finalize`,
+        },
+        body: JSON.stringify({
+          file: {
+            fileName: initResponse.data.upload.fileName,
+            fileSizeBytes: params.file.size,
+            fileMimeType: params.file.type || 'application/octet-stream',
+            path: initResponse.data.upload.path,
+          },
+          isFinalExecuted: Boolean(params.isFinalExecuted),
+        }),
       }
     )
   },
@@ -1014,19 +1201,63 @@ export const contractsClient = {
     file: File
     idempotencyKey: string
   }): Promise<ApiResponse<{ success: true }>> {
-    const formData = new FormData()
-    formData.set('file', params.file)
-    formData.set('documentId', params.documentId)
-
-    return safeFetch<{ success: true }>(
-      resolveContractPath(routeRegistry.api.contracts.replaceSupportingDocument, params.contractId),
+    const initResponse = await safeFetch<{ upload: { signedUrl: string; path: string; fileName: string } }>(
+      resolveContractPath(routeRegistry.api.contracts.replaceSupportingDocumentInit, params.contractId),
       {
         method: 'POST',
         credentials: 'include',
         headers: {
-          'Idempotency-Key': params.idempotencyKey,
+          'Content-Type': 'application/json',
+          'Idempotency-Key': `${params.idempotencyKey}:init`,
         },
-        body: formData,
+        body: JSON.stringify({
+          documentId: params.documentId,
+          file: {
+            fileName: params.file.name,
+            fileSizeBytes: params.file.size,
+            fileMimeType: params.file.type || 'application/octet-stream',
+          },
+        }),
+      }
+    )
+
+    if (!initResponse.ok || !initResponse.data) {
+      return initResponse as unknown as ApiResponse<{ success: true }>
+    }
+
+    try {
+      await xhrSignedUpload(initResponse.data.upload.signedUrl, params.file)
+    } catch (error) {
+      if (String(error).toLowerCase().includes('cancel')) {
+        return {
+          ok: false,
+          error: { code: 'upload_cancelled', message: 'Upload was cancelled.' },
+        }
+      }
+      return {
+        ok: false,
+        error: { code: 'signed_upload_failed', message: 'File upload to storage failed.' },
+      }
+    }
+
+    return safeFetch<{ success: true }>(
+      resolveContractPath(routeRegistry.api.contracts.replaceSupportingDocumentFinalize, params.contractId),
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': `${params.idempotencyKey}:finalize`,
+        },
+        body: JSON.stringify({
+          documentId: params.documentId,
+          file: {
+            fileName: initResponse.data.upload.fileName,
+            fileSizeBytes: params.file.size,
+            fileMimeType: params.file.type || 'application/octet-stream',
+            path: initResponse.data.upload.path,
+          },
+        }),
       }
     )
   },
