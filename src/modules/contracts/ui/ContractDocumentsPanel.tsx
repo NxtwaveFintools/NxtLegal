@@ -198,8 +198,6 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
     contractId,
     contractStatus,
     userRole,
-    actorEmployeeId,
-    uploadedByEmployeeId,
     currentDocumentId,
     documents,
     defaultUploaderEmail,
@@ -283,23 +281,37 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
     return primaryDocuments[0]
   }, [currentDocumentId, primaryDocuments])
 
-  const isInSignature =
-    contractStatus === contractStatuses.signing || contractStatus === contractStatuses.pendingExternal
-  const isInSigningStatus = contractStatus === contractStatuses.signing
-  const isOriginalUploader = Boolean(
-    actorEmployeeId && uploadedByEmployeeId && actorEmployeeId === uploadedByEmployeeId
-  )
+  const replacementStatusesForLegal = new Set<string>([
+    contractStatuses.pendingInternal,
+    contractStatuses.pendingExternal,
+    contractStatuses.offlineExecution,
+    contractStatuses.onHold,
+    contractStatuses.completed,
+  ])
+  const adminOnlyReplacementStatuses = new Set<string>([contractStatuses.rejected, contractStatuses.void])
+  const canLegalReplaceInCurrentStatus = replacementStatusesForLegal.has(contractStatus)
+  const canAdminReplaceInCurrentStatus =
+    canLegalReplaceInCurrentStatus || adminOnlyReplacementStatuses.has(contractStatus)
   const canMarkFinalExecuted = userRole === 'LEGAL_TEAM' || userRole === 'ADMIN'
-  const canReplace = !isInSignature && (userRole === 'LEGAL_TEAM' || userRole === 'ADMIN' || isOriginalUploader)
-  const canReplaceSupporting =
-    !isInSigningStatus && (userRole === 'LEGAL_TEAM' || userRole === 'ADMIN' || isOriginalUploader)
+  const canReplaceInUnderReview = contractStatus === contractStatuses.underReview
+  const canReplace =
+    canReplaceInUnderReview ||
+    (userRole === 'LEGAL_TEAM' && canLegalReplaceInCurrentStatus) ||
+    (userRole === 'ADMIN' && canAdminReplaceInCurrentStatus)
+  const canReplaceSupporting = canReplace
 
-  const replaceDisabledMessage = isInSignature
-    ? 'Replacement is unavailable while contract is in signature.'
-    : undefined
-  const supportingReplaceDisabledMessage = isInSigningStatus
-    ? 'Supporting document replacement is unavailable after signing starts.'
-    : undefined
+  const replaceDisabledMessage =
+    contractStatus === contractStatuses.signing
+      ? 'Replacement is unavailable while contract is in signing.'
+      : contractStatus === contractStatuses.rejected || contractStatus === contractStatuses.void
+        ? 'Replacement is restricted to Admin for rejected/void contracts.'
+        : 'Replacement is unavailable for this contract status.'
+  const supportingReplaceDisabledMessage =
+    contractStatus === contractStatuses.signing
+      ? 'Supporting document replacement is unavailable while contract is in signing.'
+      : contractStatus === contractStatuses.rejected || contractStatus === contractStatuses.void
+        ? 'Supporting document replacement is restricted to Admin for rejected/void contracts.'
+        : 'Supporting document replacement is unavailable for this contract status.'
 
   const openReplaceModal = () => {
     setIsReplaceModalOpen(true)

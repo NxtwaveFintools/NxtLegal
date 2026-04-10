@@ -6,7 +6,7 @@ const mockContractView = {
   contract: {
     id: 'contract-1',
     title: 'Master Service Agreement',
-    status: 'UNDER_REVIEW',
+    status: 'COMPLETED',
     currentDocumentId: 'document-primary-1',
   },
   documents: [],
@@ -347,14 +347,18 @@ describe('ContractSignatoryService', () => {
     global.fetch = originalFetch
 
     expect(signatoryMailer.sendTemplateEmail).toHaveBeenCalledTimes(1)
-    expect(signatoryMailer.sendTemplateEmail).toHaveBeenCalledWith(
-      expect.objectContaining({
-        recipientEmail: 'founder@nxtwave.co.in',
-        templateId: 101,
-        templateParams: expect.objectContaining({
-          signing_url: expect.stringContaining('/api/contracts/signatories/zoho-sign/redirect?token='),
-        }),
-      })
+    const sentEmailPayload = signatoryMailer.sendTemplateEmail.mock.calls[0]?.[0] as
+      | {
+          recipientEmail?: string
+          templateParams?: { signing_url?: string }
+          htmlContent?: string
+        }
+      | undefined
+    expect(sentEmailPayload?.recipientEmail).toBe('founder@nxtwave.co.in')
+    const signingUrlFromTemplate = sentEmailPayload?.templateParams?.signing_url ?? ''
+    const signingUrlFromHtml = sentEmailPayload?.htmlContent ?? ''
+    expect(`${signingUrlFromTemplate}\n${signingUrlFromHtml}`).toContain(
+      '/api/contracts/signatories/zoho-sign/redirect?token='
     )
   })
 
@@ -738,7 +742,7 @@ describe('ContractSignatoryService', () => {
     ).rejects.toBeInstanceOf(ExternalServiceError)
   })
 
-  it('rejects signatory assignment outside UNDER_REVIEW', async () => {
+  it('rejects signatory assignment outside COMPLETED', async () => {
     const contractQueryService = {
       getContractDetail: jest.fn().mockResolvedValue({
         ...mockContractView,

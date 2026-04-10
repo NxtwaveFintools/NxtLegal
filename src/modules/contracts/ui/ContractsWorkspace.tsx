@@ -1823,8 +1823,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
           }
 
           const normalizedStatus = (contractView.contract.status ?? '').toUpperCase()
-          const hasExitedPrepareForSigningStatus =
-            normalizedStatus !== contractStatuses.underReview && normalizedStatus !== contractStatuses.completed
+          const hasExitedPrepareForSigningStatus = normalizedStatus !== contractStatuses.completed
 
           if (hasExitedPrepareForSigningStatus) {
             clearSigningSendPolling(contractId)
@@ -2251,7 +2250,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                       onClick={() => void handleViewDocument()}
                       disabled={!selectedContractId}
                     >
-                      Preview
+                      View Contract
                     </button>
                   </div>
                 </div>
@@ -2441,9 +2440,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                         <>
                           <div className={styles.card}>
                             <div className={styles.sectionTitle}>Signatories</div>
-                            {([contractStatuses.underReview, contractStatuses.completed] as string[]).includes(
-                              selectedContract.status
-                            ) ? (
+                            {([contractStatuses.completed] as string[]).includes(selectedContract.status) ? (
                               <div className={styles.inlineForm}>
                                 <button
                                   type="button"
@@ -2455,18 +2452,15 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                                 </button>
                               </div>
                             ) : (
-                              <div className={styles.eventMeta}>
-                                Sign is available only in UNDER REVIEW or COMPLETED.
-                              </div>
+                              <div className={styles.eventMeta}>Sign is available only in COMPLETED.</div>
                             )}
                             {isSigningSendProcessing ? (
                               <div className={styles.eventMeta}>
                                 Signing request is processing in background. This section updates automatically.
                               </div>
                             ) : null}
-                            {([contractStatuses.underReview, contractStatuses.completed] as string[]).includes(
-                              selectedContract.status
-                            ) && !signingPreviewDocument ? (
+                            {([contractStatuses.completed] as string[]).includes(selectedContract.status) &&
+                            !signingPreviewDocument ? (
                               <div className={styles.eventMeta}>
                                 Prepare for Signing requires a PDF primary document.
                               </div>

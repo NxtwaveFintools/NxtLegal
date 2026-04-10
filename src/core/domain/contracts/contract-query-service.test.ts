@@ -427,16 +427,16 @@ describe('ContractQueryService', () => {
     expect(result.contract.status).toBe('UNDER_REVIEW')
   })
 
-  it('saves signing preparation draft when contract is under review', async () => {
+  it('saves signing preparation draft when contract is completed', async () => {
     const repository = createRepositoryMock()
     const service = new ContractQueryService(repository)
 
-    const underReviewContract: ContractDetail = {
+    const completedContract: ContractDetail = {
       ...baseContract,
-      status: 'UNDER_REVIEW',
+      status: 'COMPLETED',
     }
 
-    repository.getById.mockResolvedValue(underReviewContract)
+    repository.getById.mockResolvedValue(completedContract)
     repository.canAccessContract.mockResolvedValue(true)
     repository.getDocuments.mockResolvedValue([])
     repository.getAvailableActions.mockResolvedValue([])
@@ -520,7 +520,7 @@ describe('ContractQueryService', () => {
     })
   })
 
-  it('rejects signing preparation draft save when contract is not under review', async () => {
+  it('rejects signing preparation draft save when contract is not completed', async () => {
     const repository = createRepositoryMock()
     const service = new ContractQueryService(repository)
 

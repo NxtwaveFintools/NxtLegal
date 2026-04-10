@@ -162,12 +162,9 @@ export class ContractSignatoryService {
     })
     const contractDetailMs = Date.now() - contractDetailStartedAt
 
-    const assignAllowedStatuses: string[] = [contractStatuses.underReview, contractStatuses.completed]
+    const assignAllowedStatuses: string[] = [contractStatuses.completed]
     if (!assignAllowedStatuses.includes(contractView.contract.status)) {
-      throw new BusinessRuleError(
-        'SIGNATORY_ASSIGN_INVALID_STATUS',
-        'Signatories can only be assigned in UNDER_REVIEW or COMPLETED'
-      )
+      throw new BusinessRuleError('SIGNATORY_ASSIGN_INVALID_STATUS', 'Signatories can only be assigned in COMPLETED')
     }
 
     const normalizedRecipients = params.recipients.map((recipient) => ({
