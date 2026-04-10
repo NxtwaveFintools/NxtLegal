@@ -1043,4 +1043,74 @@ describe('supabaseContractQueryRepository action permissions', () => {
       code: 'CONTRACT_ACTION_FORBIDDEN',
     })
   })
+
+  it('blocks signing-cycle soft reset for non-legal roles', async () => {
+    await expect(
+      supabaseContractQueryRepository.softResetActiveSigningCycle({
+        tenantId: 'tenant-1',
+        contractId: 'contract-1',
+        actorEmployeeId: 'poc-1',
+        actorRole: 'POC',
+        actorEmail: 'poc@nxtwave.co.in',
+      })
+    ).rejects.toMatchObject<Partial<AuthorizationError>>({
+      code: 'CONTRACT_SIGNATORY_FORBIDDEN',
+    })
+  })
+
+  it('soft-resets active pending signatories and writes audit metadata', async () => {
+    const select = jest.fn().mockResolvedValue({
+      data: [
+        { id: 'sig-1', zoho_sign_envelope_id: 'env-1' },
+        { id: 'sig-2', zoho_sign_envelope_id: 'env-1' },
+        { id: 'sig-3', zoho_sign_envelope_id: 'env-2' },
+      ],
+      error: null,
+    })
+    const is = jest.fn().mockReturnValue({ select })
+    const eqChain = {
+      eq: jest.fn(),
+      is,
+    }
+    eqChain.eq.mockReturnValue(eqChain)
+    const update = jest.fn().mockReturnValue(eqChain)
+    const insert = jest.fn().mockResolvedValue({ error: null })
+    const from = jest.fn((table: string) => {
+      if (table === 'contract_signatories') {
+        return { update }
+      }
+      if (table === 'audit_logs') {
+        return { insert }
+      }
+      throw new Error(`Unexpected table ${table}`)
+    })
+
+    ;(createServiceSupabase as jest.Mock).mockReturnValue({ from })
+
+    await supabaseContractQueryRepository.softResetActiveSigningCycle({
+      tenantId: 'tenant-1',
+      contractId: 'contract-1',
+      actorEmployeeId: 'legal-1',
+      actorRole: 'LEGAL_TEAM',
+      actorEmail: 'legal@nxtwave.co.in',
+      reason: 'Moved back to completed',
+    })
+
+    expect(from).toHaveBeenCalledWith('contract_signatories')
+    expect(eqChain.eq).toHaveBeenCalledWith('tenant_id', 'tenant-1')
+    expect(eqChain.eq).toHaveBeenCalledWith('contract_id', 'contract-1')
+    expect(eqChain.eq).toHaveBeenCalledWith('status', 'PENDING')
+    expect(is).toHaveBeenCalledWith('deleted_at', null)
+    expect(insert).toHaveBeenCalledWith([
+      expect.objectContaining({
+        event_type: 'CONTRACT_SIGNING_CYCLE_SOFT_RESET',
+        action: 'contract.signing.cycle.soft_reset',
+        note_text: 'Moved back to completed',
+        metadata: expect.objectContaining({
+          archived_pending_signatory_count: 3,
+          archived_envelope_ids: ['env-1', 'env-2'],
+        }),
+      }),
+    ])
+  })
 })

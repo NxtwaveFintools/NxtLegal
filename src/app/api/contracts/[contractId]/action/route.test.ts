@@ -15,6 +15,8 @@ const mockIdempotencyService = {
 const mockContractQueryService = {
   applyContractAction: jest.fn(),
   bypassAdditionalApprover: jest.fn(),
+  getContractDetail: jest.fn(),
+  softResetActiveSigningCycle: jest.fn(),
 }
 
 const mockContractApprovalNotificationService = {
@@ -71,6 +73,10 @@ type PostContextArg = Parameters<typeof POST>[1]
 describe('Contract action route idempotency', () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockContractQueryService.getContractDetail.mockResolvedValue({
+      contract: { status: 'UNDER_REVIEW' },
+    })
+    mockContractQueryService.softResetActiveSigningCycle.mockResolvedValue(undefined)
   })
 
   it('returns conflict when same idempotency key is already in progress', async () => {
@@ -134,6 +140,9 @@ describe('Contract action route idempotency', () => {
 
   it('recalls Zoho envelopes when legal.void is applied', async () => {
     mockIdempotencyService.claimOrGet.mockResolvedValue({ status: 'claimed' })
+    mockContractQueryService.getContractDetail.mockResolvedValueOnce({
+      contract: { status: 'SIGNING' },
+    })
     mockContractSignatoryService.recallSigningEnvelopes.mockResolvedValue(undefined)
     mockContractQueryService.applyContractAction.mockResolvedValue({
       contract: {
@@ -176,6 +185,97 @@ describe('Contract action route idempotency', () => {
       actorEmail: mockSession.email,
       reason: 'Incorrect recipient',
     })
+    expect(mockContractQueryService.softResetActiveSigningCycle).toHaveBeenCalledWith({
+      tenantId: mockSession.tenantId,
+      contractId: '33333333-3333-3333-3333-333333333333',
+      actorEmployeeId: mockSession.employeeId,
+      actorRole: mockSession.role,
+      actorEmail: mockSession.email,
+      reason: 'Incorrect recipient',
+    })
+  })
+
+  it('recalls and soft-resets when legal exits signing to a non-signing status', async () => {
+    mockIdempotencyService.claimOrGet.mockResolvedValue({ status: 'claimed' })
+    mockContractQueryService.getContractDetail.mockResolvedValueOnce({
+      contract: { status: 'SIGNING' },
+    })
+    mockContractSignatoryService.recallSigningEnvelopes.mockResolvedValue(undefined)
+    mockContractQueryService.applyContractAction.mockResolvedValue({
+      contract: {
+        id: '33333333-3333-3333-3333-333333333333',
+        title: 'NDA',
+        status: 'COMPLETED',
+        currentAssigneeEmail: 'legal@nxtwave.co.in',
+        uploadedByEmail: 'poc@nxtwave.co.in',
+        departmentHodEmail: 'hod@nxtwave.co.in',
+      },
+      counterparties: [],
+      documents: [],
+      availableActions: [],
+      additionalApprovers: [],
+      legalCollaborators: [],
+      signatories: [{ zohoSignEnvelopeId: 'envelope-3' }],
+    })
+
+    const response = await POST(
+      {
+        headers: {
+          get: (name: string) => (name === 'Idempotency-Key' ? 'idem-action-6' : null),
+        },
+        json: async () => ({ action: 'legal.set.completed' }),
+      } as unknown as PostRequestArg,
+      { params: { contractId: '33333333-3333-3333-3333-333333333333' } } as PostContextArg
+    )
+
+    expect(response.status).toBe(200)
+    expect(mockContractSignatoryService.recallSigningEnvelopes).toHaveBeenCalledWith({
+      tenantId: mockSession.tenantId,
+      contractId: '33333333-3333-3333-3333-333333333333',
+      envelopeIds: ['envelope-3'],
+      actorEmployeeId: mockSession.employeeId,
+      actorRole: mockSession.role,
+      actorEmail: mockSession.email,
+      reason: undefined,
+    })
+    expect(mockContractQueryService.softResetActiveSigningCycle).toHaveBeenCalled()
+  })
+
+  it('does not recall when previous status is not signing', async () => {
+    mockIdempotencyService.claimOrGet.mockResolvedValue({ status: 'claimed' })
+    mockContractQueryService.getContractDetail.mockResolvedValueOnce({
+      contract: { status: 'UNDER_REVIEW' },
+    })
+    mockContractQueryService.applyContractAction.mockResolvedValue({
+      contract: {
+        id: '33333333-3333-3333-3333-333333333333',
+        title: 'NDA',
+        status: 'COMPLETED',
+        currentAssigneeEmail: 'legal@nxtwave.co.in',
+        uploadedByEmail: 'poc@nxtwave.co.in',
+        departmentHodEmail: 'hod@nxtwave.co.in',
+      },
+      counterparties: [],
+      documents: [],
+      availableActions: [],
+      additionalApprovers: [],
+      legalCollaborators: [],
+      signatories: [{ zohoSignEnvelopeId: 'envelope-4' }],
+    })
+
+    const response = await POST(
+      {
+        headers: {
+          get: (name: string) => (name === 'Idempotency-Key' ? 'idem-action-7' : null),
+        },
+        json: async () => ({ action: 'legal.set.completed' }),
+      } as unknown as PostRequestArg,
+      { params: { contractId: '33333333-3333-3333-3333-333333333333' } } as PostContextArg
+    )
+
+    expect(response.status).toBe(200)
+    expect(mockContractSignatoryService.recallSigningEnvelopes).not.toHaveBeenCalled()
+    expect(mockContractQueryService.softResetActiveSigningCycle).not.toHaveBeenCalled()
   })
 
   it('notifies POC when HOD approves a contract', async () => {

@@ -1580,6 +1580,10 @@ describe('ContractSignatoryService', () => {
   it('rejects duplicate send attempts when pending signatories already exist', async () => {
     const contractQueryService = {
       countPendingSignatoriesByContract: jest.fn().mockResolvedValue(1),
+      getContractDetail: jest.fn().mockResolvedValue({
+        contract: { status: 'SIGNING' },
+      }),
+      softResetActiveSigningCycle: jest.fn(),
       getSigningPreparationDraft: jest.fn(),
     }
 
@@ -1610,7 +1614,122 @@ describe('ContractSignatoryService', () => {
       code: 'SIGNING_PREPARATION_ALREADY_SENT',
     })
 
+    expect(contractQueryService.softResetActiveSigningCycle).not.toHaveBeenCalled()
     expect(contractQueryService.getSigningPreparationDraft).not.toHaveBeenCalled()
+  })
+
+  it('allows resend by soft-resetting stale pending signatories in COMPLETED', async () => {
+    const contractQueryService = {
+      countPendingSignatoriesByContract: jest.fn().mockResolvedValueOnce(1).mockResolvedValueOnce(0),
+      getContractDetail: jest.fn().mockResolvedValue({
+        ...createContractView(),
+        contract: {
+          ...createContractView().contract,
+          status: 'COMPLETED',
+        },
+      }),
+      softResetActiveSigningCycle: jest.fn().mockResolvedValue(undefined),
+      getSigningPreparationDraft: jest.fn().mockResolvedValue({
+        contractId: 'contract-1',
+        recipients: [
+          {
+            name: 'Signer',
+            email: 'signer@example.com',
+            recipientType: 'EXTERNAL',
+            routingOrder: 1,
+          },
+        ],
+        fields: [
+          {
+            fieldType: 'SIGNATURE',
+            pageNumber: 1,
+            xPosition: 10,
+            yPosition: 10,
+            anchorString: null,
+            assignedSignerEmail: 'signer@example.com',
+          },
+        ],
+      }),
+      addSignatory: jest.fn().mockResolvedValue({
+        ...createContractView(),
+        signatories: [
+          {
+            signatoryEmail: 'signer@example.com',
+            recipientType: 'EXTERNAL',
+            routingOrder: 1,
+            zohoSignEnvelopeId: 'env-soft-reset',
+          },
+        ],
+      }),
+      moveContractToInSignature: jest.fn(),
+      resolveEnvelopeContext: jest.fn(),
+      recordZohoSignWebhookEvent: jest.fn(),
+      addSignatoryWebhookAuditEvent: jest.fn(),
+      getEnvelopeNotificationProfile: jest.fn().mockResolvedValue({
+        contractTitle: 'Master Service Agreement',
+        recipientEmails: ['signer@example.com'],
+      }),
+      recordContractNotificationDelivery: jest.fn().mockResolvedValue(undefined),
+      getContractDocumentsBySystem: jest.fn().mockResolvedValue([]),
+      markSignatoryAsSigned: jest.fn(),
+    }
+
+    jest.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer,
+      headers: { get: () => 'application/pdf' },
+    } as unknown as Response)
+
+    const signatureProvider = {
+      createSigningEnvelope: jest.fn().mockResolvedValue({
+        envelopeId: 'env-soft-reset',
+        recipients: [{ email: 'signer@example.com', recipientId: 'recipient-1', routingOrder: 1 }],
+        sourceDocumentId: 'source-doc-1',
+      }),
+      downloadCompletedEnvelopeDocuments: jest.fn(),
+    }
+
+    const service = new ContractSignatoryService(
+      contractQueryService as never,
+      {
+        createSignedDownloadUrl: jest.fn().mockResolvedValue({
+          signedUrl: 'https://example.com/signed-url',
+          fileName: 'contract.pdf',
+        }),
+      },
+      { createDocument: jest.fn() } as never,
+      { upload: jest.fn() } as never,
+      signatureProvider,
+      { sendTemplateEmail: jest.fn().mockResolvedValue({ providerMessageId: 'msg-1' }) },
+      {
+        signatoryLinkTemplateId: 101,
+        signingCompletedTemplateId: 102,
+      },
+      'https://app.example.com',
+      createLogger()
+    )
+
+    const result = await service.sendSigningPreparationDraft({
+      tenantId: 'tenant-1',
+      contractId: 'contract-1',
+      actorEmployeeId: 'legal-1',
+      actorRole: 'LEGAL_TEAM',
+      actorEmail: 'legal@nxtwave.co.in',
+    })
+
+    expect(result.envelopeId).toBe('env-soft-reset')
+    expect(contractQueryService.softResetActiveSigningCycle).toHaveBeenCalledWith({
+      tenantId: 'tenant-1',
+      contractId: 'contract-1',
+      actorEmployeeId: 'legal-1',
+      actorRole: 'LEGAL_TEAM',
+      actorEmail: 'legal@nxtwave.co.in',
+    })
+    expect(contractQueryService.moveContractToInSignature).toHaveBeenCalledWith(
+      expect.objectContaining({
+        envelopeId: 'env-soft-reset',
+      })
+    )
   })
 
   it('keeps contract editable when envelope creation fails during send', async () => {

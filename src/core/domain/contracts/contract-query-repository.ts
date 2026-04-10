@@ -545,6 +545,14 @@ export interface ContractQueryRepository {
     actorEmail: string
     envelopeId: string
   }): Promise<void>
+  softResetActiveSigningCycle(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    actorRole: string
+    actorEmail: string
+    reason?: string
+  }): Promise<void>
   deleteSigningPreparationDraft(params: { tenantId: string; contractId: string }): Promise<void>
   resolveEnvelopeContext(params: { envelopeId: string; recipientEmail?: string }): Promise<{
     tenantId: string
