@@ -3,6 +3,7 @@ import {
   contractCounterpartyValues,
   contractDocumentMimeTypes,
   contractDocumentUploadRules,
+  type ContractStatus,
   contractUploadModes,
   contractDocumentVersioning,
   contractStatuses,
@@ -169,7 +170,17 @@ export type InitializeReplaceSupportingDocumentResult = {
 
 export class ContractUploadService {
   private readonly allowedInitialUploadRoles = new Set(contractDocumentUploadRules.initialAllowedRoles)
-  private readonly allowedReplacementUploadRoles = new Set(contractDocumentUploadRules.replacementAllowedRoles)
+  private readonly legalReplacementStatuses = new Set<ContractStatus>([
+    contractStatuses.pendingInternal,
+    contractStatuses.pendingExternal,
+    contractStatuses.offlineExecution,
+    contractStatuses.onHold,
+    contractStatuses.completed,
+  ])
+  private readonly adminOnlyReplacementStatuses = new Set<ContractStatus>([
+    contractStatuses.rejected,
+    contractStatuses.void,
+  ])
   private readonly privilegedReadRoles = new Set(['ADMIN', 'LEGAL_TEAM'])
   private readonly emailPattern = /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i
 
@@ -740,7 +751,7 @@ export class ContractUploadService {
       )
     }
 
-    await this.persistSupportingReplacementMetadata(sourceDocument, input)
+    await this.persistSupportingReplacementMetadata(contract, sourceDocument, input)
   }
 
   async replacePrimaryDocument(input: ReplacePrimaryDocumentInput): Promise<ContractDocumentRecord> {
@@ -755,23 +766,7 @@ export class ContractUploadService {
       throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found for tenant')
     }
 
-    const isPrivilegedReplacementActor = this.allowedReplacementUploadRoles.has(
-      input.uploadedByRole as (typeof contractDocumentUploadRules.replacementAllowedRoles)[number]
-    )
-    const isOriginalUploader = contract.uploadedByEmployeeId === input.uploadedByEmployeeId
-    if (!isPrivilegedReplacementActor && !isOriginalUploader) {
-      throw new AuthorizationError(
-        'CONTRACT_REPLACEMENT_FORBIDDEN',
-        'Only LEGAL_TEAM, ADMIN, or the original uploader can replace main contract documents'
-      )
-    }
-
-    if (contract.status === contractStatuses.signing || contract.status === contractStatuses.pendingExternal) {
-      throw new BusinessRuleError(
-        'CONTRACT_IN_SIGNATURE_REPLACEMENT_FORBIDDEN',
-        'Main document replacement is blocked while contract is in signature'
-      )
-    }
+    this.assertMainReplacementPermissions(contract, input)
 
     const safeFileName = this.sanitizeFileName(input.fileName)
     const filePath = `${input.tenantId}/${input.contractId}/versions/${randomUUID()}-${safeFileName}`
@@ -795,14 +790,11 @@ export class ContractUploadService {
         uploadedByRole: input.uploadedByRole,
       })
 
-      const shouldRemainOrRouteToHodPendingForPoc =
-        input.uploadedByRole === 'POC' &&
-        (contract.status === contractStatuses.hodPending || contract.status === contractStatuses.rejected)
-      const targetStatus = input.isFinalExecuted
-        ? contractStatuses.executed
-        : shouldRemainOrRouteToHodPendingForPoc
-          ? contractStatuses.hodPending
-          : contractStatuses.underReview
+      const targetStatus = this.resolveReplacementTargetStatus({
+        currentStatus: contract.status,
+        uploadedByRole: input.uploadedByRole,
+        isFinalExecuted: input.isFinalExecuted,
+      })
       const updateStatusPromise =
         targetStatus !== contract.status
           ? this.contractRepository.updateContractStatus({
@@ -845,23 +837,7 @@ export class ContractUploadService {
       throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found for tenant')
     }
 
-    const isPrivilegedReplacementActor = this.allowedReplacementUploadRoles.has(
-      input.uploadedByRole as (typeof contractDocumentUploadRules.replacementAllowedRoles)[number]
-    )
-    const isOriginalUploader = contract.uploadedByEmployeeId === input.uploadedByEmployeeId
-    if (!isPrivilegedReplacementActor && !isOriginalUploader) {
-      throw new AuthorizationError(
-        'CONTRACT_REPLACEMENT_FORBIDDEN',
-        'Only LEGAL_TEAM, ADMIN, or the original uploader can replace supporting documents'
-      )
-    }
-
-    if (contract.status === contractStatuses.signing) {
-      throw new BusinessRuleError(
-        'CONTRACT_IN_SIGNATURE_REPLACEMENT_FORBIDDEN',
-        'Supporting document replacement is blocked while contract is in signature'
-      )
-    }
+    this.assertSupportingReplacementPermissions(contract, input)
 
     const sourceDocument = await this.contractRepository.getDocumentForAccess({
       tenantId: input.tenantId,
@@ -882,7 +858,7 @@ export class ContractUploadService {
     })
 
     try {
-      await this.contractRepository.replaceSupportingDocument({
+      const replaceDocumentPromise = this.contractRepository.replaceSupportingDocument({
         tenantId: input.tenantId,
         contractId: input.contractId,
         sourceDocumentId: input.sourceDocumentId,
@@ -896,6 +872,15 @@ export class ContractUploadService {
         uploadedByEmail: input.uploadedByEmail,
         uploadedByRole: input.uploadedByRole,
       })
+      const updateStatusPromise =
+        contract.status !== contractStatuses.underReview
+          ? this.contractRepository.updateContractStatus({
+              tenantId: input.tenantId,
+              contractId: input.contractId,
+              status: contractStatuses.underReview,
+            })
+          : Promise.resolve()
+      await Promise.all([replaceDocumentPromise, updateStatusPromise])
     } catch (error) {
       try {
         await this.contractStorageRepository.remove(filePath)
@@ -1381,25 +1366,34 @@ export class ContractUploadService {
     return contract
   }
 
-  private assertMainReplacementPermissions(
-    contract: ContractAccessRecord,
-    input: { uploadedByRole: string; uploadedByEmployeeId: string }
-  ): void {
-    const isPrivilegedReplacementActor = this.allowedReplacementUploadRoles.has(
-      input.uploadedByRole as (typeof contractDocumentUploadRules.replacementAllowedRoles)[number]
-    )
-    const isOriginalUploader = contract.uploadedByEmployeeId === input.uploadedByEmployeeId
-    if (!isPrivilegedReplacementActor && !isOriginalUploader) {
+  private assertMainReplacementPermissions(contract: ContractAccessRecord, input: { uploadedByRole: string }): void {
+    if (contract.status === contractStatuses.underReview) {
+      return
+    }
+
+    const isLegalOrAdminStatus = this.legalReplacementStatuses.has(contract.status)
+    const isAdminOnlyStatus = this.adminOnlyReplacementStatuses.has(contract.status)
+    const isLegalActor = input.uploadedByRole === 'LEGAL_TEAM'
+    const isAdminActor = input.uploadedByRole === 'ADMIN'
+
+    if (isAdminOnlyStatus && !isAdminActor) {
       throw new AuthorizationError(
         'CONTRACT_REPLACEMENT_FORBIDDEN',
-        'Only LEGAL_TEAM, ADMIN, or the original uploader can replace main contract documents'
+        'Only ADMIN can replace documents for rejected or void contracts'
       )
     }
 
-    if (contract.status === contractStatuses.signing || contract.status === contractStatuses.pendingExternal) {
+    if (isLegalOrAdminStatus && !isLegalActor && !isAdminActor) {
+      throw new AuthorizationError(
+        'CONTRACT_REPLACEMENT_FORBIDDEN',
+        'Only LEGAL_TEAM or ADMIN can replace documents in this contract status'
+      )
+    }
+
+    if (!isLegalOrAdminStatus && !isAdminOnlyStatus) {
       throw new BusinessRuleError(
-        'CONTRACT_IN_SIGNATURE_REPLACEMENT_FORBIDDEN',
-        'Main document replacement is blocked while contract is in signature'
+        'CONTRACT_REPLACEMENT_STATUS_FORBIDDEN',
+        'Main document replacement is unavailable for the current contract status'
       )
     }
   }
@@ -1421,14 +1415,11 @@ export class ContractUploadService {
         uploadedByRole: input.uploadedByRole,
       })
 
-      const shouldRemainOrRouteToHodPendingForPoc =
-        input.uploadedByRole === 'POC' &&
-        (contract.status === contractStatuses.hodPending || contract.status === contractStatuses.rejected)
-      const targetStatus = input.isFinalExecuted
-        ? contractStatuses.executed
-        : shouldRemainOrRouteToHodPendingForPoc
-          ? contractStatuses.hodPending
-          : contractStatuses.underReview
+      const targetStatus = this.resolveReplacementTargetStatus({
+        currentStatus: contract.status,
+        uploadedByRole: input.uploadedByRole,
+        isFinalExecuted: input.isFinalExecuted,
+      })
       const updateStatusPromise =
         targetStatus !== contract.status
           ? this.contractRepository.updateContractStatus({
@@ -1450,33 +1441,46 @@ export class ContractUploadService {
 
   private assertSupportingReplacementPermissions(
     contract: ContractAccessRecord,
-    input: { uploadedByRole: string; uploadedByEmployeeId: string }
+    input: { uploadedByRole: string }
   ): void {
-    const isPrivilegedReplacementActor = this.allowedReplacementUploadRoles.has(
-      input.uploadedByRole as (typeof contractDocumentUploadRules.replacementAllowedRoles)[number]
-    )
-    const isOriginalUploader = contract.uploadedByEmployeeId === input.uploadedByEmployeeId
-    if (!isPrivilegedReplacementActor && !isOriginalUploader) {
+    if (contract.status === contractStatuses.underReview) {
+      return
+    }
+
+    const isLegalOrAdminStatus = this.legalReplacementStatuses.has(contract.status)
+    const isAdminOnlyStatus = this.adminOnlyReplacementStatuses.has(contract.status)
+    const isLegalActor = input.uploadedByRole === 'LEGAL_TEAM'
+    const isAdminActor = input.uploadedByRole === 'ADMIN'
+
+    if (isAdminOnlyStatus && !isAdminActor) {
       throw new AuthorizationError(
         'CONTRACT_REPLACEMENT_FORBIDDEN',
-        'Only LEGAL_TEAM, ADMIN, or the original uploader can replace supporting documents'
+        'Only ADMIN can replace documents for rejected or void contracts'
       )
     }
 
-    if (contract.status === contractStatuses.signing) {
+    if (isLegalOrAdminStatus && !isLegalActor && !isAdminActor) {
+      throw new AuthorizationError(
+        'CONTRACT_REPLACEMENT_FORBIDDEN',
+        'Only LEGAL_TEAM or ADMIN can replace documents in this contract status'
+      )
+    }
+
+    if (!isLegalOrAdminStatus && !isAdminOnlyStatus) {
       throw new BusinessRuleError(
-        'CONTRACT_IN_SIGNATURE_REPLACEMENT_FORBIDDEN',
-        'Supporting document replacement is blocked while contract is in signature'
+        'CONTRACT_REPLACEMENT_STATUS_FORBIDDEN',
+        'Supporting document replacement is unavailable for the current contract status'
       )
     }
   }
 
   private async persistSupportingReplacementMetadata(
+    contract: ContractAccessRecord,
     sourceDocument: ContractDocumentAccessRecord,
     input: ReplaceSupportingDocumentMetadataInput & { path: string }
   ): Promise<void> {
     try {
-      await this.contractRepository.replaceSupportingDocument({
+      const replaceDocumentPromise = this.contractRepository.replaceSupportingDocument({
         tenantId: input.tenantId,
         contractId: input.contractId,
         sourceDocumentId: input.sourceDocumentId,
@@ -1490,6 +1494,15 @@ export class ContractUploadService {
         uploadedByEmail: input.uploadedByEmail,
         uploadedByRole: input.uploadedByRole,
       })
+      const updateStatusPromise =
+        contract.status !== contractStatuses.underReview
+          ? this.contractRepository.updateContractStatus({
+              tenantId: input.tenantId,
+              contractId: input.contractId,
+              status: contractStatuses.underReview,
+            })
+          : Promise.resolve()
+      await Promise.all([replaceDocumentPromise, updateStatusPromise])
     } catch (error) {
       throw new DatabaseError('Failed to replace supporting contract document', error as Error, {
         tenantId: input.tenantId,
@@ -1919,5 +1932,25 @@ export class ContractUploadService {
     if (!input.fileMimeType.trim()) {
       throw new BusinessRuleError('CONTRACT_FILE_MIME_REQUIRED', 'File MIME type is required')
     }
+  }
+
+  private resolveReplacementTargetStatus(params: {
+    currentStatus: ContractStatus
+    uploadedByRole: string
+    isFinalExecuted?: boolean
+  }): ContractStatus {
+    const shouldRemainOrRouteToHodPendingForPoc =
+      params.uploadedByRole === 'POC' &&
+      (params.currentStatus === contractStatuses.hodPending || params.currentStatus === contractStatuses.rejected)
+
+    if (params.isFinalExecuted) {
+      return contractStatuses.executed
+    }
+
+    if (shouldRemainOrRouteToHodPendingForPoc) {
+      return contractStatuses.hodPending
+    }
+
+    return contractStatuses.underReview
   }
 }

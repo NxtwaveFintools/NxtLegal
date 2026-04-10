@@ -2328,11 +2328,11 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found')
     }
 
-    const draftAllowedStatuses: ContractStatus[] = [contractStatuses.underReview, contractStatuses.completed]
+    const draftAllowedStatuses: ContractStatus[] = [contractStatuses.completed]
     if (!draftAllowedStatuses.includes(contract.status)) {
       throw new BusinessRuleError(
         'SIGNING_PREPARATION_INVALID_STATUS',
-        'Signing preparation drafts can only be saved in UNDER_REVIEW or COMPLETED'
+        'Signing preparation drafts can only be saved in COMPLETED'
       )
     }
 
@@ -2531,7 +2531,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       })
       .eq('tenant_id', params.tenantId)
       .eq('id', params.contractId)
-      .in('status', [contractStatuses.underReview, contractStatuses.completed])
+      .in('status', [contractStatuses.completed])
       .is('deleted_at', null)
       .select('id')
       .maybeSingle<{ id: string }>()
@@ -2540,7 +2540,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     logger.warn('TEMP_DIAG moveContractToInSignature update result', {
       contractId: params.contractId,
       requestedTenantId: params.tenantId,
-      requiredFromStatuses: [contractStatuses.underReview, contractStatuses.completed],
+      requiredFromStatuses: [contractStatuses.completed],
       targetStatus: contractStatuses.signing,
       rowsAffected,
       contractUpdateErrorCode: contractUpdateError?.code ?? null,
@@ -2556,7 +2556,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     if (!contractUpdate?.id) {
       throw new BusinessRuleError(
         'SIGNING_PREPARATION_INVALID_STATUS',
-        'Signing preparation send is only allowed in UNDER_REVIEW'
+        'Signing preparation send is only allowed in COMPLETED'
       )
     }
 
@@ -3631,12 +3631,9 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found')
     }
 
-    const assignAllowedStatuses: ContractStatus[] = [contractStatuses.underReview, contractStatuses.completed]
+    const assignAllowedStatuses: ContractStatus[] = [contractStatuses.completed]
     if (!assignAllowedStatuses.includes(contract.status)) {
-      throw new BusinessRuleError(
-        'SIGNATORY_ASSIGN_INVALID_STATUS',
-        'Signatories can only be assigned in UNDER_REVIEW or COMPLETED'
-      )
+      throw new BusinessRuleError('SIGNATORY_ASSIGN_INVALID_STATUS', 'Signatories can only be assigned in COMPLETED')
     }
 
     const existingSignatories = await this.getSignatories(params.tenantId, params.contractId)

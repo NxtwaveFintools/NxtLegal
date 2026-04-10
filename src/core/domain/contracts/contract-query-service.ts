@@ -695,11 +695,11 @@ export class ContractQueryService {
       role: params.actorRole,
     })
 
-    const allowedSigningPrepStatuses: ContractStatus[] = [contractStatuses.underReview, contractStatuses.completed]
+    const allowedSigningPrepStatuses: ContractStatus[] = [contractStatuses.completed]
     if (!allowedSigningPrepStatuses.includes(contractView.contract.status)) {
       throw new BusinessRuleError(
         'SIGNING_PREPARATION_INVALID_STATUS',
-        'Signing preparation drafts can only be saved in UNDER_REVIEW or COMPLETED'
+        'Signing preparation drafts can only be saved in COMPLETED'
       )
     }
 

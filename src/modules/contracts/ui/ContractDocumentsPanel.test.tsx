@@ -59,7 +59,7 @@ describe('ContractDocumentsPanel', () => {
     expect(screen.queryByRole('button', { name: 'Replace Document' })).toBeNull()
   })
 
-  it('shows Replace button for original uploader even when role is POC', async () => {
+  it('hides Replace button for original uploader when role is POC', async () => {
     render(
       <ContractDocumentsPanel
         contractId="contract-1"
@@ -75,7 +75,7 @@ describe('ContractDocumentsPanel', () => {
       />
     )
 
-    expect(screen.getByRole('button', { name: 'Replace Document' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Replace Document' })).toBeNull()
   })
 
   it('hides Replace button for POC when actor is not original uploader', async () => {
@@ -97,7 +97,27 @@ describe('ContractDocumentsPanel', () => {
     expect(screen.queryByRole('button', { name: 'Replace Document' })).toBeNull()
   })
 
-  it('hides Replace button when status is PENDING_WITH_EXTERNAL_STAKEHOLDERS', async () => {
+  it('shows Replace button for non-legal users in UNDER_REVIEW status', async () => {
+    render(
+      <ContractDocumentsPanel
+        contractId="contract-1"
+        contractStatus="UNDER_REVIEW"
+        userRole="POC"
+        actorEmployeeId="poc-2"
+        uploadedByEmployeeId="poc-1"
+        currentDocumentId="doc-1"
+        documents={[makeDoc(), makeSupportingDoc()]}
+        onPreviewDocument={jest.fn()}
+        onDownloadDocument={jest.fn()}
+        onRefreshDocuments={async () => undefined}
+      />
+    )
+
+    const replaceButtons = screen.getAllByRole('button', { name: 'Replace Document' })
+    expect(replaceButtons.length).toBe(2)
+  })
+
+  it('shows Replace button when status is PENDING_WITH_EXTERNAL_STAKEHOLDERS for legal team', async () => {
     render(
       <ContractDocumentsPanel
         contractId="contract-1"
@@ -111,7 +131,7 @@ describe('ContractDocumentsPanel', () => {
       />
     )
 
-    expect(screen.queryByRole('button', { name: 'Replace Document' })).toBeNull()
+    expect(screen.getByRole('button', { name: 'Replace Document' })).toBeTruthy()
   })
 
   it('shows active version using current document version number', async () => {
@@ -261,12 +281,7 @@ describe('ContractDocumentsPanel', () => {
     )
   })
 
-  it('does not show final executed checkbox for POC uploader replacement', async () => {
-    const replaceSpy = jest.spyOn(contractsClient, 'replaceMainDocument').mockResolvedValue({
-      ok: true,
-      data: { document: makeDoc({ id: 'doc-2', versionNumber: 2 }) },
-    } as never)
-
+  it('does not show final executed checkbox when replace action is unavailable', async () => {
     render(
       <ContractDocumentsPanel
         contractId="contract-1"
@@ -282,20 +297,8 @@ describe('ContractDocumentsPanel', () => {
       />
     )
 
-    fireEvent.click(screen.getByRole('button', { name: 'Replace Document' }))
+    expect(screen.queryByRole('button', { name: 'Replace Document' })).toBeNull()
     expect(screen.queryByRole('checkbox', { name: 'Is this the final executed document?' })).toBeNull()
-
-    fireEvent.change(screen.getByLabelText('Replacement file'), {
-      target: { files: [new File(['new version'], 'contract-v2.pdf', { type: 'application/pdf' })] },
-    })
-    fireEvent.click(screen.getByRole('button', { name: 'Upload' }))
-
-    await waitFor(() => expect(replaceSpy).toHaveBeenCalled())
-    expect(replaceSpy).toHaveBeenCalledWith(
-      expect.objectContaining({
-        isFinalExecuted: false,
-      })
-    )
   })
 
   it('closes modal immediately after submit while upload continues in background', async () => {
@@ -405,7 +408,9 @@ describe('ContractDocumentsPanel', () => {
     )
 
     expect(screen.queryByRole('dialog', { name: 'Replace supporting document' })).toBeNull()
-    expect(screen.getByText('Supporting document replacement is unavailable after signing starts.')).toBeTruthy()
+    expect(
+      screen.getByText('Supporting document replacement is unavailable while contract is in signing.')
+    ).toBeTruthy()
   })
 
   it('calls supporting replacement API with selected supporting document id', async () => {

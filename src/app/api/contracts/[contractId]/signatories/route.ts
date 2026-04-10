@@ -29,13 +29,10 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
       role: session.role,
     })
 
-    const allowedSigningPrepStatuses: string[] = [contractStatuses.underReview, contractStatuses.completed]
+    const allowedSigningPrepStatuses: string[] = [contractStatuses.completed]
     if (!allowedSigningPrepStatuses.includes(contractView.contract.status)) {
       return NextResponse.json(
-        errorResponse(
-          'SIGNATORY_ASSIGN_INVALID_STATUS',
-          'Signatories can only be assigned in UNDER_REVIEW or COMPLETED'
-        ),
+        errorResponse('SIGNATORY_ASSIGN_INVALID_STATUS', 'Signatories can only be assigned in COMPLETED'),
         { status: 409 }
       )
     }
