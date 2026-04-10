@@ -2583,6 +2583,83 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     }
   }
 
+  async softResetActiveSigningCycle(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    actorRole: string
+    actorEmail: string
+    reason?: string
+  }): Promise<void> {
+    this.assertActorMetadata({
+      actorEmployeeId: params.actorEmployeeId,
+      actorEmail: params.actorEmail,
+      actorRole: params.actorRole,
+    })
+
+    if (params.actorRole !== contractWorkflowRoles.legalTeam && params.actorRole !== contractWorkflowRoles.admin) {
+      throw new AuthorizationError('CONTRACT_SIGNATORY_FORBIDDEN', 'Only legal team or admin can reset signing cycle')
+    }
+
+    const supabase = createServiceSupabase()
+    const archivedAt = new Date().toISOString()
+    const { data: archivedSignatories, error: archiveError } = await supabase
+      .from('contract_signatories')
+      .update({ deleted_at: archivedAt })
+      .eq('tenant_id', params.tenantId)
+      .eq('contract_id', params.contractId)
+      .eq('status', contractSignatoryStatuses.pending)
+      .is('deleted_at', null)
+      .select('id, zoho_sign_envelope_id')
+
+    if (archiveError) {
+      if (this.isMissingRelationError(archiveError, 'contract_signatories')) {
+        return
+      }
+
+      throw new DatabaseError('Failed to soft reset active signing cycle', new Error(archiveError.message), {
+        code: archiveError.code,
+      })
+    }
+
+    const resetCount = archivedSignatories?.length ?? 0
+    if (resetCount === 0) {
+      return
+    }
+
+    const archivedEnvelopeIds = Array.from(
+      new Set(
+        (archivedSignatories ?? [])
+          .map((item: { zoho_sign_envelope_id: string | null }) => item.zoho_sign_envelope_id?.trim())
+          .filter(Boolean)
+      )
+    )
+
+    const { error: auditError } = await supabase.from('audit_logs').insert([
+      {
+        tenant_id: params.tenantId,
+        user_id: params.actorEmployeeId,
+        event_type: 'CONTRACT_SIGNING_CYCLE_SOFT_RESET',
+        action: 'contract.signing.cycle.soft_reset',
+        actor_email: params.actorEmail,
+        actor_role: params.actorRole,
+        resource_type: 'contract',
+        resource_id: params.contractId,
+        note_text: params.reason?.trim() || null,
+        metadata: {
+          archived_pending_signatory_count: resetCount,
+          archived_envelope_ids: archivedEnvelopeIds,
+        },
+      },
+    ])
+
+    if (auditError) {
+      throw new DatabaseError('Failed to write signing cycle soft reset audit event', new Error(auditError.message), {
+        code: auditError.code,
+      })
+    }
+  }
+
   async deleteSigningPreparationDraft(params: { tenantId: string; contractId: string }): Promise<void> {
     const supabase = createServiceSupabase()
     const { error } = await supabase

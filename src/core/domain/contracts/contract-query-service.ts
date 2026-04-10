@@ -765,6 +765,32 @@ export class ContractQueryService {
     })
   }
 
+  async softResetActiveSigningCycle(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    actorRole?: string
+    actorEmail: string
+    reason?: string
+  }): Promise<void> {
+    if (!params.actorRole) {
+      throw new AuthorizationError('CONTRACT_SIGNATORY_FORBIDDEN', 'User role is required for signing reset')
+    }
+
+    if (!params.actorEmail) {
+      throw new BusinessRuleError('ACTOR_EMAIL_REQUIRED', 'Actor email is required')
+    }
+
+    await this.contractRepository.softResetActiveSigningCycle({
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      actorEmployeeId: params.actorEmployeeId,
+      actorRole: params.actorRole,
+      actorEmail: params.actorEmail,
+      reason: params.reason,
+    })
+  }
+
   async deleteSigningPreparationDraft(params: { tenantId: string; contractId: string }): Promise<void> {
     await this.contractRepository.deleteSigningPreparationDraft(params)
   }

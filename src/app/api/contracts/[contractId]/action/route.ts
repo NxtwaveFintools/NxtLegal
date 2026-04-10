@@ -10,7 +10,7 @@ import {
   getContractSignatoryService,
 } from '@/core/registry/service-registry'
 import { contractActionCommandSchema, bypassApprovalActionName } from '@/core/domain/contracts/schemas'
-import { contractWorkflowRoles } from '@/core/constants/contracts'
+import { contractStatuses, contractWorkflowRoles } from '@/core/constants/contracts'
 import { logger } from '@/core/infra/logging/logger'
 
 const dispatchNotificationSafely = async (
@@ -67,6 +67,17 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
     }
 
     const contractQueryService = getContractQueryService()
+
+    let previousStatus: string | null = null
+    if (payload.action !== bypassApprovalActionName) {
+      const previousContractView = await contractQueryService.getContractDetail({
+        tenantId,
+        contractId,
+        employeeId: session.employeeId,
+        role: session.role,
+      })
+      previousStatus = previousContractView.contract.status
+    }
 
     const contractView =
       payload.action === bypassApprovalActionName
@@ -202,7 +213,15 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
       )
     }
 
-    if (payload.action !== bypassApprovalActionName && payload.action === 'legal.void') {
+    const isLegalOrAdminActor =
+      session.role === contractWorkflowRoles.legalTeam || session.role === contractWorkflowRoles.admin
+    const hasExitedSigningStatus =
+      payload.action !== bypassApprovalActionName &&
+      isLegalOrAdminActor &&
+      previousStatus === contractStatuses.signing &&
+      contractView.contract.status !== contractStatuses.signing
+
+    if (hasExitedSigningStatus) {
       const envelopeIds = Array.from(
         new Set(contractView.signatories.map((item) => item.zohoSignEnvelopeId?.trim()).filter(Boolean) as string[])
       )
@@ -219,10 +238,23 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
             actorEmail: session.email ?? '',
             reason: payload.noteText,
           }),
-          'LEGAL_VOID_ZOHO_RECALL',
+          'LEGAL_SIGNING_EXIT_ZOHO_RECALL',
           contractId
         )
       }
+
+      await dispatchNotificationSafely(
+        contractQueryService.softResetActiveSigningCycle({
+          tenantId,
+          contractId,
+          actorEmployeeId: session.employeeId,
+          actorRole: session.role,
+          actorEmail: session.email ?? '',
+          reason: payload.noteText,
+        }),
+        'SIGNING_SOFT_RESET',
+        contractId
+      )
     }
 
     const responseData = okResponse(contractView)
