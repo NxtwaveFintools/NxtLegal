@@ -33,7 +33,7 @@ BEGIN
     ('Finance Operations', 'Akhilesh Jhawar', 'akhilesh.jhawar@nxtwave.in', 'Hemanth Kothuru', 'hemanth.kothuru@nxtwave.co.in'),
     ('Product Design', 'Aman Maheshwari', 'aman.maheshwari@nxtwave.co.in', 'Nandigam Sivani Sanjana', 'nandigam.sivanisanjana@nxtwave.co.in'),
     ('TA - Operations', 'Hari Haran Gorijavola', 'hari@nxtwave.co.in', 'Mohammad Arifulla Gori', 'arifulla.mohammad@nxtwave.co.in'),
-    ('Presales', 'Shiva Shanker Reddy Devasani (NW0000302)', 'shanker@nxtwave.tech', 'Abidhusain R Sunagad', 'abidhusain.r@nxtwave.co.in'),
+    ('Presales', 'Shiva Shanker Reddy Devasani (NW0000302)', 'shanker@nxtwave.co.in', 'Abidhusain R Sunagad', 'abidhusain.r@nxtwave.co.in'),
     ('Brand Marketing', 'Nikita Aggarwal', 'nikita.aggarwal@nxtwave.co.in', 'Adhiraj Singh', 'adhiraj.singh@nxtwave.co.in'),
     ('Facilities', 'Bala Bhaskar', 'balabhaskar@nxtwave.co.in', 'Siva Prasad Chary', 'facilities_nxtwave@nxtwave.co.in'),
     ('NIAT Program Operations', 'Pavan Reddy Dharma', 'pavan.dharma@nxtwave.tech', 'Anushka Biswas', 'anushka.biswas@nxtwave.co.in'),
