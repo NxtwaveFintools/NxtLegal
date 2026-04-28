@@ -18,6 +18,7 @@ WITH mapping_input AS (
       ('Placements Support Team', 'Vidushi Jha'),
       ('University B2B Partnerships', 'Megha Ahuja'),
       ('Academy Student Success', 'Megha Ahuja'),
+      ('Intensive', 'Pranjal Sharma'),
       ('Tech Team', 'Pranjal Sharma')
   ) AS t(department_name, legal_member_name)
 ),

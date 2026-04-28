@@ -42,6 +42,7 @@ BEGIN
     ('HR Operations', 'Radha Alekhya Kommanaboina', 'alekhya.k@nxtwave.co.in', 'Divya Sri Nandigam', 'hr@nxtwave.tech'),
     ('Placements Support Team', 'Girish Akash', 'girish@nxtwave.tech', 'Hemanth Peddinti', 'hemanth.peddinti@nxtwave.co.in'),
     ('University B2B Partnerships', 'Varshith', 'varshith@nxtwave.tech', 'Aryabo Bannerjee', 'aryabo.banerjee@nxtwave.co.in'),
+    ('Intensive', 'Aniketh Reddy Mastoor', 'aniketh@nxtwave.co.in', 'Sobha Rani Potnuru', 'sobharani@nxtwave.tech'),
     ('Tech Team', 'Revanth', 'revanth@nxtwave.tech', 'Tallaparthi Dinesh Hanumnathkumar', 'tallaparthi.dineshhanumnathkumar@nxtwave.co.in');
 
   FOR rec IN
