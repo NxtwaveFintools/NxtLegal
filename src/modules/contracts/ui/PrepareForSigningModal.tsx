@@ -468,6 +468,19 @@ export default function PrepareForSigningModal({
     }
   }
 
+  const removeFieldWithCurrentScope = (current: DraftField[], field: DraftField) => {
+    if (
+      selectedFieldType === 'SIGNATURE' &&
+      field.fieldType === 'SIGNATURE' &&
+      applySignatureToAllPages &&
+      field.mirrorGroupId
+    ) {
+      return current.filter((item) => item.mirrorGroupId !== field.mirrorGroupId)
+    }
+
+    return current.filter((item) => item.id !== field.id)
+  }
+
   const fieldsForCurrentPage = useMemo(
     () => fields.filter((field) => (field.pageNumber ?? 1) === currentPage),
     [currentPage, fields]
@@ -622,10 +635,7 @@ export default function PrepareForSigningModal({
         })
 
         if (hitField) {
-          if (hitField.mirrorGroupId) {
-            return current.filter((field) => field.mirrorGroupId !== hitField.mirrorGroupId)
-          }
-          return current.filter((field) => field.id !== hitField.id)
+          return removeFieldWithCurrentScope(current, hitField)
         }
       }
 
@@ -1177,11 +1187,7 @@ export default function PrepareForSigningModal({
                         if (suppressDeleteForFieldRef.current === field.id) {
                           return
                         }
-                        setFields((current) =>
-                          field.mirrorGroupId
-                            ? current.filter((item) => item.mirrorGroupId !== field.mirrorGroupId)
-                            : current.filter((item) => item.id !== field.id)
-                        )
+                        setFields((current) => removeFieldWithCurrentScope(current, field))
                       }}
                       title={`${field.fieldType} → ${field.assignedSignerEmail} (${Math.round(resolveFieldDimensions(field).width)}x${Math.round(resolveFieldDimensions(field).height)})`}
                     >
