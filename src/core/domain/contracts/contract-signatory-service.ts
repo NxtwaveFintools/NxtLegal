@@ -123,6 +123,7 @@ export class ContractSignatoryService {
     actorEmail: string
     recipients: Array<{
       signatoryEmail: string
+      signatoryName?: string
       recipientType: 'INTERNAL' | 'EXTERNAL'
       routingOrder: number
       fields: Array<{
@@ -169,6 +170,7 @@ export class ContractSignatoryService {
 
     const normalizedRecipients = params.recipients.map((recipient) => ({
       signatoryEmail: recipient.signatoryEmail.trim().toLowerCase(),
+      signatoryName: recipient.signatoryName?.trim() || recipient.signatoryEmail.trim().toLowerCase(),
       recipientType: recipient.recipientType,
       routingOrder: recipient.routingOrder,
       fields: recipient.fields.map((field) => ({
@@ -280,7 +282,7 @@ export class ContractSignatoryService {
       envelope = await this.signatureProvider.createSigningEnvelope({
         recipients: normalizedRecipients.map((recipient) => ({
           email: recipient.signatoryEmail,
-          name: recipient.signatoryEmail,
+          name: recipient.signatoryName,
           recipientType: recipient.recipientType,
           routingOrder: recipient.routingOrder,
           fields: recipient.fields,
@@ -519,6 +521,7 @@ export class ContractSignatoryService {
 
         return {
           signatoryEmail: recipientEmail,
+          signatoryName: recipient.name,
           recipientType: recipient.recipientType,
           routingOrder: recipient.routingOrder,
           fields: recipientFields,

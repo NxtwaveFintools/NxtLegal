@@ -1463,6 +1463,15 @@ describe('ContractSignatoryService', () => {
     })
 
     expect(signatureProvider.createSigningEnvelope).toHaveBeenCalledTimes(1)
+    expect(signatureProvider.createSigningEnvelope).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipients: [
+          expect.objectContaining({ email: 'ext1@example.com', name: 'Ext One' }),
+          expect.objectContaining({ email: 'int@example.com', name: 'Int One' }),
+          expect.objectContaining({ email: 'ext2@example.com', name: 'Ext Two' }),
+        ],
+      })
+    )
     expect(contractQueryService.addSignatory).toHaveBeenCalledTimes(3)
     expect(contractQueryService.addSignatory).toHaveBeenCalledWith(
       expect.objectContaining({
