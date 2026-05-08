@@ -65,6 +65,7 @@ const createRepositoryMock = (): jest.Mocked<ContractQueryRepository> => ({
   getSigningPreparationDraft: jest.fn(),
   countPendingSignatoriesByContract: jest.fn(),
   moveContractToInSignature: jest.fn(),
+  softResetActiveSigningCycle: jest.fn(),
   deleteSigningPreparationDraft: jest.fn(),
   resolveEnvelopeContext: jest.fn(),
   recordZohoSignWebhookEvent: jest.fn(),

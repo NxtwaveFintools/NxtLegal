@@ -1042,6 +1042,62 @@
   gap: 8px;
 }
 
+/* ── Bulk Approve Controls ── */
+
+.bulkToolbar {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0 4px;
+  flex-wrap: wrap;
+}
+
+.selectAllLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.selectAllLabel:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.bulkCheckbox {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.bulkCheckbox:disabled {
+  cursor: not-allowed;
+}
+
+.bulkApproveButton {
+  min-width: 120px;
+}
+
+.contractItemCheckbox {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding-right: 4px;
+}
+
+.contractItemSelected {
+  border-color: var(--color-accent) !important;
+  background: var(--color-accent-soft) !important;
+}
+
 @media (max-width: 1024px) {
   .page {
     grid-template-columns: 64px 1fr;

@@ -11,26 +11,15 @@ import {
 } from '@/core/registry/service-registry'
 import { contractActionCommandSchema, bypassApprovalActionName } from '@/core/domain/contracts/schemas'
 import { contractStatuses, contractWorkflowRoles } from '@/core/constants/contracts'
-import { logger } from '@/core/infra/logging/logger'
-
-const dispatchNotificationSafely = async (
-  notification: Promise<unknown>,
-  event: string,
-  contractId: string
-): Promise<void> => {
-  try {
-    await notification
-  } catch (error) {
-    logger.warn('Contract action notification dispatch failed', {
-      event,
-      contractId,
-      error: error instanceof Error ? error.message : String(error),
-    })
-  }
-}
+import { dispatchNotificationSafely } from '@/core/infra/notifications/dispatch-notification-safely'
 
 const POSTHandler = withAuth(async (request: NextRequest, { session, params }) => {
   let shouldReleaseClaim = false
+  const shouldLogPerformance = process.env.NODE_ENV !== 'production'
+  const requestTimerLabel = `contract-action.total.${Date.now()}`
+  if (shouldLogPerformance) {
+    console.time(requestTimerLabel)
+  }
 
   try {
     if (!session.tenantId) {
@@ -49,8 +38,15 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
 
     const idempotencyKey = request.headers.get('Idempotency-Key')?.trim()
     if (idempotencyKey) {
+      const idempotencyClaimTimerLabel = `contract-action.idempotency-claim.${contractId}`
+      if (shouldLogPerformance) {
+        console.time(idempotencyClaimTimerLabel)
+      }
       const idempotencyService = getIdempotencyService()
       const claimResult = await idempotencyService.claimOrGet(idempotencyKey, tenantId)
+      if (shouldLogPerformance) {
+        console.timeEnd(idempotencyClaimTimerLabel)
+      }
 
       if (claimResult.status === 'cached') {
         return NextResponse.json(claimResult.record.responseData, { status: claimResult.record.statusCode })
@@ -69,7 +65,15 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
     const contractQueryService = getContractQueryService()
 
     let previousStatus: string | null = null
-    if (payload.action !== bypassApprovalActionName) {
+    const shouldCheckPreviousStatusForSigningExit =
+      payload.action !== bypassApprovalActionName &&
+      (session.role === contractWorkflowRoles.legalTeam || session.role === contractWorkflowRoles.admin)
+
+    if (shouldCheckPreviousStatusForSigningExit) {
+      const previousStatusTimerLabel = `contract-action.previous-status.${contractId}`
+      if (shouldLogPerformance) {
+        console.time(previousStatusTimerLabel)
+      }
       const previousContractView = await contractQueryService.getContractDetail({
         tenantId,
         contractId,
@@ -77,8 +81,15 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
         role: session.role,
       })
       previousStatus = previousContractView.contract.status
+      if (shouldLogPerformance) {
+        console.timeEnd(previousStatusTimerLabel)
+      }
     }
 
+    const applyActionTimerLabel = `contract-action.apply.${contractId}`
+    if (shouldLogPerformance) {
+      console.time(applyActionTimerLabel)
+    }
     const contractView =
       payload.action === bypassApprovalActionName
         ? await (() => {
@@ -108,6 +119,9 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
             actorEmail: session.email ?? '',
             noteText: payload.noteText,
           })
+    if (shouldLogPerformance) {
+      console.timeEnd(applyActionTimerLabel)
+    }
 
     if (contractView instanceof NextResponse) {
       return contractView
@@ -119,98 +133,104 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
       payload.action !== bypassApprovalActionName &&
       (payload.action === 'hod.approve' || payload.action === 'hod.bypass')
     ) {
-      await dispatchNotificationSafely(
-        contractApprovalNotificationService.notifyInternalAssignment({
-          tenantId,
-          contractId,
-          actorEmployeeId: session.employeeId,
-          actorRole: session.role,
-          assignedEmail: contractView.contract.currentAssigneeEmail,
-          contractTitle: contractView.contract.title,
-        }),
-        payload.action === 'hod.approve' ? 'HOD_APPROVED_ASSIGNMENT' : 'HOD_BYPASS_ASSIGNMENT',
-        contractId
-      )
+      void dispatchNotificationSafely({
+        dispatch: () =>
+          contractApprovalNotificationService.notifyInternalAssignment({
+            tenantId,
+            contractId,
+            actorEmployeeId: session.employeeId,
+            actorRole: session.role,
+            assignedEmail: contractView.contract.currentAssigneeEmail,
+            contractTitle: contractView.contract.title,
+          }),
+        event: payload.action === 'hod.approve' ? 'HOD_APPROVED_ASSIGNMENT' : 'HOD_BYPASS_ASSIGNMENT',
+        contractId,
+      })
 
       if (payload.action === 'hod.approve') {
-        await dispatchNotificationSafely(
+        void dispatchNotificationSafely({
+          dispatch: () =>
+            contractApprovalNotificationService.notifyPocOnHodDecision({
+              tenantId,
+              contractId,
+              actorEmployeeId: session.employeeId,
+              actorRole: session.role,
+              pocEmail: contractView.contract.uploadedByEmail,
+              decision: 'APPROVED',
+              contractTitle: contractView.contract.title,
+            }),
+          event: 'HOD_APPROVED_POC',
+          contractId,
+        })
+      }
+    }
+
+    if (payload.action !== bypassApprovalActionName && payload.action === 'approver.approve') {
+      void dispatchNotificationSafely({
+        dispatch: () =>
+          contractApprovalNotificationService.notifyApprovalReceived({
+            tenantId,
+            contractId,
+            actorEmployeeId: session.employeeId,
+            actorRole: session.role,
+            event: 'ADDITIONAL_APPROVED',
+            legalOwnerEmail: contractView.contract.currentAssigneeEmail,
+            contractTitle: contractView.contract.title,
+          }),
+        event: 'ADDITIONAL_APPROVED',
+        contractId,
+      })
+    }
+
+    if (payload.action !== bypassApprovalActionName && payload.action === 'legal.query.reroute') {
+      void dispatchNotificationSafely({
+        dispatch: () =>
+          contractApprovalNotificationService.notifyReturnedToHod({
+            tenantId,
+            contractId,
+            actorEmployeeId: session.employeeId,
+            actorRole: session.role,
+            hodEmail: contractView.contract.currentAssigneeEmail,
+          }),
+        event: 'REROUTED_TO_HOD',
+        contractId,
+      })
+    }
+
+    if (payload.action !== bypassApprovalActionName && payload.action === 'legal.reject') {
+      void dispatchNotificationSafely({
+        dispatch: () =>
+          contractApprovalNotificationService.notifyContractRejected({
+            tenantId,
+            contractId,
+            actorEmployeeId: session.employeeId,
+            actorRole: session.role,
+            recipientEmails: [
+              contractView.contract.uploadedByEmail,
+              contractView.contract.currentAssigneeEmail || contractView.contract.departmentHodEmail || '',
+            ],
+            trigger: 'LEGAL_REJECTION',
+          }),
+        event: 'LEGAL_REJECTION',
+        contractId,
+      })
+    }
+
+    if (payload.action !== bypassApprovalActionName && payload.action === 'hod.reject') {
+      void dispatchNotificationSafely({
+        dispatch: () =>
           contractApprovalNotificationService.notifyPocOnHodDecision({
             tenantId,
             contractId,
             actorEmployeeId: session.employeeId,
             actorRole: session.role,
             pocEmail: contractView.contract.uploadedByEmail,
-            decision: 'APPROVED',
+            decision: 'REJECTED',
             contractTitle: contractView.contract.title,
           }),
-          'HOD_APPROVED_POC',
-          contractId
-        )
-      }
-    }
-
-    if (payload.action !== bypassApprovalActionName && payload.action === 'approver.approve') {
-      await dispatchNotificationSafely(
-        contractApprovalNotificationService.notifyApprovalReceived({
-          tenantId,
-          contractId,
-          actorEmployeeId: session.employeeId,
-          actorRole: session.role,
-          event: 'ADDITIONAL_APPROVED',
-          legalOwnerEmail: contractView.contract.currentAssigneeEmail,
-          contractTitle: contractView.contract.title,
-        }),
-        'ADDITIONAL_APPROVED',
-        contractId
-      )
-    }
-
-    if (payload.action !== bypassApprovalActionName && payload.action === 'legal.query.reroute') {
-      await dispatchNotificationSafely(
-        contractApprovalNotificationService.notifyReturnedToHod({
-          tenantId,
-          contractId,
-          actorEmployeeId: session.employeeId,
-          actorRole: session.role,
-          hodEmail: contractView.contract.currentAssigneeEmail,
-        }),
-        'REROUTED_TO_HOD',
-        contractId
-      )
-    }
-
-    if (payload.action !== bypassApprovalActionName && payload.action === 'legal.reject') {
-      await dispatchNotificationSafely(
-        contractApprovalNotificationService.notifyContractRejected({
-          tenantId,
-          contractId,
-          actorEmployeeId: session.employeeId,
-          actorRole: session.role,
-          recipientEmails: [
-            contractView.contract.uploadedByEmail,
-            contractView.contract.currentAssigneeEmail || contractView.contract.departmentHodEmail || '',
-          ],
-          trigger: 'LEGAL_REJECTION',
-        }),
-        'LEGAL_REJECTION',
-        contractId
-      )
-    }
-
-    if (payload.action !== bypassApprovalActionName && payload.action === 'hod.reject') {
-      await dispatchNotificationSafely(
-        contractApprovalNotificationService.notifyPocOnHodDecision({
-          tenantId,
-          contractId,
-          actorEmployeeId: session.employeeId,
-          actorRole: session.role,
-          pocEmail: contractView.contract.uploadedByEmail,
-          decision: 'REJECTED',
-          contractTitle: contractView.contract.title,
-        }),
-        'HOD_REJECTED_POC',
-        contractId
-      )
+        event: 'HOD_REJECTED_POC',
+        contractId,
+      })
     }
 
     const isLegalOrAdminActor =
@@ -228,41 +248,50 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
 
       if (envelopeIds.length > 0) {
         const contractSignatoryService = getContractSignatoryService()
-        await dispatchNotificationSafely(
-          contractSignatoryService.recallSigningEnvelopes({
+        void dispatchNotificationSafely({
+          dispatch: () =>
+            contractSignatoryService.recallSigningEnvelopes({
+              tenantId,
+              contractId,
+              envelopeIds,
+              actorEmployeeId: session.employeeId,
+              actorRole: session.role,
+              actorEmail: session.email ?? '',
+              reason: payload.noteText,
+            }),
+          event: 'LEGAL_SIGNING_EXIT_ZOHO_RECALL',
+          contractId,
+        })
+      }
+
+      void dispatchNotificationSafely({
+        dispatch: () =>
+          contractQueryService.softResetActiveSigningCycle({
             tenantId,
             contractId,
-            envelopeIds,
             actorEmployeeId: session.employeeId,
             actorRole: session.role,
             actorEmail: session.email ?? '',
             reason: payload.noteText,
           }),
-          'LEGAL_SIGNING_EXIT_ZOHO_RECALL',
-          contractId
-        )
-      }
-
-      await dispatchNotificationSafely(
-        contractQueryService.softResetActiveSigningCycle({
-          tenantId,
-          contractId,
-          actorEmployeeId: session.employeeId,
-          actorRole: session.role,
-          actorEmail: session.email ?? '',
-          reason: payload.noteText,
-        }),
-        'SIGNING_SOFT_RESET',
-        contractId
-      )
+        event: 'SIGNING_SOFT_RESET',
+        contractId,
+      })
     }
 
     const responseData = okResponse(contractView)
 
     if (idempotencyKey) {
+      const idempotencyStoreTimerLabel = `contract-action.idempotency-store.${contractId}`
+      if (shouldLogPerformance) {
+        console.time(idempotencyStoreTimerLabel)
+      }
       const idempotencyService = getIdempotencyService()
       await idempotencyService.store(idempotencyKey, tenantId, responseData, 200)
       shouldReleaseClaim = false
+      if (shouldLogPerformance) {
+        console.timeEnd(idempotencyStoreTimerLabel)
+      }
     }
 
     return NextResponse.json(responseData)
@@ -287,6 +316,10 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
     const message = isAppError(error) ? error.message : 'Failed to apply contract action'
 
     return NextResponse.json(errorResponse(code, message), { status })
+  } finally {
+    if (shouldLogPerformance) {
+      console.timeEnd(requestTimerLabel)
+    }
   }
 })
 

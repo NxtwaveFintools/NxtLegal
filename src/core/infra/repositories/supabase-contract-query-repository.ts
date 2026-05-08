@@ -5484,7 +5484,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
     const supabase = createServiceSupabase()
 
-    // Run both queries in parallel — they have no dependency on each other.
+    // Run both queries in parallel - they have no dependency on each other.
     const [pendingResult, rejectionResult] = await Promise.all([
       supabase
         .from('contract_additional_approvers')
