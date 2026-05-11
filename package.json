@@ -89,6 +89,7 @@
     "lint-staged": "^16.2.7",
     "prettier": "^3.8.1",
     "react-pdf": "^10.4.0",
+    "supabase": "^2.98.2",
     "tailwindcss": "^4",
     "ts-jest": "^29.1.1",
     "tsx": "^4.21.0",
