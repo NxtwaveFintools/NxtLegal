@@ -1,3 +1,0 @@
-ALTER TABLE public.teams
-  ADD COLUMN IF NOT EXISTS poc_name TEXT,
-  ADD COLUMN IF NOT EXISTS hod_name TEXT;
