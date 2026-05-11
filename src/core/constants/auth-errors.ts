@@ -12,8 +12,8 @@ export const authErrorCodes = {
 export type AuthErrorCode = (typeof authErrorCodes)[keyof typeof authErrorCodes]
 
 export const authErrorMessages: Record<AuthErrorCode, string> = {
-  oauth_failed: 'Microsoft sign-in failed. Please try again.',
-  no_code: 'Microsoft sign-in was cancelled or failed. Please try again.',
+  oauth_failed: 'OAuth sign-in failed. Please try again.',
+  no_code: 'OAuth sign-in was cancelled or failed. Please try again.',
   unauthorized: 'Unauthorized account. Contact your administrator.',
   auth_failed: 'Authentication failed. Please try again.',
   invalid_credentials: 'Invalid Employee ID or Password',

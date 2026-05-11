@@ -44,7 +44,7 @@ export const useLoginPage = (): void => {
     let errorMessage = ''
     if (errorParam === authErrorCodes.oauthFailed) {
       errorMessage = errorDescription
-        ? `Microsoft sign-in failed: ${decodeURIComponent(errorDescription)}`
+        ? `OAuth sign-in failed: ${decodeURIComponent(errorDescription)}`
         : errorMap[authErrorCodes.oauthFailed]
     } else if (errorParam === authErrorCodes.noCode) {
       errorMessage = errorMap[authErrorCodes.noCode]
@@ -59,7 +59,7 @@ export const useLoginPage = (): void => {
       const hashDescription = hashParams.get('error_description')
       if (hashError) {
         errorMessage = hashDescription
-          ? `Microsoft sign-in failed: ${decodeURIComponent(hashDescription)}`
+          ? `OAuth sign-in failed: ${decodeURIComponent(hashDescription)}`
           : errorMap[authErrorCodes.oauthFailed]
       }
     }

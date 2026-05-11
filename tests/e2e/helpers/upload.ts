@@ -52,8 +52,9 @@ export async function uploadContract(
   await expect(uploadTrigger).toBeVisible({ timeout: 15_000 })
   await uploadTrigger.click()
 
-  // Wait for the sidebar to be visible
-  await expect(page.getByText('Choose Files')).toBeVisible({ timeout: 10_000 })
+  // Wait for the sidebar to be visible (matches both the step-pill button and the
+  // section-title div; .first() avoids a strict-mode violation)
+  await expect(page.getByText('Choose Files').first()).toBeVisible({ timeout: 10_000 })
 
   // ── Step 1: Choose Files ─────────────────────────────────────────────────
   const fileInput = page.locator('input#main-contract-upload')
@@ -63,8 +64,8 @@ export async function uploadContract(
   // Verify the file was accepted (file card should appear)
   await expect(page.locator('text=.docx').first()).toBeVisible({ timeout: 5_000 })
 
-  // Click Next to proceed to step 2
-  await page.getByRole('button', { name: 'Next' }).click()
+  // Click Next to proceed to step 2 (exact:true avoids matching the Next.js Dev Tools button)
+  await page.getByRole('button', { name: 'Next', exact: true }).click()
 
   // ── Step 2: Additional Data ──────────────────────────────────────────────
   await expect(page.locator('select#contract-type')).toBeVisible({ timeout: 10_000 })
@@ -85,62 +86,100 @@ export async function uploadContract(
     await contractTypeSelect.selectOption({ index: 1 })
   }
 
+  // Capture selected contract type text NOW while the element is visible (it's hidden in later steps)
+  const selectedContractType = await contractTypeSelect.locator('option:checked').textContent()
+
   // Fill counterparty name
   const counterpartyInput = page.locator('input[list="counterparty-options"]').first()
   await counterpartyInput.fill(counterparty)
 
   // Upload a supporting document for the counterparty (required for non-N/A)
   const supportingDocsInput = page.locator('input[id^="supporting-docs-"]').first()
-  if (await supportingDocsInput.isVisible({ timeout: 3_000 }).catch(() => false)) {
-    await supportingDocsInput.setInputFiles(absolutePath)
-  }
+  await expect(supportingDocsInput).toBeAttached({ timeout: 5_000 })
+  await supportingDocsInput.setInputFiles(absolutePath)
+  await expect(page.getByText(path.basename(absolutePath)).first()).toBeVisible({ timeout: 5_000 })
 
-  // Fill signatory details
-  await page.locator('input#signatory-name').fill(signatory)
-  await page.locator('input#signatory-designation').fill(options.signatoryDesignation || 'Director')
-  await page.locator('input#signatory-email').fill(options.signatoryEmail || 'test-signatory@example.com')
+  // Fill signatory details.
+  // The form renders signatory inputs with dynamic IDs: counterparty-{N}-signatory-{field}-{S}
+  // For the default single counterparty (index 0) + first signatory (index 0):
+  await page.locator('input#counterparty-0-signatory-name-0').fill(signatory)
+  await page.locator('input#counterparty-0-signatory-designation-0').fill(options.signatoryDesignation || 'Director')
+  await page
+    .locator('input#counterparty-0-signatory-email-0')
+    .fill(options.signatoryEmail || 'test-signatory@example.com')
 
   // Fill background
   await page
     .locator('textarea#background-of-request')
     .fill(options.background || `${TEST_DATA_PREFIX} Automated E2E test contract upload — ${new Date().toISOString()}`)
 
-  // Set budget approved
+  // Department — locked for POC (shows a read-only input) or selectable if not locked
+  const departmentSelect = page.locator('select#department-id')
+  if (await departmentSelect.isVisible({ timeout: 3_000 }).catch(() => false)) {
+    // Wait for the options to populate, then pick the first real option
+    await page.waitForFunction(
+      () => {
+        const select = document.querySelector('select#department-id') as HTMLSelectElement
+        return select && select.options.length > 1
+      },
+      { timeout: 10_000 }
+    )
+    await departmentSelect.selectOption({ index: 1 })
+  }
+
+  // Set budget approved — default to 'No' to avoid triggering the budget-doc upload section
   const budgetSelect = page.locator('select#budget-approved')
   if (await budgetSelect.isVisible({ timeout: 2_000 }).catch(() => false)) {
-    await budgetSelect.selectOption(options.budgetApproved || 'Yes')
+    await budgetSelect.selectOption({ label: options.budgetApproved || 'No' })
   }
 
   // Department is auto-selected for POC users (locked to their team)
 
   // Click Next to proceed to Review
-  await page.getByRole('button', { name: 'Next' }).click()
+  await page.getByRole('button', { name: 'Next', exact: true }).click()
 
   // ── Step 3: Review ───────────────────────────────────────────────────────
   await expect(page.getByText('Confirm the details before upload.')).toBeVisible({ timeout: 10_000 })
 
   // Click Next to proceed to Upload step
-  await page.getByRole('button', { name: 'Next' }).click()
+  await page.getByRole('button', { name: 'Next', exact: true }).click()
 
   // ── Step 4: Upload ───────────────────────────────────────────────────────
   await expect(page.getByText('Submit the contract and initialize workflow routing.')).toBeVisible({
     timeout: 10_000,
   })
 
-  // Click Upload
-  await page.getByRole('button', { name: 'Upload' }).click()
+  const initResponsePromise = page.waitForResponse(
+    (response) => response.url().includes('/api/contracts/upload/init') && response.request().method() === 'POST',
+    { timeout: 60_000 }
+  )
 
-  // Wait for the success toast
-  await expect(page.locator('[data-sonner-toaster]').getByText(/uploaded.*successfully/i)).toBeVisible({
+  // Click Upload
+  await page.getByRole('button', { name: 'Upload', exact: true }).last().click()
+
+  const initResponse = await initResponsePromise
+  if (!initResponse.ok()) {
+    throw new Error(`Contract upload init failed: ${initResponse.status()} ${await initResponse.text()}`)
+  }
+
+  const finalizeResponse = await page.waitForResponse(
+    (response) => response.url().includes('/api/contracts/upload/finalize') && response.request().method() === 'POST',
+    { timeout: 60_000 }
+  )
+  if (!finalizeResponse.ok()) {
+    throw new Error(`Contract upload finalize failed: ${finalizeResponse.status()} ${await finalizeResponse.text()}`)
+  }
+
+  // Wait for the success toast — fires before onClose() + router.push()
+  await expect(page.locator('[data-sonner-toaster]').getByText(/successfully/i)).toBeVisible({
     timeout: 30_000,
   })
 
-  // Wait for redirect to dashboard
+  // Wait for dashboard (may already be there; waitForURL still resolves if URL matches)
   await page.waitForURL('**/dashboard', { timeout: 15_000 })
 
   // Determine the generated title pattern: "{ContractType} - {Counterparty}"
   // We'll use the counterparty name to find the contract later
-  const selectedContractType = await contractTypeSelect.locator('option:checked').textContent()
   const title = `${selectedContractType} - ${counterparty}`
 
   return { title, counterpartyName: counterparty }

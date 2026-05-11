@@ -589,8 +589,11 @@ export class ContractQueryService {
       throw new AuthorizationError('CONTRACT_LEGAL_METADATA_FORBIDDEN', 'User role is required for legal metadata')
     }
 
-    if (params.actorRole !== contractWorkflowRoles.legalTeam) {
-      throw new AuthorizationError('CONTRACT_LEGAL_METADATA_FORBIDDEN', 'Only LEGAL_TEAM can update legal metadata')
+    if (params.actorRole !== contractWorkflowRoles.legalTeam && params.actorRole !== contractWorkflowRoles.admin) {
+      throw new AuthorizationError(
+        'CONTRACT_LEGAL_METADATA_FORBIDDEN',
+        'Only LEGAL_TEAM or ADMIN can update legal metadata'
+      )
     }
 
     if (!params.actorEmail) {
@@ -692,11 +695,11 @@ export class ContractQueryService {
       role: params.actorRole,
     })
 
-    const allowedSigningPrepStatuses: ContractStatus[] = [contractStatuses.underReview, contractStatuses.completed]
+    const allowedSigningPrepStatuses: ContractStatus[] = [contractStatuses.completed]
     if (!allowedSigningPrepStatuses.includes(contractView.contract.status)) {
       throw new BusinessRuleError(
         'SIGNING_PREPARATION_INVALID_STATUS',
-        'Signing preparation drafts can only be saved in UNDER_REVIEW or COMPLETED'
+        'Signing preparation drafts can only be saved in COMPLETED'
       )
     }
 
@@ -759,6 +762,32 @@ export class ContractQueryService {
       actorRole: params.actorRole,
       actorEmail: params.actorEmail,
       envelopeId: params.envelopeId,
+    })
+  }
+
+  async softResetActiveSigningCycle(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    actorRole?: string
+    actorEmail: string
+    reason?: string
+  }): Promise<void> {
+    if (!params.actorRole) {
+      throw new AuthorizationError('CONTRACT_SIGNATORY_FORBIDDEN', 'User role is required for signing reset')
+    }
+
+    if (!params.actorEmail) {
+      throw new BusinessRuleError('ACTOR_EMAIL_REQUIRED', 'Actor email is required')
+    }
+
+    await this.contractRepository.softResetActiveSigningCycle({
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      actorEmployeeId: params.actorEmployeeId,
+      actorRole: params.actorRole,
+      actorEmail: params.actorEmail,
+      reason: params.reason,
     })
   }
 

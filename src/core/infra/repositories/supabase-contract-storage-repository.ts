@@ -43,6 +43,53 @@ class SupabaseContractStorageRepository implements ContractStorageRepository {
 
     return data.signedUrl
   }
+
+  async createSignedUploadUrl(path: string): Promise<{ path: string; token: string; signedUrl: string }> {
+    const supabase = createServiceSupabase()
+    const storage = supabase.storage.from(contractStorage.privateBucketName) as unknown as {
+      createSignedUploadUrl: (
+        path: string
+      ) => Promise<{
+        data: { path?: string; token?: string; signedUrl?: string } | null
+        error: { message: string } | null
+      }>
+    }
+
+    const { data, error } = await storage.createSignedUploadUrl(path)
+
+    if (error || !data?.token || !data?.signedUrl) {
+      throw new ExternalServiceError('supabase-storage', error?.message ?? 'Failed to create signed upload URL')
+    }
+
+    return {
+      path: data.path ?? path,
+      token: data.token,
+      signedUrl: data.signedUrl,
+    }
+  }
+
+  async exists(path: string): Promise<boolean> {
+    const supabase = createServiceSupabase()
+    const normalizedPath = path.replace(/\\/g, '/')
+    const segments = normalizedPath.split('/').filter(Boolean)
+    const fileName = segments.pop()
+    const folder = segments.join('/')
+
+    if (!fileName || !folder) {
+      return false
+    }
+
+    const { data, error } = await supabase.storage.from(contractStorage.privateBucketName).list(folder, {
+      search: fileName,
+      limit: 100,
+    })
+
+    if (error) {
+      throw new ExternalServiceError('supabase-storage', `Failed to check object existence: ${error.message}`)
+    }
+
+    return (data ?? []).some((entry) => entry.name === fileName)
+  }
 }
 
 export const supabaseContractStorageRepository = new SupabaseContractStorageRepository()

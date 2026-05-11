@@ -26,14 +26,20 @@ function isValidSignatoryEmail(value: string): boolean {
   return EMAIL_PATTERN.test(normalizedValue)
 }
 
-const dispatchNotificationInBackground = (notification: Promise<unknown>, event: string, contractId: string): void => {
-  void notification.catch((error) => {
+const dispatchNotificationSafely = async (
+  notification: Promise<unknown>,
+  event: string,
+  contractId: string
+): Promise<void> => {
+  try {
+    await notification
+  } catch (error) {
     logger.warn('Contract upload notification dispatch failed', {
       event,
       contractId,
       error: error instanceof Error ? error.message : String(error),
     })
-  })
+  }
 }
 
 const uploadContractFormSchema = z
@@ -348,10 +354,17 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
     }))
 
     const isLegalSendForSigningMode = parsedForm.data.uploadMode === contractUploadModes.legalSendForSigning
-    if (isLegalSendForSigningMode && session.role !== contractWorkflowRoles.legalTeam) {
-      return NextResponse.json(errorResponse('CONTRACT_UPLOAD_FORBIDDEN', 'Only LEGAL_TEAM can use send for signing'), {
-        status: 403,
-      })
+    if (
+      isLegalSendForSigningMode &&
+      session.role !== contractWorkflowRoles.legalTeam &&
+      session.role !== contractWorkflowRoles.admin
+    ) {
+      return NextResponse.json(
+        errorResponse('CONTRACT_UPLOAD_FORBIDDEN', 'Only LEGAL_TEAM or ADMIN can use send for signing'),
+        {
+          status: 403,
+        }
+      )
     }
 
     if (isLegalSendForSigningMode && parsedForm.data.bypassHodApproval && !parsedForm.data.bypassReason?.trim()) {
@@ -427,7 +440,7 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
 
     if (!parsedForm.data.bypassHodApproval) {
       const contractApprovalNotificationService = getContractApprovalNotificationService()
-      dispatchNotificationInBackground(
+      await dispatchNotificationSafely(
         contractApprovalNotificationService.notifyHodOnContractUpload({
           tenantId: session.tenantId,
           contractId: contract.id,

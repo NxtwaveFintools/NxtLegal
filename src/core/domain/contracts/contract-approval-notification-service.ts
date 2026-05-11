@@ -51,35 +51,63 @@ export class ContractApprovalNotificationService {
       role: params.actorRole,
     })
 
-    const recipientEmail =
-      contractView.contract.currentAssigneeEmail?.trim().toLowerCase() ||
-      contractView.contract.departmentHodEmail?.trim().toLowerCase()
-    if (!recipientEmail) {
-      this.logger.warn('Skipping HOD notification; department HOD email is missing', {
+    const recipients = Array.from(
+      new Set(
+        [contractView.contract.currentAssigneeEmail, contractView.contract.departmentHodEmail]
+          .map((email) => email?.trim().toLowerCase() ?? '')
+          .filter((email) => email.length > 0)
+      )
+    )
+
+    if (recipients.length === 0) {
+      this.logger.warn('Skipping HOD notification; no HOD recipient email resolved', {
         tenantId: params.tenantId,
         contractId: params.contractId,
       })
       return
     }
 
-    await this.dispatchNotification({
-      tenantId: params.tenantId,
-      contractId: params.contractId,
-      recipientEmail,
-      subject: `Action Required: Approve Contract for ${contractView.contract.title}`,
-      htmlContent: buildMasterTemplate({
-        title: 'Contract Approval Request',
-        greeting: 'Hello HOD,',
-        messageText: `${contractView.contract.uploadedByEmail} submitted ${contractView.contract.title} and it requires your approval.`,
-        buttonText: 'Review Contract',
-        buttonLink: this.getContractLink(params.contractId),
-        footerText: 'Please review and approve or reject this contract request.',
-      }),
-      notificationType: contractNotificationTypes.hodApprovalRequested,
-      metadata: {
-        trigger: 'CONTRACT_UPLOAD',
-      },
-    })
+    let deliveredCount = 0
+    let firstDeliveryError: unknown = null
+
+    for (const recipientEmail of recipients) {
+      try {
+        await this.dispatchNotification({
+          tenantId: params.tenantId,
+          contractId: params.contractId,
+          recipientEmail,
+          subject: `Action Required: Approve Contract for ${contractView.contract.title}`,
+          htmlContent: buildMasterTemplate({
+            title: 'Contract Approval Request',
+            greeting: 'Hello HOD,',
+            messageText: `${contractView.contract.uploadedByEmail} submitted ${contractView.contract.title} and it requires your approval.`,
+            buttonText: 'Review Contract',
+            buttonLink: this.getContractLink(params.contractId),
+            footerText: 'Please review and approve or reject this contract request.',
+          }),
+          notificationType: contractNotificationTypes.hodApprovalRequested,
+          metadata: {
+            trigger: 'CONTRACT_UPLOAD',
+          },
+        })
+        deliveredCount += 1
+      } catch (error) {
+        if (!firstDeliveryError) {
+          firstDeliveryError = error
+        }
+
+        this.logger.warn('HOD upload notification failed for recipient', {
+          tenantId: params.tenantId,
+          contractId: params.contractId,
+          recipientEmail,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
+
+    if (deliveredCount === 0 && firstDeliveryError) {
+      throw firstDeliveryError
+    }
   }
 
   async notifyAdditionalApproverAdded(params: {
@@ -222,28 +250,33 @@ export class ContractApprovalNotificationService {
     actorEmployeeId: string
     actorRole?: string
     assignedEmail: string
+    contractTitle?: string
   }): Promise<void> {
     const recipientEmail = params.assignedEmail.trim().toLowerCase()
     if (!recipientEmail) {
       return
     }
 
-    const contractView = await this.contractQueryService.getContractDetail({
-      tenantId: params.tenantId,
-      contractId: params.contractId,
-      employeeId: params.actorEmployeeId,
-      role: params.actorRole,
-    })
+    const contractTitle =
+      params.contractTitle?.trim() ||
+      (
+        await this.contractQueryService.getContractDetail({
+          tenantId: params.tenantId,
+          contractId: params.contractId,
+          employeeId: params.actorEmployeeId,
+          role: params.actorRole,
+        })
+      ).contract.title
 
     await this.dispatchNotification({
       tenantId: params.tenantId,
       contractId: params.contractId,
       recipientEmail,
-      subject: `Legal Assignment: ${contractView.contract.title}`,
+      subject: `Legal Assignment: ${contractTitle}`,
       htmlContent: buildMasterTemplate({
         title: 'Contract Assignment',
         greeting: 'Hello Legal Team,',
-        messageText: `You were assigned legal work for ${contractView.contract.title}.`,
+        messageText: `You were assigned legal work for ${contractTitle}.`,
         buttonText: 'Open Contract',
         buttonLink: this.getContractLink(params.contractId),
         footerText: 'Please proceed with the legal review workflow.',
@@ -262,18 +295,23 @@ export class ContractApprovalNotificationService {
     actorRole?: string
     event: 'HOD_APPROVED' | 'ADDITIONAL_APPROVED'
     legalOwnerEmail?: string | null
+    contractTitle?: string
   }): Promise<void> {
     const recipientEmail = params.legalOwnerEmail?.trim().toLowerCase() ?? ''
     if (!recipientEmail) {
       return
     }
 
-    const contractView = await this.contractQueryService.getContractDetail({
-      tenantId: params.tenantId,
-      contractId: params.contractId,
-      employeeId: params.actorEmployeeId,
-      role: params.actorRole,
-    })
+    const contractTitle =
+      params.contractTitle?.trim() ||
+      (
+        await this.contractQueryService.getContractDetail({
+          tenantId: params.tenantId,
+          contractId: params.contractId,
+          employeeId: params.actorEmployeeId,
+          role: params.actorRole,
+        })
+      ).contract.title
 
     const notificationType =
       params.event === 'HOD_APPROVED'
@@ -286,11 +324,11 @@ export class ContractApprovalNotificationService {
       tenantId: params.tenantId,
       contractId: params.contractId,
       recipientEmail,
-      subject: `Approval Received: ${contractView.contract.title}`,
+      subject: `Approval Received: ${contractTitle}`,
       htmlContent: buildMasterTemplate({
         title: 'Approval Received',
         greeting: 'Hello Legal Team,',
-        messageText: `${approvalEventLabel} was recorded for ${contractView.contract.title}.`,
+        messageText: `${approvalEventLabel} was recorded for ${contractTitle}.`,
         buttonText: 'Review Contract',
         buttonLink: this.getContractLink(params.contractId),
         footerText: 'Continue processing this contract based on the current workflow status.',
@@ -380,6 +418,57 @@ export class ContractApprovalNotificationService {
         },
       })
     }
+  }
+
+  async notifyPocOnHodDecision(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    actorRole?: string
+    pocEmail?: string | null
+    decision: 'APPROVED' | 'REJECTED'
+    contractTitle?: string
+  }): Promise<void> {
+    const recipientEmail = params.pocEmail?.trim().toLowerCase() ?? ''
+    if (!recipientEmail) {
+      return
+    }
+
+    const contractTitle =
+      params.contractTitle?.trim() ||
+      (
+        await this.contractQueryService.getContractDetail({
+          tenantId: params.tenantId,
+          contractId: params.contractId,
+          employeeId: params.actorEmployeeId,
+          role: params.actorRole,
+        })
+      ).contract.title
+
+    const isApproved = params.decision === 'APPROVED'
+
+    await this.dispatchNotification({
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      recipientEmail,
+      subject: `HOD ${isApproved ? 'Approved' : 'Rejected'}: ${contractTitle}`,
+      htmlContent: buildMasterTemplate({
+        title: `HOD ${isApproved ? 'Approved' : 'Rejected'} Your Contract`,
+        greeting: 'Hello Requester,',
+        messageText: `Your contract request "${contractTitle}" was ${isApproved ? 'approved' : 'rejected'} by the HOD.`,
+        buttonText: 'View Contract',
+        buttonLink: this.getContractLink(params.contractId),
+        footerText: isApproved
+          ? 'Legal team will continue processing this contract.'
+          : 'Open the contract to review remarks and next steps.',
+      }),
+      notificationType: isApproved
+        ? contractNotificationTypes.legalApprovalReceivedHod
+        : contractNotificationTypes.legalContractRejected,
+      metadata: {
+        trigger: isApproved ? 'HOD_APPROVED_POC' : 'HOD_REJECTED_POC',
+      },
+    })
   }
 
   private async dispatchNotification(params: {

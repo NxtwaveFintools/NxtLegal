@@ -119,7 +119,7 @@ describe('PrepareForSigningModal', () => {
         contractStatus="UNDER_REVIEW"
         pdfUrl="/api/contracts/contract-1/preview"
         onClose={jest.fn()}
-        onSent={jest.fn()}
+        onReviewSendRequested={jest.fn()}
       />
     )
 
@@ -176,6 +176,168 @@ describe('PrepareForSigningModal', () => {
     rafSpy.mockRestore()
   })
 
+  it('removes only the current page signature from an all-pages placement when disabled', async () => {
+    jest.spyOn(contractsClient, 'getSigningPreparationDraft').mockResolvedValue({
+      ok: true,
+      data: {
+        contractId: 'contract-1',
+        recipients: [
+          {
+            name: 'Vendor',
+            email: 'vendor@nxtwave.co.in',
+            recipientType: 'EXTERNAL',
+            routingOrder: 1,
+          },
+        ],
+        fields: [],
+        createdByEmployeeId: 'employee-1',
+        updatedByEmployeeId: 'employee-1',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    } as never)
+
+    const saveSpy = jest.spyOn(contractsClient, 'saveSigningPreparationDraft').mockResolvedValue({
+      ok: true,
+      data: null,
+    } as never)
+
+    const rafSpy = jest.spyOn(window, 'requestAnimationFrame').mockImplementation((callback: FrameRequestCallback) => {
+      callback(0)
+      return 1
+    })
+    const getBoundingClientRectSpy = jest.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(() => ({
+      x: 0,
+      y: 0,
+      width: 720,
+      height: 1000,
+      top: 0,
+      left: 0,
+      right: 720,
+      bottom: 1000,
+      toJSON: () => ({}),
+    }))
+
+    render(
+      <PrepareForSigningModal
+        isOpen
+        contractId="contract-1"
+        contractStatus="UNDER_REVIEW"
+        pdfUrl="/api/contracts/contract-1/preview"
+        onClose={jest.fn()}
+        onReviewSendRequested={jest.fn()}
+      />
+    )
+
+    await waitFor(() => expect(contractsClient.getSigningPreparationDraft).toHaveBeenCalled())
+    fireEvent.click(screen.getByRole('button', { name: '2. Assign Fields' }))
+    await waitFor(() => expect(screen.queryByText('Loading draft…')).toBeNull())
+    await waitFor(() => expect(screen.getByTestId('pdf-document')).toBeTruthy())
+    fireEvent.click(screen.getByLabelText('Add signature on all pages'))
+    fireEvent.click(screen.getByTestId('pdf-document'), { clientX: 360, clientY: 500 })
+    fireEvent.click(screen.getByLabelText('Add signature on all pages'))
+    fireEvent.click(screen.getByRole('button', { name: /SIGNATURE 96x\s*22/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save Draft' }))
+
+    await waitFor(() => {
+      expect(saveSpy).toHaveBeenCalledWith(
+        'contract-1',
+        expect.objectContaining({
+          fields: [
+            expect.objectContaining({
+              field_type: 'SIGNATURE',
+              page_number: 2,
+              assigned_signer_email: 'vendor@nxtwave.co.in',
+            }),
+            expect.objectContaining({
+              field_type: 'SIGNATURE',
+              page_number: 3,
+              assigned_signer_email: 'vendor@nxtwave.co.in',
+            }),
+          ],
+        })
+      )
+    })
+
+    getBoundingClientRectSpy.mockRestore()
+    rafSpy.mockRestore()
+  })
+
+  it('removes all mirrored signatures when all-pages placement is enabled', async () => {
+    jest.spyOn(contractsClient, 'getSigningPreparationDraft').mockResolvedValue({
+      ok: true,
+      data: {
+        contractId: 'contract-1',
+        recipients: [
+          {
+            name: 'Vendor',
+            email: 'vendor@nxtwave.co.in',
+            recipientType: 'EXTERNAL',
+            routingOrder: 1,
+          },
+        ],
+        fields: [],
+        createdByEmployeeId: 'employee-1',
+        updatedByEmployeeId: 'employee-1',
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    } as never)
+
+    const saveSpy = jest.spyOn(contractsClient, 'saveSigningPreparationDraft').mockResolvedValue({
+      ok: true,
+      data: null,
+    } as never)
+
+    const rafSpy = jest.spyOn(window, 'requestAnimationFrame').mockImplementation((callback: FrameRequestCallback) => {
+      callback(0)
+      return 1
+    })
+    const getBoundingClientRectSpy = jest.spyOn(Element.prototype, 'getBoundingClientRect').mockImplementation(() => ({
+      x: 0,
+      y: 0,
+      width: 720,
+      height: 1000,
+      top: 0,
+      left: 0,
+      right: 720,
+      bottom: 1000,
+      toJSON: () => ({}),
+    }))
+
+    render(
+      <PrepareForSigningModal
+        isOpen
+        contractId="contract-1"
+        contractStatus="UNDER_REVIEW"
+        pdfUrl="/api/contracts/contract-1/preview"
+        onClose={jest.fn()}
+        onReviewSendRequested={jest.fn()}
+      />
+    )
+
+    await waitFor(() => expect(contractsClient.getSigningPreparationDraft).toHaveBeenCalled())
+    fireEvent.click(screen.getByRole('button', { name: '2. Assign Fields' }))
+    await waitFor(() => expect(screen.queryByText('Loading draft…')).toBeNull())
+    await waitFor(() => expect(screen.getByTestId('pdf-document')).toBeTruthy())
+    fireEvent.click(screen.getByLabelText('Add signature on all pages'))
+    fireEvent.click(screen.getByTestId('pdf-document'), { clientX: 360, clientY: 500 })
+    fireEvent.click(screen.getByRole('button', { name: /SIGNATURE 96x\s*22/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save Draft' }))
+
+    await waitFor(() => {
+      expect(saveSpy).toHaveBeenCalledWith(
+        'contract-1',
+        expect.objectContaining({
+          fields: [],
+        })
+      )
+    })
+
+    getBoundingClientRectSpy.mockRestore()
+    rafSpy.mockRestore()
+  })
+
   it('pre-populates recipients from initialRecipients when no draft exists', async () => {
     jest.spyOn(contractsClient, 'getSigningPreparationDraft').mockResolvedValue({
       ok: true,
@@ -197,7 +359,7 @@ describe('PrepareForSigningModal', () => {
           },
         ]}
         onClose={jest.fn()}
-        onSent={jest.fn()}
+        onReviewSendRequested={jest.fn()}
       />
     )
 
@@ -256,7 +418,7 @@ describe('PrepareForSigningModal', () => {
         contractStatus="UNDER_REVIEW"
         pdfUrl="/api/contracts/contract-1/preview"
         onClose={jest.fn()}
-        onSent={jest.fn()}
+        onReviewSendRequested={jest.fn()}
       />
     )
 
@@ -324,7 +486,7 @@ describe('PrepareForSigningModal', () => {
         contractStatus="UNDER_REVIEW"
         pdfUrl="/api/contracts/contract-1/preview"
         onClose={jest.fn()}
-        onSent={jest.fn()}
+        onReviewSendRequested={jest.fn()}
       />
     )
 
@@ -378,7 +540,7 @@ describe('PrepareForSigningModal', () => {
         contractStatus="UNDER_REVIEW"
         pdfUrl="/api/contracts/contract-1/preview"
         onClose={jest.fn()}
-        onSent={jest.fn()}
+        onReviewSendRequested={jest.fn()}
       />
     )
 
@@ -467,7 +629,7 @@ describe('PrepareForSigningModal', () => {
         contractStatus="UNDER_REVIEW"
         pdfUrl="/api/contracts/contract-1/preview"
         onClose={jest.fn()}
-        onSent={jest.fn()}
+        onReviewSendRequested={jest.fn()}
       />
     )
 
@@ -509,18 +671,7 @@ describe('PrepareForSigningModal', () => {
     } as never)
 
     const onClose = jest.fn()
-    const onSent = jest.fn()
-    const contractView = createContractView()
-
-    const saveSpy = jest.spyOn(contractsClient, 'saveSigningPreparationDraft').mockResolvedValue({
-      ok: true,
-      data: null,
-    } as never)
-
-    const sendSpy = jest.spyOn(contractsClient, 'sendSigningPreparationDraft').mockResolvedValue({
-      ok: true,
-      data: { envelopeId: 'env-123', contractView },
-    } as never)
+    const onReviewSendRequested = jest.fn()
 
     render(
       <PrepareForSigningModal
@@ -529,7 +680,7 @@ describe('PrepareForSigningModal', () => {
         contractStatus="UNDER_REVIEW"
         pdfUrl="/api/contracts/contract-1/preview"
         onClose={onClose}
-        onSent={onSent}
+        onReviewSendRequested={onReviewSendRequested}
       />
     )
 
@@ -538,15 +689,12 @@ describe('PrepareForSigningModal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Review & Send' }))
 
     await waitFor(() => {
-      expect(saveSpy).toHaveBeenCalledWith(
-        'contract-1',
+      expect(onReviewSendRequested).toHaveBeenCalledWith(
         expect.objectContaining({
           recipients: expect.any(Array),
           fields: expect.any(Array),
         })
       )
-      expect(sendSpy).toHaveBeenCalledWith('contract-1')
-      expect(onSent).toHaveBeenCalledWith(contractView)
       expect(onClose).toHaveBeenCalled()
     })
   })

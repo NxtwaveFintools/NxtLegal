@@ -54,7 +54,10 @@ AUTH_ALLOWED_DOMAINS=yourcompany.com
 NEXT_PUBLIC_SITE_URL=http://localhost:3000
 NODE_ENV=development
 LOG_LEVEL=DEBUG
+NEXT_PUBLIC_FEATURE_MICROSOFT_OAUTH=true
+NEXT_PUBLIC_FEATURE_GOOGLE_OAUTH=true
 FEATURE_MICROSOFT_OAUTH=true
+FEATURE_GOOGLE_OAUTH=true
 
 # Zoho Sign (India DC) OAuth + Webhook
 ZOHO_SIGN_API_BASE_URL=https://sign.zoho.in/api/v1
@@ -132,7 +135,7 @@ npm run dev  # → http://localhost:3000
 ## ✅ What's Implemented (Continued)
 
 ### Authentication & Authorization
-- **Dual Login Methods:** Employee ID + Password, Microsoft OAuth (Azure AD)
+- **Dual Login Methods:** Employee ID + Password, Microsoft OAuth + Google OAuth
 - **JWT Token Strategy:** 2-day access + 7-day refresh with rotation
 - **Account Lockout:** 5 max attempts, 15-min lockout, per-tenant tracking
 - **Token Rotation:** Refresh tokens rotated on each use, old JTI revoked
@@ -547,8 +550,8 @@ Idempotency Keys Table:
 - Role: `viewer`
 - Tenant: Default tenant (`00000000-0000-0000-0000-000000000000`)
 
-**Microsoft OAuth Login:**
-- Use your organization's Microsoft account
+**OAuth Login (Microsoft or Google):**
+- Use your organization's Microsoft or Google account
 - Auto-creates employee record on first login
 - Email must match whitelisted domain
 
@@ -714,6 +717,7 @@ src/
 ├── components/                       # React components
 │   └── auth/
 │       ├── EmployeeLoginForm.tsx
+│       ├── GoogleButton.tsx
 │       ├── LogoutButton.tsx
 │       └── MicrosoftButton.tsx
 │

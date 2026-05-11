@@ -11,6 +11,8 @@ type ContractDocumentsPanelProps = {
   contractId: string
   contractStatus: string
   userRole?: string
+  actorEmployeeId?: string
+  uploadedByEmployeeId?: string
   currentDocumentId?: string | null
   documents: ContractDocument[]
   defaultUploaderEmail?: string
@@ -207,6 +209,9 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
   const [isReplaceModalOpen, setIsReplaceModalOpen] = useState(false)
   const [replacementFile, setReplacementFile] = useState<File | null>(null)
   const [isFinalExecuted, setIsFinalExecuted] = useState(false)
+  const [isSupportingReplaceModalOpen, setIsSupportingReplaceModalOpen] = useState(false)
+  const [supportingReplacementFile, setSupportingReplacementFile] = useState<File | null>(null)
+  const [selectedSupportingDocument, setSelectedSupportingDocument] = useState<ExtendedDocument | null>(null)
 
   const primaryDocuments = useMemo(() => {
     return documents
@@ -276,13 +281,37 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
     return primaryDocuments[0]
   }, [currentDocumentId, primaryDocuments])
 
-  const isInSignature =
-    contractStatus === contractStatuses.signing || contractStatus === contractStatuses.pendingExternal
-  const canReplace = userRole === 'LEGAL_TEAM' && !isInSignature
+  const replacementStatusesForLegal = new Set<string>([
+    contractStatuses.pendingInternal,
+    contractStatuses.pendingExternal,
+    contractStatuses.offlineExecution,
+    contractStatuses.onHold,
+    contractStatuses.completed,
+  ])
+  const adminOnlyReplacementStatuses = new Set<string>([contractStatuses.rejected, contractStatuses.void])
+  const canLegalReplaceInCurrentStatus = replacementStatusesForLegal.has(contractStatus)
+  const canAdminReplaceInCurrentStatus =
+    canLegalReplaceInCurrentStatus || adminOnlyReplacementStatuses.has(contractStatus)
+  const canMarkFinalExecuted = userRole === 'LEGAL_TEAM' || userRole === 'ADMIN'
+  const canReplaceInUnderReview = contractStatus === contractStatuses.underReview
+  const canReplace =
+    canReplaceInUnderReview ||
+    (userRole === 'LEGAL_TEAM' && canLegalReplaceInCurrentStatus) ||
+    (userRole === 'ADMIN' && canAdminReplaceInCurrentStatus)
+  const canReplaceSupporting = canReplace
 
-  const replaceDisabledMessage = isInSignature
-    ? 'Replacement is unavailable while contract is in signature.'
-    : undefined
+  const replaceDisabledMessage =
+    contractStatus === contractStatuses.signing
+      ? 'Replacement is unavailable while contract is in signing.'
+      : contractStatus === contractStatuses.rejected || contractStatus === contractStatuses.void
+        ? 'Replacement is restricted to Admin for rejected/void contracts.'
+        : 'Replacement is unavailable for this contract status.'
+  const supportingReplaceDisabledMessage =
+    contractStatus === contractStatuses.signing
+      ? 'Supporting document replacement is unavailable while contract is in signing.'
+      : contractStatus === contractStatuses.rejected || contractStatus === contractStatuses.void
+        ? 'Supporting document replacement is restricted to Admin for rejected/void contracts.'
+        : 'Supporting document replacement is unavailable for this contract status.'
 
   const openReplaceModal = () => {
     setIsReplaceModalOpen(true)
@@ -292,6 +321,17 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
     setIsReplaceModalOpen(false)
     setReplacementFile(null)
     setIsFinalExecuted(false)
+  }
+
+  const openSupportingReplaceModal = (document: ExtendedDocument) => {
+    setSelectedSupportingDocument(document)
+    setIsSupportingReplaceModalOpen(true)
+  }
+
+  const closeSupportingReplaceModal = () => {
+    setIsSupportingReplaceModalOpen(false)
+    setSupportingReplacementFile(null)
+    setSelectedSupportingDocument(null)
   }
 
   const handleReplaceSubmit = (event: React.FormEvent<HTMLFormElement>) => {
@@ -335,6 +375,54 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
         ? 'Document replaced and contract marked as Executed'
         : 'Document replaced successfully',
       error: (error) => (error instanceof Error ? error.message : 'Failed to replace document'),
+    })
+
+    void uploadPromise
+  }
+
+  const handleSupportingReplaceSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    if (!selectedSupportingDocument) {
+      toast.error('Supporting document context is missing')
+      return
+    }
+
+    if (!supportingReplacementFile) {
+      toast.error('Please select a file to replace this supporting document')
+      return
+    }
+
+    const selectedFile = supportingReplacementFile
+    const sourceDocumentId = selectedSupportingDocument.id
+
+    closeSupportingReplaceModal()
+
+    const idempotencyKey =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(16).slice(2)}`
+
+    const uploadPromise = contractsClient
+      .replaceSupportingDocument({
+        contractId,
+        documentId: sourceDocumentId,
+        file: selectedFile,
+        idempotencyKey,
+      })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(response.error?.message ?? 'Failed to replace supporting document')
+        }
+
+        await onRefreshDocuments()
+        return response
+      })
+
+    toast.promise(uploadPromise, {
+      loading: 'Uploading supporting replacement document...',
+      success: 'Supporting document replaced successfully',
+      error: (error) => (error instanceof Error ? error.message : 'Failed to replace supporting document'),
     })
 
     void uploadPromise
@@ -414,7 +502,20 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
           <div className={workspaceStyles.timeline}>
             {supportingDocumentsByCounterparty.map((group) => (
               <div key={group.key} className={workspaceStyles.event}>
-                <div className={workspaceStyles.eventActor}>{group.label}</div>
+                <div className={workspaceStyles.sectionHeaderRow}>
+                  <div className={workspaceStyles.eventActor}>{group.label}</div>
+                  {canReplaceSupporting && group.documents[0] ? (
+                    <div className={workspaceStyles.actions}>
+                      <button
+                        type="button"
+                        className={`${workspaceStyles.button} ${workspaceStyles.buttonPrimary}`}
+                        onClick={() => openSupportingReplaceModal(group.documents[0])}
+                      >
+                        Replace Document
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
                 <div className={workspaceStyles.timeline}>
                   {group.documents.map((document) => (
                     <div key={document.id} className={workspaceStyles.documentRow}>
@@ -447,6 +548,10 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
         </div>
       ) : null}
 
+      {!canReplaceSupporting && supportingReplaceDisabledMessage && supportingDocumentsByCounterparty.length > 0 ? (
+        <div className={workspaceStyles.eventMeta}>{supportingReplaceDisabledMessage}</div>
+      ) : null}
+
       {isReplaceModalOpen ? (
         <div
           className={workspaceStyles.actionRemarkOverlay}
@@ -465,20 +570,56 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
                 onChange={(event) => setReplacementFile(event.target.files?.[0] ?? null)}
               />
             </label>
-            <label className={workspaceStyles.replacementCheckboxRow}>
-              <input
-                type="checkbox"
-                name="isFinalExecuted"
-                checked={isFinalExecuted}
-                onChange={(event) => setIsFinalExecuted(event.target.checked)}
-              />
-              <span>Is this the final executed document?</span>
-            </label>
+            {canMarkFinalExecuted ? (
+              <label className={workspaceStyles.replacementCheckboxRow}>
+                <input
+                  type="checkbox"
+                  name="isFinalExecuted"
+                  checked={isFinalExecuted}
+                  onChange={(event) => setIsFinalExecuted(event.target.checked)}
+                />
+                <span>Is this the final executed document?</span>
+              </label>
+            ) : null}
             <div className={workspaceStyles.actionRemarkActions}>
               <button
                 type="button"
                 className={`${workspaceStyles.button} ${workspaceStyles.buttonGhost}`}
                 onClick={closeReplaceModal}
+              >
+                Cancel
+              </button>
+              <button type="submit" className={`${workspaceStyles.button} ${workspaceStyles.buttonPrimary}`}>
+                Upload
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+
+      {isSupportingReplaceModalOpen ? (
+        <div
+          className={workspaceStyles.actionRemarkOverlay}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Replace supporting document"
+        >
+          <form className={workspaceStyles.actionRemarkModal} onSubmit={handleSupportingReplaceSubmit}>
+            <div className={workspaceStyles.replacementModalTitle}>Replace Supporting Document</div>
+            <label className={workspaceStyles.replacementModalField}>
+              <span>Replacement file</span>
+              <input
+                type="file"
+                className={workspaceStyles.input}
+                accept=".doc,.docx,.pdf"
+                onChange={(event) => setSupportingReplacementFile(event.target.files?.[0] ?? null)}
+              />
+            </label>
+            <div className={workspaceStyles.actionRemarkActions}>
+              <button
+                type="button"
+                className={`${workspaceStyles.button} ${workspaceStyles.buttonGhost}`}
+                onClick={closeSupportingReplaceModal}
               >
                 Cancel
               </button>

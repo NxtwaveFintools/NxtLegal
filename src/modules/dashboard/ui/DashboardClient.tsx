@@ -1,7 +1,7 @@
 'use client'
 
 import type { FormEvent, ReactNode } from 'react'
-import { useCallback, useEffect, useMemo, useOptimistic, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { toast } from 'sonner'
@@ -39,7 +39,7 @@ type DashboardClientProps = {
 
 type ActionCardProps = {
   title: string
-  count: number
+  count?: number
   description: string
   onClick?: () => void
   icon?: ReactNode
@@ -47,10 +47,7 @@ type ActionCardProps = {
 
 type DashboardRoleConfig = {
   defaultFilter: DashboardContractsFilter
-  approveFilter: DashboardContractsFilter
-  approveScope?: DashboardContractsScope
   filters: Array<{ value: DashboardContractsFilter; label: string }>
-  showApproveCard: boolean
 }
 
 const legacyDashboardFilterMap: Record<string, DashboardContractsFilter> = {
@@ -191,7 +188,7 @@ function DashboardActionCard({ title, count, description, onClick, icon }: Actio
           {icon && <span className={styles.actionCardIcon}>{icon}</span>}
           {title}
         </span>
-        <span className={styles.actionCardCount}>{count}</span>
+        {typeof count === 'number' ? <span className={styles.actionCardCount}>{count}</span> : null}
       </div>
       <span className={styles.actionCardMeta}>{description}</span>
     </button>
@@ -202,9 +199,6 @@ function getRoleConfig(role?: string): DashboardRoleConfig {
   if (role === contractWorkflowRoles.admin) {
     return {
       defaultFilter: 'ASSIGNED_TO_ME',
-      approveFilter: 'ASSIGNED_TO_ME',
-      approveScope: 'personal',
-      showApproveCard: true,
       filters: [
         { value: 'ASSIGNED_TO_ME', label: 'Assigned To Me' },
         { value: 'HOD_PENDING', label: 'All HOD Pending' },
@@ -219,8 +213,6 @@ function getRoleConfig(role?: string): DashboardRoleConfig {
   if (role === contractWorkflowRoles.legalTeam) {
     return {
       defaultFilter: 'UNDER_REVIEW',
-      approveFilter: 'UNDER_REVIEW',
-      showApproveCard: true,
       filters: [
         { value: 'ASSIGNED_TO_ME', label: 'Assigned To Me' },
         { value: 'UNDER_REVIEW', label: 'Under Review' },
@@ -234,11 +226,10 @@ function getRoleConfig(role?: string): DashboardRoleConfig {
   if (role === contractWorkflowRoles.hod) {
     return {
       defaultFilter: 'HOD_PENDING',
-      approveFilter: 'HOD_PENDING',
-      showApproveCard: true,
       filters: [
         { value: 'HOD_PENDING', label: 'HOD Pending' },
         { value: 'UNDER_REVIEW', label: 'Under Review' },
+        { value: 'REJECTED', label: 'Rejected' },
         { value: 'COMPLETED', label: 'Completed' },
         { value: 'ON_HOLD', label: 'On Hold' },
       ],
@@ -247,8 +238,6 @@ function getRoleConfig(role?: string): DashboardRoleConfig {
 
   return {
     defaultFilter: 'HOD_PENDING',
-    approveFilter: 'HOD_PENDING',
-    showApproveCard: false,
     filters: [
       { value: 'HOD_PENDING', label: 'HOD Pending' },
       { value: 'UNDER_REVIEW', label: 'Under Review' },
@@ -283,7 +272,9 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   const [approvingContractId, setApprovingContractId] = useState<string | null>(null)
   const [rejectingContractId, setRejectingContractId] = useState<string | null>(null)
   const [rejectReasonDraft, setRejectReasonDraft] = useState('')
-  const [pendingApprovalsCount, setPendingApprovalsCount] = useState(0)
+  const [selectedContractIds, setSelectedContractIds] = useState<Set<string>>(() => new Set())
+  const [isBulkApproveDialogOpen, setIsBulkApproveDialogOpen] = useState(false)
+  const [isBulkApproving, setIsBulkApproving] = useState(false)
   const [activeFilter, setActiveFilter] = useState<DashboardContractsFilter>(() => {
     const requestedFilter = normalizeDashboardFilter(searchParams.get('filter'))
     const isAllowedFilter = roleConfig.filters.some((item) => item.value === requestedFilter)
@@ -297,11 +288,24 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   const [filterCounts, setFilterCounts] = useState<Partial<Record<DashboardContractsFilter, number>>>({})
   const [activeFilterTotal, setActiveFilterTotal] = useState(0)
   const [actionableAdditionalApprovals, setActionableAdditionalApprovals] = useState<ContractRecord[]>([])
-  const [optimisticContracts, setOptimisticContracts] = useOptimistic<ContractRecord[]>(contracts)
-  const [optimisticPendingApprovalsCount, setOptimisticPendingApprovalsCount] = useOptimistic(pendingApprovalsCount)
-  const [optimisticActiveFilterTotal, setOptimisticActiveFilterTotal] = useOptimistic(activeFilterTotal)
-  const [optimisticActionableAdditionalApprovals, setOptimisticActionableAdditionalApprovals] =
-    useOptimistic<ContractRecord[]>(actionableAdditionalApprovals)
+  const [optimisticContracts, setOptimisticContracts] = useState<ContractRecord[]>([])
+  const [optimisticActiveFilterTotal, setOptimisticActiveFilterTotal] = useState(0)
+  const [optimisticActionableAdditionalApprovals, setOptimisticActionableAdditionalApprovals] = useState<
+    ContractRecord[]
+  >([])
+  const [isPending, startTransition] = useTransition()
+
+  useEffect(() => {
+    setOptimisticContracts(contracts)
+  }, [contracts])
+
+  useEffect(() => {
+    setOptimisticActionableAdditionalApprovals(actionableAdditionalApprovals)
+  }, [actionableAdditionalApprovals])
+
+  useEffect(() => {
+    setOptimisticActiveFilterTotal(activeFilterTotal)
+  }, [activeFilterTotal])
 
   const requestedFilterFromUrl = useMemo(() => {
     const params = new URLSearchParams(searchParamsKey)
@@ -331,14 +335,13 @@ export default function DashboardClient({ session }: DashboardClientProps) {
 
       const counts = response.data.counts
       setFilterCounts(counts)
-      setPendingApprovalsCount(roleConfig.showApproveCard ? (counts[roleConfig.approveFilter] ?? 0) : 0)
       return true
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to load dashboard counts'
       toast.error(errorMessage)
       return false
     }
-  }, [roleConfig.filters, roleConfig.approveFilter, roleConfig.showApproveCard])
+  }, [roleConfig.filters])
 
   const loadContractsForFilter = useCallback(
     async (
@@ -441,7 +444,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
       }
 
       setActiveFilter(filter)
-      router.replace(`/dashboard?filter=${filter}`)
+      router.replace(`/dashboard?filter=${filter}`, { scroll: false })
     },
     [activeFilter, router]
   )
@@ -523,6 +526,34 @@ export default function DashboardClient({ session }: DashboardClientProps) {
 
   const canGoToNextPage = Boolean(contractsCursor) && !isLoadingPageChange
 
+  const refreshActiveFilterPage = useCallback(
+    async (): Promise<void> =>
+      await new Promise<void>((resolve) => {
+        startTransition(() => {
+          void Promise.all([
+            loadDashboardCounts(),
+            loadContractsForFilter(activeFilter, {
+              cursor: pageCursors[pageIndex],
+              pageIndex,
+              isPageChange: true,
+              limit: contractsPageLimit,
+            }),
+          ]).finally(() => {
+            resolve()
+          })
+        })
+      }),
+    [
+      activeFilter,
+      contractsPageLimit,
+      loadContractsForFilter,
+      loadDashboardCounts,
+      pageCursors,
+      pageIndex,
+      startTransition,
+    ]
+  )
+
   const uploadIcon = (
     <svg viewBox="0 0 20 20" aria-hidden="true">
       <path
@@ -548,18 +579,20 @@ export default function DashboardClient({ session }: DashboardClientProps) {
         return false
       }
 
-      const previousContracts = contracts
-      const previousAdditionalApprovals = actionableAdditionalApprovals
-      const previousPendingCount = pendingApprovalsCount
-      const previousFilterTotal = activeFilterTotal
+      const previousContracts = optimisticContracts
+      const previousAdditionalApprovals = optimisticActionableAdditionalApprovals
+      const previousFilterTotal = optimisticActiveFilterTotal
 
-      const nextContracts = contracts.filter((contract) => contract.id !== contractId)
-      const nextAdditionalApprovals = actionableAdditionalApprovals.filter((contract) => contract.id !== contractId)
+      const nextContracts = optimisticContracts.filter((contract) => contract.id !== contractId)
+      const nextAdditionalApprovals = optimisticActionableAdditionalApprovals.filter(
+        (contract) => contract.id !== contractId
+      )
 
-      setOptimisticContracts(nextContracts)
-      setOptimisticActionableAdditionalApprovals(nextAdditionalApprovals)
-      setOptimisticPendingApprovalsCount((current) => Math.max(current - 1, 0))
-      setOptimisticActiveFilterTotal((current) => Math.max(current - 1, 0))
+      startTransition(() => {
+        setOptimisticContracts(nextContracts)
+        setOptimisticActionableAdditionalApprovals(nextAdditionalApprovals)
+        setOptimisticActiveFilterTotal((current) => Math.max(current - 1, 0))
+      })
 
       setMutatingContractId(contractId)
 
@@ -570,30 +603,24 @@ export default function DashboardClient({ session }: DashboardClientProps) {
         })
 
         if (!response.ok) {
-          setOptimisticContracts(previousContracts)
-          setOptimisticActionableAdditionalApprovals(previousAdditionalApprovals)
-          setOptimisticPendingApprovalsCount(previousPendingCount)
-          setOptimisticActiveFilterTotal(previousFilterTotal)
+          startTransition(() => {
+            setOptimisticContracts(previousContracts)
+            setOptimisticActionableAdditionalApprovals(previousAdditionalApprovals)
+            setOptimisticActiveFilterTotal(previousFilterTotal)
+          })
           toast.error(response.error?.message ?? 'Failed to complete contract action')
           return false
         }
 
-        await Promise.all([
-          loadDashboardCounts(),
-          loadContractsForFilter(activeFilter, {
-            cursor: pageCursors[pageIndex],
-            pageIndex,
-            isPageChange: true,
-            limit: contractsPageLimit,
-          }),
-        ])
         toast.success(action === 'hod.approve' ? 'Contract approved successfully' : 'Contract rejected successfully')
+        await refreshActiveFilterPage()
         return true
       } catch (error) {
-        setOptimisticContracts(previousContracts)
-        setOptimisticActionableAdditionalApprovals(previousAdditionalApprovals)
-        setOptimisticPendingApprovalsCount(previousPendingCount)
-        setOptimisticActiveFilterTotal(previousFilterTotal)
+        startTransition(() => {
+          setOptimisticContracts(previousContracts)
+          setOptimisticActionableAdditionalApprovals(previousAdditionalApprovals)
+          setOptimisticActiveFilterTotal(previousFilterTotal)
+        })
         const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred'
         toast.error(errorMessage)
         return false
@@ -603,15 +630,19 @@ export default function DashboardClient({ session }: DashboardClientProps) {
     },
     [
       activeFilter,
-      actionableAdditionalApprovals,
-      activeFilterTotal,
-      contracts,
+      optimisticActionableAdditionalApprovals,
+      optimisticActiveFilterTotal,
+      contractsPageLimit,
+      optimisticContracts,
       loadContractsForFilter,
       loadDashboardCounts,
       mutatingContractId,
       pageCursors,
       pageIndex,
-      pendingApprovalsCount,
+      refreshActiveFilterPage,
+      setOptimisticActionableAdditionalApprovals,
+      setOptimisticActiveFilterTotal,
+      setOptimisticContracts,
     ]
   )
 
@@ -625,12 +656,12 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   }, [])
 
   const closeApproveDialog = useCallback(() => {
-    if (mutatingContractId) {
+    if (mutatingContractId || isPending) {
       return
     }
 
     setApprovingContractId(null)
-  }, [mutatingContractId])
+  }, [isPending, mutatingContractId])
 
   const submitApproveDialog = useCallback(async () => {
     if (!approvingContractId) {
@@ -644,13 +675,13 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   }, [approvingContractId, handleRowAction])
 
   const closeRejectDialog = useCallback(() => {
-    if (mutatingContractId) {
+    if (mutatingContractId || isPending) {
       return
     }
 
     setRejectingContractId(null)
     setRejectReasonDraft('')
-  }, [mutatingContractId])
+  }, [isPending, mutatingContractId])
 
   const submitRejectDialog = useCallback(async () => {
     if (!rejectingContractId) {
@@ -695,6 +726,97 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   const approvingBackgroundText = approvingContract?.backgroundOfRequest?.trim() ?? null
   const shouldShowActionBackgroundContext = session.role === contractWorkflowRoles.hod
 
+  // ── Bulk approve: visibility guard ──────────────────────────────────────────
+  const isHodBulkApproveContext = session.role === contractWorkflowRoles.hod && activeFilter === 'HOD_PENDING'
+
+  // ── Bulk approve: derived selection state ───────────────────────────────────
+  const selectableContractIds = useMemo(
+    () => optimisticContracts.filter((c) => c.canHodApprove).map((c) => c.id),
+    [optimisticContracts]
+  )
+
+  const isAllSelected =
+    selectableContractIds.length > 0 && selectableContractIds.every((id) => selectedContractIds.has(id))
+
+  const isIndeterminate = selectedContractIds.size > 0 && !isAllSelected
+
+  // Clear selection on filter or page change
+  useEffect(() => {
+    setSelectedContractIds(new Set())
+  }, [activeFilter, pageIndex])
+
+  // ── Bulk approve: interaction handlers ──────────────────────────────────────
+  const toggleContractSelection = useCallback((contractId: string) => {
+    setSelectedContractIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(contractId)) {
+        next.delete(contractId)
+      } else {
+        next.add(contractId)
+      }
+      return next
+    })
+  }, [])
+
+  const toggleSelectAll = useCallback(() => {
+    if (isAllSelected) {
+      setSelectedContractIds(new Set())
+    } else {
+      setSelectedContractIds(new Set(selectableContractIds))
+    }
+  }, [isAllSelected, selectableContractIds])
+
+  const handleBulkApprove = useCallback(async () => {
+    const idsToApprove = Array.from(selectedContractIds)
+    if (idsToApprove.length === 0) {
+      return
+    }
+
+    setIsBulkApproving(true)
+    setIsBulkApproveDialogOpen(false)
+
+    let succeeded = 0
+    let failed = 0
+    const successfulContractIds = new Set<string>()
+
+    for (const contractId of idsToApprove) {
+      try {
+        const response = await contractsClient.action(contractId, { action: 'hod.approve' })
+        if (response.ok) {
+          succeeded++
+          successfulContractIds.add(contractId)
+        } else {
+          failed++
+        }
+      } catch {
+        failed++
+      }
+    }
+
+    try {
+      setSelectedContractIds(new Set())
+
+      if (successfulContractIds.size > 0) {
+        setOptimisticContracts((current) => current.filter((contract) => !successfulContractIds.has(contract.id)))
+        setOptimisticActionableAdditionalApprovals((current) =>
+          current.filter((contract) => !successfulContractIds.has(contract.id))
+        )
+        setOptimisticActiveFilterTotal((current) => Math.max(current - successfulContractIds.size, 0))
+      }
+
+      if (failed === 0) {
+        toast.success(`${succeeded} contract${succeeded === 1 ? '' : 's'} approved successfully`)
+      } else {
+        toast.success(`${succeeded} approved`)
+        toast.error(`${failed} approval${failed === 1 ? '' : 's'} failed — please retry individually`)
+      }
+
+      await refreshActiveFilterPage()
+    } finally {
+      setIsBulkApproving(false)
+    }
+  }, [refreshActiveFilterPage, selectedContractIds])
+
   return (
     <ProtectedAppShell
       session={{ fullName: session.fullName, email: session.email, team: session.team, role: session.role }}
@@ -730,7 +852,6 @@ export default function DashboardClient({ session }: DashboardClientProps) {
               {session.role !== contractWorkflowRoles.hod ? (
                 <DashboardActionCard
                   title="Upload Third-Party Contract"
-                  count={optimisticActiveFilterTotal}
                   description="Upload third-party contracts for review"
                   icon={uploadIcon}
                   onClick={() => {
@@ -739,10 +860,9 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                   }}
                 />
               ) : null}
-              {session.role === contractWorkflowRoles.legalTeam ? (
+              {session.role === contractWorkflowRoles.legalTeam || session.role === contractWorkflowRoles.admin ? (
                 <DashboardActionCard
                   title="Send for Signing"
-                  count={optimisticActiveFilterTotal}
                   description="Initiate legal signing workflow"
                   onClick={() => {
                     setUploadMode(contractUploadModes.legalSendForSigning)
@@ -750,28 +870,37 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                   }}
                 />
               ) : null}
-              {roleConfig.showApproveCard ? (
+              {session.role === contractWorkflowRoles.legalTeam ? (
                 <DashboardActionCard
-                  title="Approve"
-                  count={optimisticPendingApprovalsCount}
-                  description="Contracts waiting for approval"
+                  title="Assigned To Me"
+                  count={filterCounts.ASSIGNED_TO_ME ?? 0}
+                  description="Contracts assigned to your queue"
                   onClick={() => {
-                    applyFilter(roleConfig.approveFilter)
+                    applyFilter('ASSIGNED_TO_ME')
                     contractsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
                   }}
                 />
               ) : null}
-              <DashboardActionCard title="Review" count={0} description="Documents awaiting review" />
-            </div>
-          </div>
-          <div className={styles.secondaryTasks}>
-            <div className={styles.secondaryTaskCard}>
-              <span className={styles.secondaryTaskTitle}>Setup Signatures</span>
-              <span className={styles.secondaryTaskCount}>0</span>
-            </div>
-            <div className={styles.secondaryTaskCard}>
-              <span className={styles.secondaryTaskTitle}>Custom Task</span>
-              <span className={styles.secondaryTaskCount}>0</span>
+              {session.role === contractWorkflowRoles.hod ? (
+                <DashboardActionCard
+                  title="HOD Pending"
+                  count={filterCounts.HOD_PENDING ?? 0}
+                  description="Contracts waiting for your approval"
+                  onClick={() => {
+                    applyFilter('HOD_PENDING')
+                    contractsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                  }}
+                />
+              ) : null}
+              <DashboardActionCard
+                title="Review"
+                count={filterCounts.UNDER_REVIEW ?? 0}
+                description="Documents awaiting review"
+                onClick={() => {
+                  applyFilter('UNDER_REVIEW')
+                  contractsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                }}
+              />
             </div>
           </div>
         </section>
@@ -871,6 +1000,43 @@ export default function DashboardClient({ session }: DashboardClientProps) {
               </div>
             ) : (
               <div className={styles.contractList}>
+                {isHodBulkApproveContext ? (
+                  <div className={styles.bulkToolbar}>
+                    <label className={styles.selectAllLabel}>
+                      <input
+                        type="checkbox"
+                        className={styles.bulkCheckbox}
+                        checked={isAllSelected}
+                        ref={(el) => {
+                          if (el) el.indeterminate = isIndeterminate
+                        }}
+                        onChange={toggleSelectAll}
+                        aria-label="Select all visible contracts for bulk approval"
+                        disabled={
+                          selectableContractIds.length === 0 ||
+                          isBulkApproving ||
+                          isPending ||
+                          Boolean(mutatingContractId)
+                        }
+                      />
+                      <span>Select all</span>
+                    </label>
+                    <button
+                      type="button"
+                      className={`${styles.contractActionButton} ${styles.contractActionPrimary} ${styles.bulkApproveButton}`}
+                      disabled={
+                        selectedContractIds.size === 0 || isBulkApproving || isPending || Boolean(mutatingContractId)
+                      }
+                      onClick={() => setIsBulkApproveDialogOpen(true)}
+                    >
+                      {isBulkApproving
+                        ? 'Approving…'
+                        : selectedContractIds.size > 0
+                          ? `Bulk Approve (${selectedContractIds.size})`
+                          : 'Bulk Approve'}
+                    </button>
+                  </div>
+                ) : null}
                 <div className={styles.paginationRow}>
                   <button
                     type="button"
@@ -973,11 +1139,27 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                   const tatBreachLabel = formatDashboardTatBreachLabel(contract)
                   const shouldHighlightBreach = contract.isTatBreached && !isTerminalContractStatus(contract.status)
 
+                  const isContractSelected = selectedContractIds.has(contract.id)
+
                   return (
                     <div
                       key={contract.id}
-                      className={`${styles.contractItem} ${shouldHighlightBreach ? styles.contractItemBreached : ''}`}
+                      className={`${styles.contractItem} ${shouldHighlightBreach ? styles.contractItemBreached : ''} ${isHodBulkApproveContext && isContractSelected ? styles.contractItemSelected : ''}`}
                     >
+                      {isHodBulkApproveContext ? (
+                        <div className={styles.contractItemCheckbox}>
+                          <input
+                            type="checkbox"
+                            className={styles.bulkCheckbox}
+                            checked={isContractSelected}
+                            onChange={() => toggleContractSelection(contract.id)}
+                            aria-label={`Select ${contract.title} for bulk approval`}
+                            disabled={
+                              !contract.canHodApprove || isBulkApproving || isPending || Boolean(mutatingContractId)
+                            }
+                          />
+                        </div>
+                      ) : null}
                       <div>
                         <div className={styles.contractTitleRow}>
                           <div className={styles.contractTitle}>{contract.title}</div>
@@ -1031,7 +1213,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                               <button
                                 type="button"
                                 className={styles.contractActionButton}
-                                disabled={Boolean(mutatingContractId)}
+                                disabled={Boolean(mutatingContractId) || isPending}
                                 onClick={() => openApproveDialog(contract.id)}
                               >
                                 Approve
@@ -1041,7 +1223,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                               <button
                                 type="button"
                                 className={styles.contractActionButton}
-                                disabled={Boolean(mutatingContractId)}
+                                disabled={Boolean(mutatingContractId) || isPending}
                                 onClick={() => openRejectDialog(contract.id)}
                               >
                                 Reject
@@ -1112,14 +1294,14 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                 type="button"
                 className={styles.contractActionButton}
                 onClick={closeRejectDialog}
-                disabled={Boolean(mutatingContractId)}
+                disabled={Boolean(mutatingContractId) || isPending}
               >
                 Cancel
               </button>
               <button
                 type="submit"
                 className={`${styles.contractActionButton} ${styles.contractActionPrimary}`}
-                disabled={Boolean(mutatingContractId)}
+                disabled={Boolean(mutatingContractId) || isPending}
               >
                 <span className={styles.buttonContent}>
                   {mutatingContractId === rejectingContractId ? <Spinner size={14} /> : null}
@@ -1153,7 +1335,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                 type="button"
                 className={styles.contractActionButton}
                 onClick={closeApproveDialog}
-                disabled={Boolean(mutatingContractId)}
+                disabled={Boolean(mutatingContractId) || isPending}
               >
                 Cancel
               </button>
@@ -1163,12 +1345,49 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                 onClick={() => {
                   void submitApproveDialog()
                 }}
-                disabled={Boolean(mutatingContractId)}
+                disabled={Boolean(mutatingContractId) || isPending}
               >
                 <span className={styles.buttonContent}>
                   {mutatingContractId === approvingContractId ? <Spinner size={14} /> : null}
                   {mutatingContractId === approvingContractId ? 'Approving…' : 'Confirm Approve'}
                 </span>
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {isBulkApproveDialogOpen ? (
+        <div
+          className={styles.actionDialogOverlay}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Confirm bulk contract approval"
+        >
+          <div className={styles.actionDialogModal}>
+            <div className={styles.actionDialogTitle}>Bulk Approve Contracts</div>
+            <div className={styles.actionDialogSubtitle}>
+              Are you sure you want to bulk approve {selectedContractIds.size} selected claim
+              {selectedContractIds.size === 1 ? '' : 's'}?
+            </div>
+            <div className={styles.actionDialogActions}>
+              <button
+                type="button"
+                className={styles.contractActionButton}
+                onClick={() => setIsBulkApproveDialogOpen(false)}
+                disabled={isBulkApproving || isPending}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className={`${styles.contractActionButton} ${styles.contractActionPrimary}`}
+                onClick={() => {
+                  void handleBulkApprove()
+                }}
+                disabled={isBulkApproving || isPending}
+              >
+                {isBulkApproving ? 'Approving…' : 'Confirm Approve'}
               </button>
             </div>
           </div>

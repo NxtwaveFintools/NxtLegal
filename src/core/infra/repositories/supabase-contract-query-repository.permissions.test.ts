@@ -1,4 +1,4 @@
-import { AuthorizationError } from '@/core/http/errors'
+import { AuthorizationError, BusinessRuleError } from '@/core/http/errors'
 
 jest.mock('@/lib/supabase/service', () => ({
   createServiceSupabase: jest.fn(),
@@ -426,7 +426,7 @@ describe('supabaseContractQueryRepository action permissions', () => {
     expect(result.get('contract-1')).toEqual(['legal.team@nxtwave.co.in', 'trishanth.reddy@nxtwave.co.in'])
   })
 
-  it('returns empty collaborator assignment map when collaborator table is missing', async () => {
+  it('falls back to current assignee when collaborator table is missing', async () => {
     const is = jest.fn().mockResolvedValue({
       data: null,
       error: {
@@ -452,7 +452,7 @@ describe('supabaseContractQueryRepository action permissions', () => {
       { id: 'contract-1', current_assignee_email: 'legal.team@nxtwave.co.in' },
     ])
 
-    expect(result.size).toBe(0)
+    expect(result.get('contract-1')).toEqual(['legal.team@nxtwave.co.in'])
   })
 
   it('includes legal users from canonical role assignments in active legal members list', async () => {
@@ -783,5 +783,334 @@ describe('supabaseContractQueryRepository action permissions', () => {
 
     expect(visibility.filter).toBe('current_assignee_employee_id.eq.hod-1,uploaded_by_employee_id.eq.hod-1')
     expect(visibility.hodDepartmentIds).toEqual([])
+  })
+
+  it('applies POC department scoping for UNDER_REVIEW dashboard counts', async () => {
+    const countBuilder = {
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      in: jest.fn().mockReturnThis(),
+      or: jest.fn().mockReturnThis(),
+    }
+    countBuilder.select.mockReturnValue(countBuilder)
+    countBuilder.eq.mockReturnValue(countBuilder)
+    countBuilder.in.mockReturnValue(countBuilder)
+    countBuilder.or.mockResolvedValue({ count: 4, error: null })
+
+    const from = jest.fn().mockReturnValue(countBuilder)
+    ;(createServiceSupabase as jest.Mock).mockReturnValue({ from })
+
+    const getVisibilityFilterSpy = jest.spyOn(
+      supabaseContractQueryRepository as unknown as {
+        getVisibilityFilter: (
+          tenantId: string,
+          role: string | undefined,
+          employeeId: string
+        ) => Promise<{ filter: string | null; actionableContractIds: string[]; hodDepartmentIds?: string[] }>
+      },
+      'getVisibilityFilter'
+    )
+    getVisibilityFilterSpy.mockResolvedValue({
+      filter: 'uploaded_by_employee_id.eq.poc-1',
+      actionableContractIds: [],
+      hodDepartmentIds: [],
+    })
+
+    const getPocDepartmentIdsSpy = jest.spyOn(
+      supabaseContractQueryRepository as unknown as {
+        getPocDepartmentIds: (tenantId: string, employeeId: string, employeeEmail?: string | null) => Promise<string[]>
+      },
+      'getPocDepartmentIds'
+    )
+    getPocDepartmentIdsSpy.mockResolvedValue(['dept-sales'])
+
+    const count = await supabaseContractQueryRepository.getDashboardFilterCount({
+      tenantId: 'tenant-1',
+      employeeId: 'poc-1',
+      role: 'POC',
+      filter: 'UNDER_REVIEW',
+      scope: 'default',
+    })
+
+    expect(count).toBe(4)
+    expect(countBuilder.in).toHaveBeenCalledWith('department_id', ['dept-sales'])
+  })
+
+  it('applies HOD department scoping for UNDER_REVIEW dashboard counts', async () => {
+    const countBuilder = {
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      in: jest.fn().mockReturnThis(),
+      or: jest.fn().mockReturnThis(),
+    }
+    countBuilder.select.mockReturnValue(countBuilder)
+    countBuilder.eq.mockReturnValue(countBuilder)
+    countBuilder.in.mockReturnValue(countBuilder)
+    countBuilder.or.mockResolvedValue({ count: 6, error: null })
+
+    const from = jest.fn().mockReturnValue(countBuilder)
+    ;(createServiceSupabase as jest.Mock).mockReturnValue({ from })
+
+    const getVisibilityFilterSpy = jest.spyOn(
+      supabaseContractQueryRepository as unknown as {
+        getVisibilityFilter: (
+          tenantId: string,
+          role: string | undefined,
+          employeeId: string
+        ) => Promise<{ filter: string | null; actionableContractIds: string[]; hodDepartmentIds?: string[] }>
+      },
+      'getVisibilityFilter'
+    )
+    getVisibilityFilterSpy.mockResolvedValue({
+      filter: 'department_id.in.(dept-finance)',
+      actionableContractIds: [],
+      hodDepartmentIds: ['dept-finance'],
+    })
+
+    const count = await supabaseContractQueryRepository.getDashboardFilterCount({
+      tenantId: 'tenant-1',
+      employeeId: 'hod-1',
+      role: 'HOD',
+      filter: 'UNDER_REVIEW',
+      scope: 'default',
+    })
+
+    expect(count).toBe(6)
+    expect(countBuilder.in).toHaveBeenCalledWith('department_id', ['dept-finance'])
+  })
+
+  it('shows legal.void action for uploader POC while contract is HOD_PENDING', async () => {
+    const transitionsSpy = jest.spyOn(
+      supabaseContractQueryRepository as unknown as {
+        getTransitionsForStatus: (
+          tenantId: string,
+          fromStatus: string,
+          actorRole?: string
+        ) => Promise<Array<{ to_status: string; trigger_action: string }>>
+      },
+      'getTransitionsForStatus'
+    )
+    transitionsSpy.mockResolvedValue([{ to_status: 'VOID', trigger_action: 'legal.void' }])
+
+    const pendingCountSpy = jest.spyOn(
+      supabaseContractQueryRepository as unknown as {
+        getPendingApproverCount: (tenantId: string, contractId: string) => Promise<number>
+      },
+      'getPendingApproverCount'
+    )
+    pendingCountSpy.mockResolvedValue(0)
+
+    const firstPendingSpy = jest.spyOn(
+      supabaseContractQueryRepository as unknown as {
+        getFirstPendingApprover: (
+          tenantId: string,
+          contractId: string
+        ) => Promise<{ approverEmployeeId: string } | null>
+      },
+      'getFirstPendingApprover'
+    )
+    firstPendingSpy.mockResolvedValue(null)
+
+    const actions = await supabaseContractQueryRepository.getAvailableActions({
+      tenantId: 'tenant-1',
+      actorEmployeeId: 'poc-1',
+      actorRole: 'POC',
+      contract: {
+        id: 'contract-1',
+        title: 'Contract A',
+        contractTypeId: 'type-1',
+        status: 'HOD_PENDING',
+        uploadedByEmployeeId: 'poc-1',
+        uploadedByEmail: 'poc@nxtwave.co.in',
+        currentAssigneeEmployeeId: 'hod-1',
+        currentAssigneeEmail: 'hod@nxtwave.co.in',
+        departmentId: 'dept-1',
+        signatoryName: 'Sig Name',
+        signatoryDesignation: 'Manager',
+        signatoryEmail: 'sig@nxtwave.co.in',
+        backgroundOfRequest: 'Need review',
+        budgetApproved: true,
+        requestCreatedAt: new Date().toISOString(),
+        fileName: 'file.docx',
+        fileSizeBytes: 1024,
+        fileMimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        filePath: 'tenant/contract-1/file.docx',
+        rowVersion: 1,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    })
+
+    expect(actions.some((item) => item.action === 'legal.void')).toBe(true)
+  })
+
+  it('allows uploader POC pre-HOD void path to pass assignee gate', async () => {
+    const getByIdSpy = jest.spyOn(supabaseContractQueryRepository, 'getById')
+    const canActorAccessSpy = jest.spyOn(
+      supabaseContractQueryRepository as unknown as {
+        canActorAccessContract: (...args: unknown[]) => Promise<boolean>
+      },
+      'canActorAccessContract'
+    )
+
+    canActorAccessSpy.mockResolvedValue(true)
+    getByIdSpy.mockResolvedValue({
+      id: 'contract-1',
+      title: 'Contract A',
+      contractTypeId: 'type-1',
+      status: 'HOD_PENDING',
+      uploadedByEmployeeId: 'poc-1',
+      uploadedByEmail: 'poc@nxtwave.co.in',
+      currentAssigneeEmployeeId: 'hod-1',
+      currentAssigneeEmail: 'hod@nxtwave.co.in',
+      departmentId: 'dept-1',
+      signatoryName: 'Sig Name',
+      signatoryDesignation: 'Manager',
+      signatoryEmail: 'sig@nxtwave.co.in',
+      backgroundOfRequest: 'Need review',
+      budgetApproved: true,
+      requestCreatedAt: new Date().toISOString(),
+      fileName: 'file.docx',
+      fileSizeBytes: 1024,
+      fileMimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      filePath: 'tenant/contract-1/file.docx',
+      rowVersion: 1,
+      uploadMode: 'DEFAULT',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+
+    await expect(
+      supabaseContractQueryRepository.applyAction({
+        tenantId: 'tenant-1',
+        contractId: 'contract-1',
+        action: 'legal.void',
+        actorEmployeeId: 'poc-1',
+        actorRole: 'POC',
+        actorEmail: 'poc@nxtwave.co.in',
+      })
+    ).rejects.toMatchObject<Partial<BusinessRuleError>>({
+      code: 'REMARK_REQUIRED',
+    })
+  })
+
+  it('blocks uploader POC void once contract leaves HOD_PENDING', async () => {
+    const getByIdSpy = jest.spyOn(supabaseContractQueryRepository, 'getById')
+    const canActorAccessSpy = jest.spyOn(
+      supabaseContractQueryRepository as unknown as {
+        canActorAccessContract: (...args: unknown[]) => Promise<boolean>
+      },
+      'canActorAccessContract'
+    )
+
+    canActorAccessSpy.mockResolvedValue(true)
+    getByIdSpy.mockResolvedValue({
+      id: 'contract-1',
+      title: 'Contract A',
+      contractTypeId: 'type-1',
+      status: 'UNDER_REVIEW',
+      uploadedByEmployeeId: 'poc-1',
+      uploadedByEmail: 'poc@nxtwave.co.in',
+      currentAssigneeEmployeeId: 'legal-1',
+      currentAssigneeEmail: 'legal@nxtwave.co.in',
+      departmentId: 'dept-1',
+      signatoryName: 'Sig Name',
+      signatoryDesignation: 'Manager',
+      signatoryEmail: 'sig@nxtwave.co.in',
+      backgroundOfRequest: 'Need review',
+      budgetApproved: true,
+      requestCreatedAt: new Date().toISOString(),
+      fileName: 'file.docx',
+      fileSizeBytes: 1024,
+      fileMimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      filePath: 'tenant/contract-1/file.docx',
+      rowVersion: 1,
+      uploadMode: 'DEFAULT',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+
+    await expect(
+      supabaseContractQueryRepository.applyAction({
+        tenantId: 'tenant-1',
+        contractId: 'contract-1',
+        action: 'legal.void',
+        actorEmployeeId: 'poc-1',
+        actorRole: 'POC',
+        actorEmail: 'poc@nxtwave.co.in',
+      })
+    ).rejects.toMatchObject<Partial<AuthorizationError>>({
+      code: 'CONTRACT_ACTION_FORBIDDEN',
+    })
+  })
+
+  it('blocks signing-cycle soft reset for non-legal roles', async () => {
+    await expect(
+      supabaseContractQueryRepository.softResetActiveSigningCycle({
+        tenantId: 'tenant-1',
+        contractId: 'contract-1',
+        actorEmployeeId: 'poc-1',
+        actorRole: 'POC',
+        actorEmail: 'poc@nxtwave.co.in',
+      })
+    ).rejects.toMatchObject<Partial<AuthorizationError>>({
+      code: 'CONTRACT_SIGNATORY_FORBIDDEN',
+    })
+  })
+
+  it('soft-resets active pending signatories and writes audit metadata', async () => {
+    const select = jest.fn().mockResolvedValue({
+      data: [
+        { id: 'sig-1', zoho_sign_envelope_id: 'env-1' },
+        { id: 'sig-2', zoho_sign_envelope_id: 'env-1' },
+        { id: 'sig-3', zoho_sign_envelope_id: 'env-2' },
+      ],
+      error: null,
+    })
+    const is = jest.fn().mockReturnValue({ select })
+    const eqChain = {
+      eq: jest.fn(),
+      is,
+    }
+    eqChain.eq.mockReturnValue(eqChain)
+    const update = jest.fn().mockReturnValue(eqChain)
+    const insert = jest.fn().mockResolvedValue({ error: null })
+    const from = jest.fn((table: string) => {
+      if (table === 'contract_signatories') {
+        return { update }
+      }
+      if (table === 'audit_logs') {
+        return { insert }
+      }
+      throw new Error(`Unexpected table ${table}`)
+    })
+
+    ;(createServiceSupabase as jest.Mock).mockReturnValue({ from })
+
+    await supabaseContractQueryRepository.softResetActiveSigningCycle({
+      tenantId: 'tenant-1',
+      contractId: 'contract-1',
+      actorEmployeeId: 'legal-1',
+      actorRole: 'LEGAL_TEAM',
+      actorEmail: 'legal@nxtwave.co.in',
+      reason: 'Moved back to completed',
+    })
+
+    expect(from).toHaveBeenCalledWith('contract_signatories')
+    expect(eqChain.eq).toHaveBeenCalledWith('tenant_id', 'tenant-1')
+    expect(eqChain.eq).toHaveBeenCalledWith('contract_id', 'contract-1')
+    expect(eqChain.eq).toHaveBeenCalledWith('status', 'PENDING')
+    expect(is).toHaveBeenCalledWith('deleted_at', null)
+    expect(insert).toHaveBeenCalledWith([
+      expect.objectContaining({
+        event_type: 'CONTRACT_SIGNING_CYCLE_SOFT_RESET',
+        action: 'contract.signing.cycle.soft_reset',
+        note_text: 'Moved back to completed',
+        metadata: expect.objectContaining({
+          archived_pending_signatory_count: 3,
+          archived_envelope_ids: ['env-1', 'env-2'],
+        }),
+      }),
+    ])
   })
 })

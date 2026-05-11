@@ -478,7 +478,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       .order('id', { ascending: false })
       .limit(params.limit)
 
-    if (params.role === 'LEGAL_TEAM') {
+    if (params.role === 'LEGAL_TEAM' || params.role === 'ADMIN') {
       query = query.eq('current_assignee_employee_id', params.employeeId)
     }
 
@@ -577,21 +577,19 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         const assignedIds = new Set<string>()
 
         const [assigneeResult, collaboratorResult] = await Promise.all([
-          params.role !== 'LEGAL_TEAM'
-            ? (async () => {
-                let assigneeQuery = supabase
-                  .from('contracts_repository_view')
-                  .select('id')
-                  .eq('tenant_id', params.tenantId)
-                  .eq('current_assignee_employee_id', params.employeeId)
+          (async () => {
+            let assigneeQuery = supabase
+              .from('contracts_repository_view')
+              .select('id')
+              .eq('tenant_id', params.tenantId)
+              .eq('current_assignee_employee_id', params.employeeId)
 
-                if (statusFilter) {
-                  assigneeQuery = assigneeQuery.eq('status', statusFilter)
-                }
+            if (statusFilter) {
+              assigneeQuery = assigneeQuery.eq('status', statusFilter)
+            }
 
-                return assigneeQuery
-              })()
-            : Promise.resolve({ data: [] as Array<{ id: string }>, error: null }),
+            return assigneeQuery
+          })(),
           supabase
             .from('contract_legal_collaborators')
             .select('contract_id')
@@ -672,6 +670,19 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
           : this.getVisibilityFilter(params.tenantId, params.role, params.employeeId),
         actorEmailPromise,
       ])
+      let underReviewDepartmentIds: string[] | null = null
+
+      if (!shouldUsePersonalScope && resolvedFilter === 'UNDER_REVIEW') {
+        if (params.role === 'HOD') {
+          underReviewDepartmentIds = visibilityFilterContext?.hodDepartmentIds ?? []
+        } else if (params.role === 'POC') {
+          underReviewDepartmentIds = await this.getPocDepartmentIds(params.tenantId, params.employeeId)
+        }
+
+        if (underReviewDepartmentIds && underReviewDepartmentIds.length === 0) {
+          return { items: [], total: 0 }
+        }
+      }
 
       const buildDashboardListQuery = (selectColumns: string) => {
         let query = supabase
@@ -692,6 +703,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
         if (assignedContractIds) {
           query = query.in('id', assignedContractIds)
+        }
+
+        if (underReviewDepartmentIds && underReviewDepartmentIds.length > 0) {
+          query = query.in('department_id', underReviewDepartmentIds)
         }
 
         if (shouldUsePersonalScope) {
@@ -722,6 +737,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
             if (assignedContractIds) {
               totalQuery = totalQuery.in('id', assignedContractIds)
+            }
+
+            if (underReviewDepartmentIds && underReviewDepartmentIds.length > 0) {
+              totalQuery = totalQuery.in('department_id', underReviewDepartmentIds)
             }
 
             if (shouldUsePersonalScope) {
@@ -845,17 +864,15 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       // Resolve directly-assigned contracts and legal-collaborator contracts
       // in parallel to avoid sequential round-trips.
       const [assigneeResult, collaboratorResult] = await Promise.all([
-        params.role !== 'LEGAL_TEAM'
-          ? (async () => {
-              let q = supabase
-                .from('contracts_repository_view')
-                .select('id')
-                .eq('tenant_id', params.tenantId)
-                .eq('current_assignee_employee_id', params.employeeId)
-              if (statusFilter) q = q.eq('status', statusFilter)
-              return q
-            })()
-          : Promise.resolve({ data: [] as Array<{ id: string }>, error: null }),
+        (async () => {
+          let q = supabase
+            .from('contracts_repository_view')
+            .select('id')
+            .eq('tenant_id', params.tenantId)
+            .eq('current_assignee_employee_id', params.employeeId)
+          if (statusFilter) q = q.eq('status', statusFilter)
+          return q
+        })(),
         supabase
           .from('contract_legal_collaborators')
           .select('contract_id')
@@ -922,6 +939,19 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     const visibilityFilterContext = shouldUsePersonalScope
       ? null
       : await this.getVisibilityFilter(params.tenantId, params.role, params.employeeId)
+    let underReviewDepartmentIds: string[] | null = null
+
+    if (!shouldUsePersonalScope && resolvedFilter === 'UNDER_REVIEW') {
+      if (params.role === 'HOD') {
+        underReviewDepartmentIds = visibilityFilterContext?.hodDepartmentIds ?? []
+      } else if (params.role === 'POC') {
+        underReviewDepartmentIds = await this.getPocDepartmentIds(params.tenantId, params.employeeId)
+      }
+
+      if (underReviewDepartmentIds && underReviewDepartmentIds.length === 0) {
+        return 0
+      }
+    }
 
     let countQuery = supabase
       .from('contracts_repository_view')
@@ -934,6 +964,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
     if (assignedContractIds) {
       countQuery = countQuery.in('id', assignedContractIds)
+    }
+
+    if (underReviewDepartmentIds && underReviewDepartmentIds.length > 0) {
+      countQuery = countQuery.in('department_id', underReviewDepartmentIds)
     }
 
     if (shouldUsePersonalScope) {
@@ -1195,7 +1229,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
                 .in('id', departmentIds)
                 .is('deleted_at', null)
             : Promise.resolve({ data: [] as Array<{ id: string; name: string }>, error: null }),
-          params.role === 'LEGAL_TEAM'
+          params.role === 'LEGAL_TEAM' || params.role === 'ADMIN'
             ? this.getContractLegalCollaboratorEmailMap(params.tenantId, legacyRowsForPage)
             : this.getContractAssignmentEmailMap(params.tenantId, pageContractIds, legacyRowsForPage),
           legacyRowsHaveLegalMetadata
@@ -1252,7 +1286,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
           executedAt: enrichment.executedAtByContractId.get(row.id) ?? null,
           departmentName: row.department_id ? (departmentNameById.get(row.department_id) ?? null) : null,
           assignedToUsers:
-            params.role === 'LEGAL_TEAM'
+            params.role === 'LEGAL_TEAM' || params.role === 'ADMIN'
               ? (assignmentMap.get(row.id) ?? [])
               : (assignmentMap.get(row.id) ?? [row.current_assignee_email]),
         })
@@ -2294,11 +2328,11 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found')
     }
 
-    const draftAllowedStatuses: ContractStatus[] = [contractStatuses.underReview, contractStatuses.completed]
+    const draftAllowedStatuses: ContractStatus[] = [contractStatuses.completed]
     if (!draftAllowedStatuses.includes(contract.status)) {
       throw new BusinessRuleError(
         'SIGNING_PREPARATION_INVALID_STATUS',
-        'Signing preparation drafts can only be saved in UNDER_REVIEW or COMPLETED'
+        'Signing preparation drafts can only be saved in COMPLETED'
       )
     }
 
@@ -2470,7 +2504,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     })
 
     if (params.actorRole !== 'LEGAL_TEAM' && params.actorRole !== 'ADMIN') {
-      throw new AuthorizationError('CONTRACT_SIGNATORY_FORBIDDEN', 'Only legal team can send for signing')
+      throw new AuthorizationError('CONTRACT_SIGNATORY_FORBIDDEN', 'Only legal team or admin can send for signing')
     }
 
     const supabase = createServiceSupabase()
@@ -2497,7 +2531,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       })
       .eq('tenant_id', params.tenantId)
       .eq('id', params.contractId)
-      .in('status', [contractStatuses.underReview, contractStatuses.completed])
+      .in('status', [contractStatuses.completed])
       .is('deleted_at', null)
       .select('id')
       .maybeSingle<{ id: string }>()
@@ -2506,7 +2540,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     logger.warn('TEMP_DIAG moveContractToInSignature update result', {
       contractId: params.contractId,
       requestedTenantId: params.tenantId,
-      requiredFromStatuses: [contractStatuses.underReview, contractStatuses.completed],
+      requiredFromStatuses: [contractStatuses.completed],
       targetStatus: contractStatuses.signing,
       rowsAffected,
       contractUpdateErrorCode: contractUpdateError?.code ?? null,
@@ -2522,7 +2556,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     if (!contractUpdate?.id) {
       throw new BusinessRuleError(
         'SIGNING_PREPARATION_INVALID_STATUS',
-        'Signing preparation send is only allowed in UNDER_REVIEW'
+        'Signing preparation send is only allowed in COMPLETED'
       )
     }
 
@@ -2544,6 +2578,83 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
     if (auditError) {
       throw new DatabaseError('Failed to write in-signature audit event', new Error(auditError.message), {
+        code: auditError.code,
+      })
+    }
+  }
+
+  async softResetActiveSigningCycle(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    actorRole: string
+    actorEmail: string
+    reason?: string
+  }): Promise<void> {
+    this.assertActorMetadata({
+      actorEmployeeId: params.actorEmployeeId,
+      actorEmail: params.actorEmail,
+      actorRole: params.actorRole,
+    })
+
+    if (params.actorRole !== contractWorkflowRoles.legalTeam && params.actorRole !== contractWorkflowRoles.admin) {
+      throw new AuthorizationError('CONTRACT_SIGNATORY_FORBIDDEN', 'Only legal team or admin can reset signing cycle')
+    }
+
+    const supabase = createServiceSupabase()
+    const archivedAt = new Date().toISOString()
+    const { data: archivedSignatories, error: archiveError } = await supabase
+      .from('contract_signatories')
+      .update({ deleted_at: archivedAt })
+      .eq('tenant_id', params.tenantId)
+      .eq('contract_id', params.contractId)
+      .eq('status', contractSignatoryStatuses.pending)
+      .is('deleted_at', null)
+      .select('id, zoho_sign_envelope_id')
+
+    if (archiveError) {
+      if (this.isMissingRelationError(archiveError, 'contract_signatories')) {
+        return
+      }
+
+      throw new DatabaseError('Failed to soft reset active signing cycle', new Error(archiveError.message), {
+        code: archiveError.code,
+      })
+    }
+
+    const resetCount = archivedSignatories?.length ?? 0
+    if (resetCount === 0) {
+      return
+    }
+
+    const archivedEnvelopeIds = Array.from(
+      new Set(
+        (archivedSignatories ?? [])
+          .map((item: { zoho_sign_envelope_id: string | null }) => item.zoho_sign_envelope_id?.trim())
+          .filter(Boolean)
+      )
+    )
+
+    const { error: auditError } = await supabase.from('audit_logs').insert([
+      {
+        tenant_id: params.tenantId,
+        user_id: params.actorEmployeeId,
+        event_type: 'CONTRACT_SIGNING_CYCLE_SOFT_RESET',
+        action: 'contract.signing.cycle.soft_reset',
+        actor_email: params.actorEmail,
+        actor_role: params.actorRole,
+        resource_type: 'contract',
+        resource_id: params.contractId,
+        note_text: params.reason?.trim() || null,
+        metadata: {
+          archived_pending_signatory_count: resetCount,
+          archived_envelope_ids: archivedEnvelopeIds,
+        },
+      },
+    ])
+
+    if (auditError) {
+      throw new DatabaseError('Failed to write signing cycle soft reset audit event', new Error(auditError.message), {
         code: auditError.code,
       })
     }
@@ -2616,12 +2727,18 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
     const actions = actionsFromGraph.filter((item) => {
       const isAdditionalApproverAction = item.action === 'approver.approve' || item.action === 'approver.reject'
+      const canUploaderPocPreHodVoid =
+        item.action === 'legal.void' &&
+        params.actorRole === 'POC' &&
+        params.contract.status === contractStatuses.hodPending &&
+        params.contract.uploadedByEmployeeId === params.actorEmployeeId
 
       if (
         params.actorRole !== 'ADMIN' &&
         params.actorRole !== 'LEGAL_TEAM' &&
         !isAdditionalApproverAction &&
-        !isAssignee
+        !isAssignee &&
+        !canUploaderPocPreHodVoid
       ) {
         const isHodAction =
           item.action === 'hod.approve' || item.action === 'hod.reject' || item.action === 'hod.bypass'
@@ -2695,6 +2812,11 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     const isAssignee = contract.currentAssigneeEmployeeId === params.actorEmployeeId
     const isHodAction =
       effectiveAction === 'hod.approve' || effectiveAction === 'hod.reject' || effectiveAction === 'hod.bypass'
+    const canUploaderPocPreHodVoid =
+      effectiveAction === 'legal.void' &&
+      params.actorRole === 'POC' &&
+      contract.status === contractStatuses.hodPending &&
+      contract.uploadedByEmployeeId === params.actorEmployeeId
     const allowMappedHodAction =
       params.actorRole === 'HOD' &&
       isHodAction &&
@@ -2708,7 +2830,8 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       params.actorRole !== 'ADMIN' &&
       params.actorRole !== 'LEGAL_TEAM' &&
       !isAssignee &&
-      !allowMappedHodAction
+      !allowMappedHodAction &&
+      !canUploaderPocPreHodVoid
     ) {
       throw new AuthorizationError('CONTRACT_ACTION_FORBIDDEN', 'Only the current assignee can perform this action')
     }
@@ -2790,7 +2913,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     let tatDeadlineAt = contract.tatDeadlineAt ?? null
 
     if (effectiveAction === 'hod.approve' || effectiveAction === 'hod.bypass') {
-      const legalAssignee = await this.getLegalAssignee(params.tenantId)
+      const legalAssignee = await this.getLegalAssignee(params.tenantId, contract.departmentId)
       assigneeEmployeeId = legalAssignee.id
       assigneeEmail = legalAssignee.email
       nextStatus = contractStatuses.underReview
@@ -2956,7 +3079,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     })
 
     if (params.actorRole !== 'LEGAL_TEAM' && params.actorRole !== 'ADMIN') {
-      throw new AuthorizationError('CONTRACT_APPROVER_FORBIDDEN', 'Only legal team can assign additional approvers')
+      throw new AuthorizationError(
+        'CONTRACT_APPROVER_FORBIDDEN',
+        'Only legal team or admin can assign additional approvers'
+      )
     }
 
     const contract = await this.getById(params.tenantId, params.contractId)
@@ -2964,7 +3090,11 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found')
     }
 
-    if (params.actorRole !== contractWorkflowRoles.legalTeam && contract.status !== contractStatuses.underReview) {
+    if (
+      params.actorRole !== contractWorkflowRoles.legalTeam &&
+      params.actorRole !== contractWorkflowRoles.admin &&
+      contract.status !== contractStatuses.underReview
+    ) {
       throw new BusinessRuleError(
         'APPROVER_ASSIGN_INVALID_STATUS',
         'Additional approvers can only be assigned in UNDER_REVIEW for non-legal-team roles'
@@ -3148,7 +3278,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       })
     }
 
-    const legalAssignee = await this.getLegalAssignee(params.tenantId)
+    const legalAssignee = await this.getLegalAssignee(params.tenantId, contract.departmentId)
 
     const { data: updatedContract, error: contractUpdateError } = await supabase
       .from('contracts')
@@ -3290,8 +3420,11 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       actorRole: params.actorRole,
     })
 
-    if (params.actorRole !== contractWorkflowRoles.legalTeam) {
-      throw new AuthorizationError('CONTRACT_LEGAL_METADATA_FORBIDDEN', 'Only LEGAL_TEAM can update legal metadata')
+    if (params.actorRole !== contractWorkflowRoles.legalTeam && params.actorRole !== contractWorkflowRoles.admin) {
+      throw new AuthorizationError(
+        'CONTRACT_LEGAL_METADATA_FORBIDDEN',
+        'Only LEGAL_TEAM or ADMIN can update legal metadata'
+      )
     }
 
     const contract = await this.getById(params.tenantId, params.contractId)
@@ -3567,7 +3700,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     })
 
     if (params.actorRole !== 'LEGAL_TEAM' && params.actorRole !== 'ADMIN') {
-      throw new AuthorizationError('CONTRACT_SIGNATORY_FORBIDDEN', 'Only legal team can assign signatories')
+      throw new AuthorizationError('CONTRACT_SIGNATORY_FORBIDDEN', 'Only legal team or admin can assign signatories')
     }
 
     const contract = await this.getById(params.tenantId, params.contractId)
@@ -3575,12 +3708,9 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found')
     }
 
-    const assignAllowedStatuses: ContractStatus[] = [contractStatuses.underReview, contractStatuses.completed]
+    const assignAllowedStatuses: ContractStatus[] = [contractStatuses.completed]
     if (!assignAllowedStatuses.includes(contract.status)) {
-      throw new BusinessRuleError(
-        'SIGNATORY_ASSIGN_INVALID_STATUS',
-        'Signatories can only be assigned in UNDER_REVIEW or COMPLETED'
-      )
+      throw new BusinessRuleError('SIGNATORY_ASSIGN_INVALID_STATUS', 'Signatories can only be assigned in COMPLETED')
     }
 
     const existingSignatories = await this.getSignatories(params.tenantId, params.contractId)
@@ -5000,6 +5130,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       return contractStatuses.completed
     }
 
+    if (filter === 'REJECTED') {
+      return contractStatuses.rejected
+    }
+
     return contractStatuses.onHold
   }
 
@@ -5059,6 +5193,73 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     }
 
     return Array.from(new Set((hodTeams ?? []).map((member) => member.team_id)))
+  }
+
+  private async getPocDepartmentIds(
+    tenantId: string,
+    employeeId: string,
+    preResolvedEmail?: string | null
+  ): Promise<string[]> {
+    const resolvedEmployeeEmail = preResolvedEmail ?? (await this.getEmployeeEmail(tenantId, employeeId))
+    if (!resolvedEmployeeEmail) {
+      return []
+    }
+
+    const supabase = createServiceSupabase()
+
+    const { data: pocTeams, error: pocTeamsError } = await supabase
+      .from('team_role_mappings')
+      .select('team_id')
+      .eq('tenant_id', tenantId)
+      .eq('email', resolvedEmployeeEmail)
+      .eq('role_type', 'POC')
+      .eq('active_flag', true)
+      .is('deleted_at', null)
+
+    if (pocTeamsError) {
+      if (
+        this.isMissingRelationError(pocTeamsError, 'team_role_mappings') ||
+        this.isMissingColumnError(pocTeamsError, 'team_role_mappings')
+      ) {
+        return []
+      }
+
+      throw new DatabaseError('Failed to resolve POC departments for access checks', new Error(pocTeamsError.message), {
+        code: pocTeamsError.code,
+      })
+    }
+
+    const mappedDepartmentIds = Array.from(new Set((pocTeams ?? []).map((member) => member.team_id)))
+    if (mappedDepartmentIds.length > 0) {
+      return mappedDepartmentIds
+    }
+
+    const { data: fallbackTeams, error: fallbackTeamsError } = await supabase
+      .from('teams')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('poc_email', resolvedEmployeeEmail)
+      .eq('is_active', true)
+      .is('deleted_at', null)
+
+    if (fallbackTeamsError) {
+      if (
+        this.isMissingRelationError(fallbackTeamsError, 'teams') ||
+        this.isMissingColumnError(fallbackTeamsError, 'teams')
+      ) {
+        return []
+      }
+
+      throw new DatabaseError(
+        'Failed to resolve fallback POC departments for access checks',
+        new Error(fallbackTeamsError.message),
+        {
+          code: fallbackTeamsError.code,
+        }
+      )
+    }
+
+    return Array.from(new Set((fallbackTeams ?? []).map((team) => team.id)))
   }
 
   private async getPendingApproverCount(tenantId: string, contractId: string): Promise<number> {
@@ -5283,7 +5484,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
     const supabase = createServiceSupabase()
 
-    // Run both queries in parallel — they have no dependency on each other.
+    // Run both queries in parallel - they have no dependency on each other.
     const [pendingResult, rejectionResult] = await Promise.all([
       supabase
         .from('contract_additional_approvers')
@@ -5407,9 +5608,18 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     return contextMap
   }
 
-  private async getLegalAssignee(tenantId: string): Promise<{ id: string; email: string }> {
+  private async getLegalAssignee(
+    tenantId: string,
+    departmentId?: string | null
+  ): Promise<{ id: string; email: string }> {
     const legalMembers = await this.resolveActiveTenantLegalMembers(tenantId)
-    const assignee = this.pickRandomLegalMember(legalMembers)
+    const departmentMemberIds =
+      departmentId && departmentId.trim().length > 0
+        ? await this.resolveDepartmentAssignedLegalMemberIds(tenantId, departmentId)
+        : new Set<string>()
+    const departmentMembers =
+      departmentMemberIds.size > 0 ? legalMembers.filter((member) => departmentMemberIds.has(member.id)) : []
+    const assignee = this.pickRandomLegalMember(departmentMembers.length > 0 ? departmentMembers : legalMembers)
 
     if (!assignee) {
       throw new BusinessRuleError('LEGAL_ASSIGNEE_NOT_FOUND', 'No active legal team member available for routing')
@@ -5428,6 +5638,30 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
     const randomIndex = Math.floor(Math.random() * members.length)
     return members[randomIndex]
+  }
+
+  private async resolveDepartmentAssignedLegalMemberIds(tenantId: string, departmentId: string): Promise<Set<string>> {
+    const supabase = createServiceSupabase()
+    const { data, error } = await supabase
+      .from('department_legal_assignments')
+      .select('user_id')
+      .eq('tenant_id', tenantId)
+      .eq('department_id', departmentId)
+      .eq('is_active', true)
+      .is('deleted_at', null)
+      .is('revoked_at', null)
+
+    if (error) {
+      throw new DatabaseError('Failed to resolve legal department assignments', new Error(error.message), {
+        code: error.code,
+      })
+    }
+
+    return new Set(
+      ((data ?? []) as Array<{ user_id: string | null }>)
+        .map((row) => row.user_id)
+        .filter((value): value is string => Boolean(value))
+    )
   }
 
   private async resolveActiveTenantLegalUserByEmail(
@@ -5547,7 +5781,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     if (
       !contractLegalAssignmentAllowedRoles.includes(actorRole as (typeof contractLegalAssignmentAllowedRoles)[number])
     ) {
-      throw new AuthorizationError('CONTRACT_ASSIGNMENT_FORBIDDEN', 'Only legal team can manage legal assignments')
+      throw new AuthorizationError(
+        'CONTRACT_ASSIGNMENT_FORBIDDEN',
+        'Only legal team or admin can manage legal assignments'
+      )
     }
   }
 
@@ -5731,26 +5968,22 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     const supabase = createServiceSupabase()
     const assignedIds = new Set<string>()
 
-    const shouldIncludeAssignee = role !== 'LEGAL_TEAM'
+    const { data: assigneeRows, error: assigneeError } = await supabase
+      .from('contracts')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .in('id', contractIds)
+      .eq('current_assignee_employee_id', employeeId)
+      .is('deleted_at', null)
 
-    if (shouldIncludeAssignee) {
-      const { data: assigneeRows, error: assigneeError } = await supabase
-        .from('contracts')
-        .select('id')
-        .eq('tenant_id', tenantId)
-        .in('id', contractIds)
-        .eq('current_assignee_employee_id', employeeId)
-        .is('deleted_at', null)
+    if (assigneeError) {
+      throw new DatabaseError('Failed to resolve assignee contract set', new Error(assigneeError.message), {
+        code: assigneeError.code,
+      })
+    }
 
-      if (assigneeError) {
-        throw new DatabaseError('Failed to resolve assignee contract set', new Error(assigneeError.message), {
-          code: assigneeError.code,
-        })
-      }
-
-      for (const row of (assigneeRows ?? []) as Array<{ id: string }>) {
-        assignedIds.add(row.id)
-      }
+    for (const row of (assigneeRows ?? []) as Array<{ id: string }>) {
+      assignedIds.add(row.id)
     }
 
     const { data: collaboratorRows, error: collaboratorError } = await supabase
@@ -6111,13 +6344,15 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     const assignmentMap = new Map<string, string[]>()
 
     for (const row of rows) {
-      if (role === 'LEGAL_TEAM') {
+      if (role === 'LEGAL_TEAM' || role === 'ADMIN') {
+        const assignmentEmails = [row.current_assignee_email]
         const collaboratorEmails = (row.legal_collaborators ?? [])
           .filter((item) => !item.deleted_at)
           .map((item) => item.collaborator_email)
+        assignmentEmails.push(...collaboratorEmails)
 
-        if (collaboratorEmails.length > 0) {
-          assignmentMap.set(row.id, Array.from(new Set(collaboratorEmails)))
+        if (assignmentEmails.length > 0) {
+          assignmentMap.set(row.id, Array.from(new Set(assignmentEmails)))
         }
         continue
       }
@@ -6244,6 +6479,9 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         this.isMissingRelationError(error, 'contract_legal_collaborators') ||
         this.isMissingColumnError(error, 'contract_legal_collaborators')
       ) {
+        for (const row of contractRows) {
+          assignmentMap.set(row.id, [row.current_assignee_email])
+        }
         return assignmentMap
       }
 
@@ -6258,6 +6496,14 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         existing.push(assignment.collaborator_email)
       }
       assignmentMap.set(assignment.contract_id, existing)
+    }
+
+    for (const row of contractRows) {
+      const existing = assignmentMap.get(row.id) ?? []
+      if (!existing.includes(row.current_assignee_email)) {
+        existing.unshift(row.current_assignee_email)
+      }
+      assignmentMap.set(row.id, existing)
     }
 
     return assignmentMap

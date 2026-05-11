@@ -2,14 +2,18 @@
 
 .layout {
   display: grid;
-  grid-template-columns: 300px 1fr;
+  grid-template-columns: 300px minmax(0, 1fr);
   gap: 0;
-  height: calc(100vh - 56px);
+  height: 100vh;
+  min-height: 100dvh;
+  width: 100%;
+  max-width: 100%;
+  overflow: hidden;
   animation: fadeIn 0.35s ease;
 }
 
 .layoutCollapsed {
-  grid-template-columns: 64px 1fr;
+  grid-template-columns: 64px minmax(0, 1fr);
 }
 
 /* ── Sidebar Panel ── */
@@ -188,7 +192,9 @@
   display: flex;
   flex-direction: column;
   min-height: 0;
+  min-width: 0;
   overflow: hidden;
+  overflow-x: hidden;
 }
 
 .headerRow {
@@ -324,10 +330,11 @@
 
 .detailsShell {
   display: grid;
-  grid-template-columns: 280px 1fr;
+  grid-template-columns: max(30%, 320px) minmax(0, 1fr);
   flex: 1;
   min-height: 0;
   overflow: hidden;
+  overflow-x: hidden;
 }
 
 .detailShimmer {
@@ -342,9 +349,18 @@
   display: flex;
   flex-direction: column;
   overflow-y: auto;
+  overflow-x: hidden;
   border-right: 1px solid var(--color-border);
   background: var(--color-surface);
   padding: 20px 16px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.summaryColumn::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 /* ── Section Blocks (flat layout, no cards) ── */
@@ -417,14 +433,24 @@
   flex-direction: column;
   min-height: 0;
   overflow: hidden;
+  overflow-x: hidden;
 }
 
 .tabHeader {
   display: flex;
+  align-items: center;
   gap: 0;
   padding: 0 16px;
   background: var(--color-surface);
   border-bottom: 1px solid var(--color-border);
+}
+
+.tabHeaderActions {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 8px;
 }
 
 .tabButton {
@@ -467,6 +493,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   padding: 20px;
   animation: fadeIn 0.2s ease;
 }
@@ -489,7 +516,7 @@
 }
 
 .card:hover {
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  box-shadow: var(--color-shadow-sm);
 }
 
 .sectionTitle {
@@ -564,10 +591,10 @@
 }
 
 .buttonPrimary:hover {
-  background: #2560d9;
-  border-color: #2560d9;
+  background: var(--color-accent-hover);
+  border-color: var(--color-accent-hover);
   color: var(--color-accent-contrast);
-  box-shadow: 0 2px 10px rgba(47, 109, 246, 0.2);
+  box-shadow: 0 2px 10px color-mix(in srgb, var(--color-accent) 28%, transparent);
 }
 
 .buttonDanger {
@@ -578,7 +605,7 @@
 
 .buttonDanger:hover {
   background: var(--color-danger);
-  color: #ffffff;
+  color: var(--color-accent-contrast);
   border-color: var(--color-danger);
 }
 
@@ -662,7 +689,7 @@
 
 .textarea:focus {
   border-color: var(--color-accent);
-  box-shadow: 0 0 0 3px rgba(47, 109, 246, 0.08);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 22%, transparent);
   outline: none;
 }
 
@@ -682,7 +709,7 @@
 
 .input:focus {
   border-color: var(--color-accent);
-  box-shadow: 0 0 0 3px rgba(47, 109, 246, 0.08);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 22%, transparent);
   outline: none;
 }
 
@@ -705,7 +732,7 @@
 }
 
 .event:hover {
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  box-shadow: var(--color-shadow-sm);
 }
 
 .eventActor {
@@ -804,7 +831,7 @@
 }
 
 .timelineEvent:hover {
-  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.04);
+  box-shadow: var(--color-shadow-sm);
   border-color: var(--color-border);
 }
 
@@ -1039,7 +1066,7 @@
 
 .documentRow:hover {
   border-color: var(--color-accent);
-  box-shadow: 0 1px 6px rgba(47, 109, 246, 0.06);
+  box-shadow: 0 1px 6px color-mix(in srgb, var(--color-accent) 18%, transparent);
 }
 
 .documentMeta {

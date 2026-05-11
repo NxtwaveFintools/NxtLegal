@@ -65,6 +65,7 @@ const createRepositoryMock = (): jest.Mocked<ContractQueryRepository> => ({
   getSigningPreparationDraft: jest.fn(),
   countPendingSignatoriesByContract: jest.fn(),
   moveContractToInSignature: jest.fn(),
+  softResetActiveSigningCycle: jest.fn(),
   deleteSigningPreparationDraft: jest.fn(),
   resolveEnvelopeContext: jest.fn(),
   recordZohoSignWebhookEvent: jest.fn(),
@@ -427,20 +428,21 @@ describe('ContractQueryService', () => {
     expect(result.contract.status).toBe('UNDER_REVIEW')
   })
 
-  it('saves signing preparation draft when contract is under review', async () => {
+  it('saves signing preparation draft when contract is completed', async () => {
     const repository = createRepositoryMock()
     const service = new ContractQueryService(repository)
 
-    const underReviewContract: ContractDetail = {
+    const completedContract: ContractDetail = {
       ...baseContract,
-      status: 'UNDER_REVIEW',
+      status: 'COMPLETED',
     }
 
-    repository.getById.mockResolvedValue(underReviewContract)
+    repository.getById.mockResolvedValue(completedContract)
     repository.canAccessContract.mockResolvedValue(true)
     repository.getDocuments.mockResolvedValue([])
     repository.getAvailableActions.mockResolvedValue([])
     repository.getAdditionalApprovers.mockResolvedValue([])
+    repository.getLegalCollaborators.mockResolvedValue([])
     repository.getSignatories.mockResolvedValue([])
     repository.saveSigningPreparationDraft.mockResolvedValue({
       contractId: 'contract-1',
@@ -519,7 +521,7 @@ describe('ContractQueryService', () => {
     })
   })
 
-  it('rejects signing preparation draft save when contract is not under review', async () => {
+  it('rejects signing preparation draft save when contract is not completed', async () => {
     const repository = createRepositoryMock()
     const service = new ContractQueryService(repository)
 
@@ -528,6 +530,7 @@ describe('ContractQueryService', () => {
     repository.getDocuments.mockResolvedValue([])
     repository.getAvailableActions.mockResolvedValue([])
     repository.getAdditionalApprovers.mockResolvedValue([])
+    repository.getLegalCollaborators.mockResolvedValue([])
     repository.getSignatories.mockResolvedValue([])
 
     await expect(

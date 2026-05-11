@@ -3,6 +3,7 @@ import {
   contractCounterpartyValues,
   contractDocumentMimeTypes,
   contractDocumentUploadRules,
+  type ContractStatus,
   contractUploadModes,
   contractDocumentVersioning,
   contractStatuses,
@@ -12,7 +13,12 @@ import { limits } from '@/core/constants/limits'
 import { AuthorizationError, BusinessRuleError, DatabaseError } from '@/core/http/errors'
 import type { ContractRepository } from '@/core/domain/contracts/contract-repository'
 import type { ContractStorageRepository } from '@/core/domain/contracts/contract-storage-repository'
-import type { ContractDocumentRecord, ContractRecord } from '@/core/domain/contracts/types'
+import type {
+  ContractAccessRecord,
+  ContractDocumentAccessRecord,
+  ContractDocumentRecord,
+  ContractRecord,
+} from '@/core/domain/contracts/types'
 
 type Logger = {
   info: (message: string, context?: Record<string, unknown>) => void
@@ -78,9 +84,103 @@ export type ReplacePrimaryDocumentInput = {
   fileBody: Blob
 }
 
+export type ReplaceSupportingDocumentInput = {
+  tenantId: string
+  contractId: string
+  sourceDocumentId: string
+  uploadedByEmployeeId: string
+  uploadedByEmail: string
+  uploadedByRole: string
+  fileName: string
+  fileSizeBytes: number
+  fileMimeType: string
+  fileBody: Blob
+}
+
+type ContractFileMetadata = {
+  fileName: string
+  fileSizeBytes: number
+  fileMimeType: string
+}
+
+export type UploadContractMetadataInput = Omit<
+  UploadContractInput,
+  'fileBody' | 'supportingFiles' | 'counterparties' | 'fileName' | 'fileSizeBytes' | 'fileMimeType'
+> & {
+  file: ContractFileMetadata
+  counterparties?: Array<{
+    counterpartyName: string
+    backgroundOfRequest?: string
+    budgetApproved?: boolean
+    signatories?: Array<{
+      name: string
+      designation: string
+      email: string
+    }>
+    supportingFiles: ContractFileMetadata[]
+  }>
+  supportingFiles?: ContractFileMetadata[]
+}
+
+export type FinalizeContractUploadInput = UploadContractMetadataInput & {
+  contractId: string
+}
+
+export type ReplacePrimaryDocumentMetadataInput = Omit<ReplacePrimaryDocumentInput, 'fileBody'> & {
+  fileName: string
+  fileSizeBytes: number
+  fileMimeType: string
+}
+
+export type ReplaceSupportingDocumentMetadataInput = Omit<ReplaceSupportingDocumentInput, 'fileBody'> & {
+  fileName: string
+  fileSizeBytes: number
+  fileMimeType: string
+}
+
+export type PlannedFileUpload = ContractFileMetadata & {
+  path: string
+  token: string
+  signedUrl: string
+}
+
+export type InitializeContractUploadResult = {
+  contractId: string
+  primaryUpload: PlannedFileUpload
+  counterpartySupportingUploads: Array<
+    PlannedFileUpload & {
+      counterpartyIndex: number
+      supportingIndex: number
+    }
+  >
+  commonSupportingUploads: Array<
+    PlannedFileUpload & {
+      supportingIndex: number
+    }
+  >
+}
+
+export type InitializeReplaceMainDocumentResult = {
+  upload: PlannedFileUpload
+}
+
+export type InitializeReplaceSupportingDocumentResult = {
+  upload: PlannedFileUpload
+}
+
 export class ContractUploadService {
   private readonly allowedInitialUploadRoles = new Set(contractDocumentUploadRules.initialAllowedRoles)
-  private readonly allowedReplacementUploadRoles = new Set(contractDocumentUploadRules.replacementAllowedRoles)
+  private readonly legalReplacementStatuses = new Set<ContractStatus>([
+    contractStatuses.pendingInternal,
+    contractStatuses.pendingExternal,
+    contractStatuses.offlineExecution,
+    contractStatuses.onHold,
+    contractStatuses.completed,
+  ])
+  private readonly adminOnlyReplacementStatuses = new Set<ContractStatus>([
+    contractStatuses.rejected,
+    contractStatuses.void,
+  ])
   private readonly privilegedReadRoles = new Set(['ADMIN', 'LEGAL_TEAM'])
   private readonly emailPattern = /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i
 
@@ -100,12 +200,12 @@ export class ContractUploadService {
     ) {
       throw new AuthorizationError(
         'CONTRACT_UPLOAD_FORBIDDEN',
-        'Only POC, HOD, or LEGAL_TEAM can upload initial contracts'
+        'Only POC, HOD, LEGAL_TEAM, or ADMIN can upload initial contracts'
       )
     }
 
     const isLegalSendForSigning = input.uploadMode === contractUploadModes.legalSendForSigning
-    const isLegalTeamUpload = input.uploadedByRole === 'LEGAL_TEAM'
+    const isLegalOrAdminUpload = input.uploadedByRole === 'LEGAL_TEAM' || input.uploadedByRole === 'ADMIN'
 
     if (input.uploadedByRole === 'POC') {
       const isPocAssignedToDepartment = await this.contractRepository.isPocAssignedToDepartment({
@@ -137,8 +237,11 @@ export class ContractUploadService {
       }
     }
 
-    if (isLegalSendForSigning && !isLegalTeamUpload) {
-      throw new AuthorizationError('CONTRACT_UPLOAD_FORBIDDEN', 'Only LEGAL_TEAM can use send-for-signing upload mode')
+    if (isLegalSendForSigning && !isLegalOrAdminUpload) {
+      throw new AuthorizationError(
+        'CONTRACT_UPLOAD_FORBIDDEN',
+        'Only LEGAL_TEAM or ADMIN can use send-for-signing upload mode'
+      )
     }
 
     if (isLegalSendForSigning && input.bypassHodApproval && !input.bypassReason?.trim()) {
@@ -409,19 +512,121 @@ export class ContractUploadService {
     return contract
   }
 
-  async replacePrimaryDocument(input: ReplacePrimaryDocumentInput): Promise<ContractDocumentRecord> {
-    this.validateReplacementInput(input)
+  async initiateUploadContract(input: UploadContractMetadataInput): Promise<InitializeContractUploadResult> {
+    const normalizedInput = this.toUploadMetadataValidationInput(input)
+    this.validateUploadMetadataInput(normalizedInput)
+    await this.assertInitialUploadPermissions(normalizedInput)
+    this.assertInitialUploadFormat(normalizedInput)
 
-    if (
-      !this.allowedReplacementUploadRoles.has(
-        input.uploadedByRole as (typeof contractDocumentUploadRules.replacementAllowedRoles)[number]
+    const contractId = randomUUID()
+    const uploadPlan = this.buildInitialUploadPlan({
+      tenantId: input.tenantId,
+      contractId,
+      fileName: input.file.fileName,
+      fileSizeBytes: input.file.fileSizeBytes,
+      fileMimeType: input.file.fileMimeType,
+      counterparties: input.counterparties,
+      supportingFiles: input.supportingFiles,
+    })
+
+    const primarySignedUpload = await this.contractStorageRepository.createSignedUploadUrl(
+      uploadPlan.primaryUpload.path
+    )
+    const counterpartySignedUploads = await Promise.all(
+      uploadPlan.counterpartySupportingUploads.map((item) =>
+        this.contractStorageRepository.createSignedUploadUrl(item.path)
       )
-    ) {
-      throw new AuthorizationError(
-        'CONTRACT_REPLACEMENT_FORBIDDEN',
-        'Only LEGAL_TEAM can replace main contract documents'
-      )
+    )
+    const commonSignedUploads = await Promise.all(
+      uploadPlan.commonSupportingUploads.map((item) => this.contractStorageRepository.createSignedUploadUrl(item.path))
+    )
+
+    return {
+      contractId,
+      primaryUpload: {
+        ...uploadPlan.primaryUpload,
+        ...primarySignedUpload,
+      },
+      counterpartySupportingUploads: uploadPlan.counterpartySupportingUploads.map((item, index) => ({
+        ...item,
+        ...counterpartySignedUploads[index],
+      })),
+      commonSupportingUploads: uploadPlan.commonSupportingUploads.map((item, index) => ({
+        ...item,
+        ...commonSignedUploads[index],
+      })),
     }
+  }
+
+  async finalizeUploadContract(input: FinalizeContractUploadInput): Promise<ContractRecord> {
+    const normalizedInput = this.toUploadMetadataValidationInput(input)
+    this.validateUploadMetadataInput(normalizedInput)
+    await this.assertInitialUploadPermissions(normalizedInput)
+    this.assertInitialUploadFormat(normalizedInput)
+
+    const uploadPlan = this.buildInitialUploadPlan({
+      tenantId: input.tenantId,
+      contractId: input.contractId,
+      fileName: input.file.fileName,
+      fileSizeBytes: input.file.fileSizeBytes,
+      fileMimeType: input.file.fileMimeType,
+      counterparties: input.counterparties,
+      supportingFiles: input.supportingFiles,
+    })
+
+    await this.assertUploadsExist([
+      uploadPlan.primaryUpload.path,
+      ...uploadPlan.counterpartySupportingUploads.map((item) => item.path),
+      ...uploadPlan.commonSupportingUploads.map((item) => item.path),
+    ])
+
+    return this.persistInitialUploadMetadata({
+      tenantId: input.tenantId,
+      contractId: input.contractId,
+      title: input.title,
+      contractTypeId: input.contractTypeId,
+      signatoryName: input.signatoryName,
+      signatoryDesignation: input.signatoryDesignation,
+      signatoryEmail: input.signatoryEmail,
+      backgroundOfRequest: input.backgroundOfRequest,
+      departmentId: input.departmentId,
+      budgetApproved: input.budgetApproved,
+      uploadedByEmployeeId: input.uploadedByEmployeeId,
+      uploadedByEmail: input.uploadedByEmail,
+      uploadedByRole: input.uploadedByRole,
+      uploadMode: input.uploadMode,
+      bypassHodApproval: input.bypassHodApproval,
+      bypassReason: input.bypassReason,
+      fileName: uploadPlan.primaryUpload.fileName,
+      filePath: uploadPlan.primaryUpload.path,
+      fileSizeBytes: uploadPlan.primaryUpload.fileSizeBytes,
+      fileMimeType: uploadPlan.primaryUpload.fileMimeType,
+      normalizedCounterparties: this.normalizeCounterpartiesMetadataInput(normalizedInput),
+      uploadedSupportingFiles: [
+        ...uploadPlan.counterpartySupportingUploads.map((item) => ({
+          filePath: item.path,
+          fileName: item.fileName,
+          fileSizeBytes: item.fileSizeBytes,
+          fileMimeType: item.fileMimeType,
+          counterpartySequenceOrder: item.counterpartyIndex + 1,
+          counterpartyName: input.counterparties?.[item.counterpartyIndex]?.counterpartyName ?? null,
+        })),
+        ...uploadPlan.commonSupportingUploads.map((item) => ({
+          filePath: item.path,
+          fileName: item.fileName,
+          fileSizeBytes: item.fileSizeBytes,
+          fileMimeType: item.fileMimeType,
+          counterpartySequenceOrder: null,
+          counterpartyName: null,
+        })),
+      ],
+    })
+  }
+
+  async initiateReplacePrimaryDocument(
+    input: ReplacePrimaryDocumentMetadataInput
+  ): Promise<InitializeReplaceMainDocumentResult> {
+    this.validateReplacementInput(input)
 
     if (!this.isAllowedReplacementUpload(input.fileName, input.fileMimeType)) {
       throw new BusinessRuleError('CONTRACT_REPLACEMENT_FILE_FORMAT_INVALID', 'Replacement must be DOCX or PDF')
@@ -432,12 +637,136 @@ export class ContractUploadService {
       throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found for tenant')
     }
 
-    if (contract.status === contractStatuses.signing || contract.status === contractStatuses.pendingExternal) {
+    this.assertMainReplacementPermissions(contract, input)
+    const safeFileName = this.sanitizeFileName(input.fileName)
+    const path = `${input.tenantId}/${input.contractId}/versions/${randomUUID()}-${safeFileName}`
+    const signedUpload = await this.contractStorageRepository.createSignedUploadUrl(path)
+
+    return {
+      upload: {
+        fileName: safeFileName,
+        fileSizeBytes: input.fileSizeBytes,
+        fileMimeType: input.fileMimeType,
+        ...signedUpload,
+      },
+    }
+  }
+
+  async finalizeReplacePrimaryDocument(
+    input: ReplacePrimaryDocumentMetadataInput & { path: string }
+  ): Promise<ContractDocumentRecord> {
+    this.validateReplacementInput(input)
+
+    if (!this.isAllowedReplacementUpload(input.fileName, input.fileMimeType)) {
+      throw new BusinessRuleError('CONTRACT_REPLACEMENT_FILE_FORMAT_INVALID', 'Replacement must be DOCX or PDF')
+    }
+
+    const contract = await this.contractRepository.getForAccess(input.contractId, input.tenantId)
+    if (!contract) {
+      throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found for tenant')
+    }
+
+    this.assertMainReplacementPermissions(contract, input)
+
+    const exists = await this.contractStorageRepository.exists(input.path)
+    if (!exists) {
       throw new BusinessRuleError(
-        'CONTRACT_IN_SIGNATURE_REPLACEMENT_FORBIDDEN',
-        'Main document replacement is blocked while contract is in signature'
+        'CONTRACT_UPLOAD_INCOMPLETE',
+        'Uploaded main replacement file is missing from storage'
       )
     }
+
+    return this.persistPrimaryReplacementMetadata(contract, input)
+  }
+
+  async initiateReplaceSupportingDocument(
+    input: ReplaceSupportingDocumentMetadataInput
+  ): Promise<InitializeReplaceSupportingDocumentResult> {
+    this.validateSupportingReplacementInput(input)
+
+    if (!this.isAllowedReplacementUpload(input.fileName, input.fileMimeType)) {
+      throw new BusinessRuleError('CONTRACT_REPLACEMENT_FILE_FORMAT_INVALID', 'Replacement must be DOCX or PDF')
+    }
+
+    const contract = await this.contractRepository.getForAccess(input.contractId, input.tenantId)
+    if (!contract) {
+      throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found for tenant')
+    }
+
+    this.assertSupportingReplacementPermissions(contract, input)
+
+    const sourceDocument = await this.contractRepository.getDocumentForAccess({
+      tenantId: input.tenantId,
+      contractId: input.contractId,
+      documentId: input.sourceDocumentId,
+    })
+    if (!sourceDocument || sourceDocument.documentKind !== 'COUNTERPARTY_SUPPORTING') {
+      throw new BusinessRuleError('DOCUMENT_NOT_FOUND', 'Supporting document not found for replacement')
+    }
+
+    const safeFileName = this.sanitizeFileName(input.fileName)
+    const path = `${input.tenantId}/${input.contractId}/counterparty-replacements/${randomUUID()}-${safeFileName}`
+    const signedUpload = await this.contractStorageRepository.createSignedUploadUrl(path)
+
+    return {
+      upload: {
+        fileName: safeFileName,
+        fileSizeBytes: input.fileSizeBytes,
+        fileMimeType: input.fileMimeType,
+        ...signedUpload,
+      },
+    }
+  }
+
+  async finalizeReplaceSupportingDocument(
+    input: ReplaceSupportingDocumentMetadataInput & { path: string }
+  ): Promise<void> {
+    this.validateSupportingReplacementInput(input)
+
+    if (!this.isAllowedReplacementUpload(input.fileName, input.fileMimeType)) {
+      throw new BusinessRuleError('CONTRACT_REPLACEMENT_FILE_FORMAT_INVALID', 'Replacement must be DOCX or PDF')
+    }
+
+    const contract = await this.contractRepository.getForAccess(input.contractId, input.tenantId)
+    if (!contract) {
+      throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found for tenant')
+    }
+
+    this.assertSupportingReplacementPermissions(contract, input)
+
+    const sourceDocument = await this.contractRepository.getDocumentForAccess({
+      tenantId: input.tenantId,
+      contractId: input.contractId,
+      documentId: input.sourceDocumentId,
+    })
+    if (!sourceDocument || sourceDocument.documentKind !== 'COUNTERPARTY_SUPPORTING') {
+      throw new BusinessRuleError('DOCUMENT_NOT_FOUND', 'Supporting document not found for replacement')
+    }
+
+    const exists = await this.contractStorageRepository.exists(input.path)
+    if (!exists) {
+      throw new BusinessRuleError(
+        'CONTRACT_UPLOAD_INCOMPLETE',
+        'Uploaded supporting replacement file is missing from storage'
+      )
+    }
+
+    await this.persistSupportingReplacementMetadata(contract, sourceDocument, input)
+  }
+
+  async replacePrimaryDocument(input: ReplacePrimaryDocumentInput): Promise<ContractDocumentRecord> {
+    this.validateReplacementInput(input)
+
+    if (!this.isAllowedReplacementUpload(input.fileName, input.fileMimeType)) {
+      throw new BusinessRuleError('CONTRACT_REPLACEMENT_FILE_FORMAT_INVALID', 'Replacement must be DOCX or PDF')
+    }
+
+    const contract = await this.contractRepository.getForAccess(input.contractId, input.tenantId)
+    if (!contract) {
+      throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found for tenant')
+    }
+
+    this.assertMainReplacementPermissions(contract, input)
 
     const safeFileName = this.sanitizeFileName(input.fileName)
     const filePath = `${input.tenantId}/${input.contractId}/versions/${randomUUID()}-${safeFileName}`
@@ -461,13 +790,19 @@ export class ContractUploadService {
         uploadedByRole: input.uploadedByRole,
       })
 
-      const updateStatusPromise = input.isFinalExecuted
-        ? this.contractRepository.updateContractStatus({
-            tenantId: input.tenantId,
-            contractId: input.contractId,
-            status: contractStatuses.executed,
-          })
-        : Promise.resolve()
+      const targetStatus = this.resolveReplacementTargetStatus({
+        currentStatus: contract.status,
+        uploadedByRole: input.uploadedByRole,
+        isFinalExecuted: input.isFinalExecuted,
+      })
+      const updateStatusPromise =
+        targetStatus !== contract.status
+          ? this.contractRepository.updateContractStatus({
+              tenantId: input.tenantId,
+              contractId: input.contractId,
+              status: targetStatus,
+            })
+          : Promise.resolve()
 
       const [document] = await Promise.all([replaceDocumentPromise, updateStatusPromise])
       return document
@@ -486,6 +821,83 @@ export class ContractUploadService {
       throw new DatabaseError('Failed to replace main contract document', error as Error, {
         tenantId: input.tenantId,
         contractId: input.contractId,
+      })
+    }
+  }
+
+  async replaceSupportingDocument(input: ReplaceSupportingDocumentInput): Promise<void> {
+    this.validateSupportingReplacementInput(input)
+
+    if (!this.isAllowedReplacementUpload(input.fileName, input.fileMimeType)) {
+      throw new BusinessRuleError('CONTRACT_REPLACEMENT_FILE_FORMAT_INVALID', 'Replacement must be DOCX or PDF')
+    }
+
+    const contract = await this.contractRepository.getForAccess(input.contractId, input.tenantId)
+    if (!contract) {
+      throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found for tenant')
+    }
+
+    this.assertSupportingReplacementPermissions(contract, input)
+
+    const sourceDocument = await this.contractRepository.getDocumentForAccess({
+      tenantId: input.tenantId,
+      contractId: input.contractId,
+      documentId: input.sourceDocumentId,
+    })
+    if (!sourceDocument || sourceDocument.documentKind !== 'COUNTERPARTY_SUPPORTING') {
+      throw new BusinessRuleError('DOCUMENT_NOT_FOUND', 'Supporting document not found for replacement')
+    }
+
+    const safeFileName = this.sanitizeFileName(input.fileName)
+    const filePath = `${input.tenantId}/${input.contractId}/counterparty-replacements/${randomUUID()}-${safeFileName}`
+
+    await this.contractStorageRepository.upload({
+      path: filePath,
+      fileBody: input.fileBody,
+      contentType: input.fileMimeType,
+    })
+
+    try {
+      const replaceDocumentPromise = this.contractRepository.replaceSupportingDocument({
+        tenantId: input.tenantId,
+        contractId: input.contractId,
+        sourceDocumentId: input.sourceDocumentId,
+        counterpartyId: sourceDocument.counterpartyId ?? null,
+        displayName: sourceDocument.displayName ?? 'Counterparty Supporting Document',
+        fileName: safeFileName,
+        filePath,
+        fileSizeBytes: input.fileSizeBytes,
+        fileMimeType: input.fileMimeType,
+        uploadedByEmployeeId: input.uploadedByEmployeeId,
+        uploadedByEmail: input.uploadedByEmail,
+        uploadedByRole: input.uploadedByRole,
+      })
+      const updateStatusPromise =
+        contract.status !== contractStatuses.underReview
+          ? this.contractRepository.updateContractStatus({
+              tenantId: input.tenantId,
+              contractId: input.contractId,
+              status: contractStatuses.underReview,
+            })
+          : Promise.resolve()
+      await Promise.all([replaceDocumentPromise, updateStatusPromise])
+    } catch (error) {
+      try {
+        await this.contractStorageRepository.remove(filePath)
+      } catch (rollbackError) {
+        this.logger.error('Supporting document replacement rollback failed', {
+          tenantId: input.tenantId,
+          contractId: input.contractId,
+          sourceDocumentId: input.sourceDocumentId,
+          filePath,
+          rollbackError: String(rollbackError),
+        })
+      }
+
+      throw new DatabaseError('Failed to replace supporting contract document', error as Error, {
+        tenantId: input.tenantId,
+        contractId: input.contractId,
+        sourceDocumentId: input.sourceDocumentId,
       })
     }
   }
@@ -562,6 +974,541 @@ export class ContractUploadService {
     return {
       signedUrl,
       fileName: activeDocument.fileName,
+    }
+  }
+
+  private toUploadMetadataValidationInput(
+    input: UploadContractMetadataInput | FinalizeContractUploadInput
+  ): UploadContractInput {
+    return {
+      tenantId: input.tenantId,
+      uploadedByEmployeeId: input.uploadedByEmployeeId,
+      uploadedByEmail: input.uploadedByEmail,
+      uploadedByRole: input.uploadedByRole,
+      uploadMode: input.uploadMode,
+      bypassHodApproval: input.bypassHodApproval,
+      bypassReason: input.bypassReason,
+      title: input.title,
+      contractTypeId: input.contractTypeId,
+      signatoryName: input.signatoryName,
+      signatoryDesignation: input.signatoryDesignation,
+      signatoryEmail: input.signatoryEmail,
+      backgroundOfRequest: input.backgroundOfRequest,
+      departmentId: input.departmentId,
+      budgetApproved: input.budgetApproved,
+      counterpartyName: input.counterpartyName,
+      counterparties: input.counterparties?.map((counterparty) => ({
+        ...counterparty,
+        supportingFiles: counterparty.supportingFiles.map((file) => ({
+          ...file,
+          fileBody: new Blob(),
+        })),
+      })),
+      fileName: input.file.fileName,
+      fileSizeBytes: input.file.fileSizeBytes,
+      fileMimeType: input.file.fileMimeType,
+      fileBody: new Blob(),
+      supportingFiles: (input.supportingFiles ?? []).map((file) => ({
+        ...file,
+        fileBody: new Blob(),
+      })),
+    }
+  }
+
+  private validateUploadMetadataInput(input: UploadContractInput): void {
+    this.validateUploadInput(input)
+  }
+
+  private async assertInitialUploadPermissions(input: UploadContractInput): Promise<void> {
+    if (
+      !this.allowedInitialUploadRoles.has(
+        input.uploadedByRole as (typeof contractDocumentUploadRules.initialAllowedRoles)[number]
+      )
+    ) {
+      throw new AuthorizationError(
+        'CONTRACT_UPLOAD_FORBIDDEN',
+        'Only POC, HOD, LEGAL_TEAM, or ADMIN can upload initial contracts'
+      )
+    }
+
+    const isLegalSendForSigning = input.uploadMode === contractUploadModes.legalSendForSigning
+    const isLegalOrAdminUpload = input.uploadedByRole === 'LEGAL_TEAM' || input.uploadedByRole === 'ADMIN'
+
+    if (input.uploadedByRole === 'POC') {
+      const isPocAssignedToDepartment = await this.contractRepository.isPocAssignedToDepartment({
+        tenantId: input.tenantId,
+        pocEmail: input.uploadedByEmail,
+        departmentId: input.departmentId,
+      })
+
+      if (!isPocAssignedToDepartment) {
+        throw new AuthorizationError(
+          'CONTRACT_UPLOAD_DEPARTMENT_FORBIDDEN',
+          'You can upload contracts only for departments assigned to your POC account'
+        )
+      }
+    }
+
+    if (input.uploadedByRole === 'HOD') {
+      const isHodAssignedToDepartment = await this.contractRepository.isHodAssignedToDepartment({
+        tenantId: input.tenantId,
+        hodEmail: input.uploadedByEmail,
+        departmentId: input.departmentId,
+      })
+
+      if (!isHodAssignedToDepartment) {
+        throw new AuthorizationError(
+          'CONTRACT_UPLOAD_DEPARTMENT_FORBIDDEN',
+          'You can upload contracts only for your assigned HOD department'
+        )
+      }
+    }
+
+    if (isLegalSendForSigning && !isLegalOrAdminUpload) {
+      throw new AuthorizationError(
+        'CONTRACT_UPLOAD_FORBIDDEN',
+        'Only LEGAL_TEAM or ADMIN can use send-for-signing upload mode'
+      )
+    }
+
+    if (isLegalSendForSigning && input.bypassHodApproval && !input.bypassReason?.trim()) {
+      throw new BusinessRuleError('BYPASS_REASON_REQUIRED', 'Bypass reason is required when bypassing HOD approval')
+    }
+  }
+
+  private assertInitialUploadFormat(input: UploadContractInput): void {
+    const isLegalSendForSigning = input.uploadMode === contractUploadModes.legalSendForSigning
+    if (isLegalSendForSigning) {
+      if (!this.isPdfUpload(input.fileName, input.fileMimeType)) {
+        throw new BusinessRuleError('CONTRACT_FILE_FORMAT_INVALID', 'Legal send-for-signing upload must be a PDF file')
+      }
+      return
+    }
+
+    if (!this.isDocxUpload(input.fileName, input.fileMimeType)) {
+      throw new BusinessRuleError('CONTRACT_FILE_FORMAT_INVALID', 'Initial contract upload must be a DOCX file')
+    }
+  }
+
+  private buildInitialUploadPlan(params: {
+    tenantId: string
+    contractId: string
+    fileName: string
+    fileSizeBytes: number
+    fileMimeType: string
+    counterparties?: Array<{
+      counterpartyName: string
+      supportingFiles: ContractFileMetadata[]
+    }>
+    supportingFiles?: ContractFileMetadata[]
+  }): {
+    primaryUpload: ContractFileMetadata & { path: string }
+    counterpartySupportingUploads: Array<
+      ContractFileMetadata & { path: string; counterpartyIndex: number; supportingIndex: number }
+    >
+    commonSupportingUploads: Array<ContractFileMetadata & { path: string; supportingIndex: number }>
+  } {
+    const safePrimaryFileName = this.sanitizeFileName(params.fileName)
+    const primaryUpload = {
+      fileName: safePrimaryFileName,
+      fileSizeBytes: params.fileSizeBytes,
+      fileMimeType: params.fileMimeType,
+      path: `${params.tenantId}/${params.contractId}/${safePrimaryFileName}`,
+    }
+
+    const counterpartySupportingUploads = (params.counterparties ?? []).flatMap((counterparty, counterpartyIndex) =>
+      counterparty.supportingFiles.map((supportingFile, supportingIndex) => {
+        const safeSupportingFileName = this.sanitizeFileName(supportingFile.fileName)
+        return {
+          fileName: safeSupportingFileName,
+          fileSizeBytes: supportingFile.fileSizeBytes,
+          fileMimeType: supportingFile.fileMimeType,
+          counterpartyIndex,
+          supportingIndex,
+          path: `${params.tenantId}/${params.contractId}/counterparty/${String(counterpartyIndex + 1).padStart(3, '0')}/${String(supportingIndex + 1).padStart(3, '0')}-${safeSupportingFileName}`,
+        }
+      })
+    )
+
+    const commonSupportingUploads = (params.supportingFiles ?? []).map((supportingFile, supportingIndex) => {
+      const safeSupportingFileName = this.sanitizeFileName(supportingFile.fileName)
+      return {
+        fileName: safeSupportingFileName,
+        fileSizeBytes: supportingFile.fileSizeBytes,
+        fileMimeType: supportingFile.fileMimeType,
+        supportingIndex,
+        path: `${params.tenantId}/${params.contractId}/supporting/common/${String(supportingIndex + 1).padStart(3, '0')}-${safeSupportingFileName}`,
+      }
+    })
+
+    return {
+      primaryUpload,
+      counterpartySupportingUploads,
+      commonSupportingUploads,
+    }
+  }
+
+  private async assertUploadsExist(paths: string[]): Promise<void> {
+    const checks = await Promise.all(paths.map((path) => this.contractStorageRepository.exists(path)))
+    if (checks.every(Boolean)) {
+      return
+    }
+
+    throw new BusinessRuleError('CONTRACT_UPLOAD_INCOMPLETE', 'One or more uploaded files were not found in storage')
+  }
+
+  private async persistInitialUploadMetadata(params: {
+    tenantId: string
+    contractId: string
+    title: string
+    contractTypeId: string
+    signatoryName: string
+    signatoryDesignation: string
+    signatoryEmail: string
+    backgroundOfRequest: string
+    departmentId: string
+    budgetApproved: boolean
+    uploadedByEmployeeId: string
+    uploadedByEmail: string
+    uploadedByRole: string
+    uploadMode: UploadContractInput['uploadMode']
+    bypassHodApproval?: boolean
+    bypassReason?: string
+    fileName: string
+    filePath: string
+    fileSizeBytes: number
+    fileMimeType: string
+    normalizedCounterparties: ReturnType<ContractUploadService['normalizeCounterpartiesMetadataInput']>
+    uploadedSupportingFiles: Array<{
+      filePath: string
+      fileName: string
+      fileSizeBytes: number
+      fileMimeType: string
+      counterpartySequenceOrder: number | null
+      counterpartyName: string | null
+    }>
+  }): Promise<ContractRecord> {
+    let contract: ContractRecord
+    try {
+      contract = await this.contractRepository.createWithAudit({
+        contractId: params.contractId,
+        tenantId: params.tenantId,
+        title: params.title.trim(),
+        contractTypeId: params.contractTypeId,
+        signatoryName: params.signatoryName.trim(),
+        signatoryDesignation: params.signatoryDesignation.trim(),
+        signatoryEmail: params.signatoryEmail.trim().toLowerCase(),
+        backgroundOfRequest: params.backgroundOfRequest.trim(),
+        departmentId: params.departmentId,
+        budgetApproved: params.budgetApproved,
+        uploadedByEmployeeId: params.uploadedByEmployeeId,
+        uploadedByEmail: params.uploadedByEmail,
+        uploadedByRole: params.uploadedByRole,
+        uploadMode: params.uploadMode,
+        bypassHodApproval: Boolean(params.bypassHodApproval),
+        bypassReason: params.bypassReason?.trim() || undefined,
+        filePath: params.filePath,
+        fileName: params.fileName,
+        fileSizeBytes: params.fileSizeBytes,
+        fileMimeType: params.fileMimeType,
+      })
+    } catch (error) {
+      throw new DatabaseError('Failed to initialize contract after upload', error as Error, {
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+      })
+    }
+
+    try {
+      const createdCounterparties = await this.contractRepository.createCounterparties(
+        params.normalizedCounterparties.map((counterparty, index) => ({
+          tenantId: params.tenantId,
+          contractId: params.contractId,
+          counterpartyName: counterparty.counterpartyName,
+          sequenceOrder: index + 1,
+        }))
+      )
+
+      const counterpartyIdBySequenceOrder = new Map<number, string>()
+      for (const counterparty of createdCounterparties) {
+        counterpartyIdBySequenceOrder.set(counterparty.sequenceOrder, counterparty.id)
+      }
+
+      const trimmedCounterpartyName = params.normalizedCounterparties[0]?.counterpartyName ?? ''
+      if (trimmedCounterpartyName) {
+        await this.contractRepository.setCounterpartyName({
+          tenantId: params.tenantId,
+          contractId: params.contractId,
+          counterpartyName: trimmedCounterpartyName,
+        })
+      }
+
+      await this.contractRepository.createDocument({
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        documentKind: 'PRIMARY',
+        versionNumber: contractDocumentVersioning.initialVersion,
+        displayName: 'Primary Contract',
+        fileName: params.fileName,
+        filePath: params.filePath,
+        fileSizeBytes: params.fileSizeBytes,
+        fileMimeType: params.fileMimeType,
+        uploadedByEmployeeId: params.uploadedByEmployeeId,
+        uploadedByEmail: params.uploadedByEmail,
+        uploadedByRole: params.uploadedByRole,
+      })
+
+      for (const [index, supportingFile] of params.uploadedSupportingFiles.entries()) {
+        const displayNameBase = supportingFile.counterpartyName
+          ? `Counterparty Docs - ${supportingFile.counterpartyName}`
+          : 'Budget Approval Supporting Docs'
+
+        await this.contractRepository.createDocument({
+          tenantId: params.tenantId,
+          contractId: params.contractId,
+          documentKind: 'COUNTERPARTY_SUPPORTING',
+          counterpartyId:
+            supportingFile.counterpartySequenceOrder === null
+              ? undefined
+              : counterpartyIdBySequenceOrder.get(supportingFile.counterpartySequenceOrder),
+          displayName: `${displayNameBase} (${index + 1})`,
+          fileName: supportingFile.fileName,
+          filePath: supportingFile.filePath,
+          fileSizeBytes: supportingFile.fileSizeBytes,
+          fileMimeType: supportingFile.fileMimeType,
+          uploadedByEmployeeId: params.uploadedByEmployeeId,
+          uploadedByEmail: params.uploadedByEmail,
+        })
+      }
+
+      await this.contractRepository.upsertMasterCounterpartyNames({
+        tenantId: params.tenantId,
+        names: params.normalizedCounterparties
+          .map((counterparty) => counterparty.counterpartyName)
+          .filter((name) => name.toUpperCase() !== contractCounterpartyValues.notApplicable),
+      })
+
+      const draftRecipients = params.normalizedCounterparties
+        .filter(
+          (counterparty) => counterparty.counterpartyName.toUpperCase() !== contractCounterpartyValues.notApplicable
+        )
+        .flatMap((counterparty, counterpartyIndex) =>
+          counterparty.signatories.map((signatory) => ({
+            name: signatory.name,
+            email: signatory.email,
+            designation: signatory.designation,
+            counterpartyId: counterpartyIdBySequenceOrder.get(counterpartyIndex + 1),
+            counterpartyName: counterparty.counterpartyName,
+            backgroundOfRequest: counterparty.backgroundOfRequest,
+            budgetApproved: counterparty.budgetApproved,
+            recipientType: 'EXTERNAL' as const,
+          }))
+        )
+      const draftRecipientsByEmail = new Map<
+        string,
+        {
+          name: string
+          email: string
+          designation?: string
+          counterpartyId?: string
+          counterpartyName?: string
+          backgroundOfRequest?: string
+          budgetApproved?: boolean
+          recipientType: 'INTERNAL' | 'EXTERNAL'
+        }
+      >()
+      for (const recipient of draftRecipients) {
+        if (!recipient.email) {
+          continue
+        }
+        if (!draftRecipientsByEmail.has(recipient.email)) {
+          draftRecipientsByEmail.set(recipient.email, recipient)
+        }
+      }
+
+      const seededDraftRecipients = Array.from(draftRecipientsByEmail.values()).map((recipient) => ({
+        ...recipient,
+        routingOrder: 1,
+      }))
+
+      if (seededDraftRecipients.length > 0) {
+        try {
+          if (typeof this.contractRepository.seedSigningPreparationDraft === 'function') {
+            await this.contractRepository.seedSigningPreparationDraft({
+              tenantId: params.tenantId,
+              contractId: params.contractId,
+              actorEmployeeId: params.uploadedByEmployeeId,
+              recipients: seededDraftRecipients,
+            })
+          }
+        } catch (error) {
+          this.logger.warn('Signing preparation draft seed failed during upload', {
+            tenantId: params.tenantId,
+            contractId: params.contractId,
+            recipientCount: seededDraftRecipients.length,
+            error: String(error),
+          })
+        }
+      }
+    } catch (error) {
+      this.logger.error('Contract document metadata persistence failed', {
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+        error: String(error),
+      })
+
+      throw new DatabaseError('Failed to persist contract metadata', error as Error, {
+        tenantId: params.tenantId,
+        contractId: params.contractId,
+      })
+    }
+
+    return contract
+  }
+
+  private assertMainReplacementPermissions(contract: ContractAccessRecord, input: { uploadedByRole: string }): void {
+    if (contract.status === contractStatuses.underReview) {
+      return
+    }
+
+    const isLegalOrAdminStatus = this.legalReplacementStatuses.has(contract.status)
+    const isAdminOnlyStatus = this.adminOnlyReplacementStatuses.has(contract.status)
+    const isLegalActor = input.uploadedByRole === 'LEGAL_TEAM'
+    const isAdminActor = input.uploadedByRole === 'ADMIN'
+
+    if (isAdminOnlyStatus && !isAdminActor) {
+      throw new AuthorizationError(
+        'CONTRACT_REPLACEMENT_FORBIDDEN',
+        'Only ADMIN can replace documents for rejected or void contracts'
+      )
+    }
+
+    if (isLegalOrAdminStatus && !isLegalActor && !isAdminActor) {
+      throw new AuthorizationError(
+        'CONTRACT_REPLACEMENT_FORBIDDEN',
+        'Only LEGAL_TEAM or ADMIN can replace documents in this contract status'
+      )
+    }
+
+    if (!isLegalOrAdminStatus && !isAdminOnlyStatus) {
+      throw new BusinessRuleError(
+        'CONTRACT_REPLACEMENT_STATUS_FORBIDDEN',
+        'Main document replacement is unavailable for the current contract status'
+      )
+    }
+  }
+
+  private async persistPrimaryReplacementMetadata(
+    contract: ContractAccessRecord,
+    input: ReplacePrimaryDocumentMetadataInput & { path: string }
+  ): Promise<ContractDocumentRecord> {
+    try {
+      const replaceDocumentPromise = this.contractRepository.replacePrimaryDocument({
+        tenantId: input.tenantId,
+        contractId: input.contractId,
+        fileName: input.fileName,
+        filePath: input.path,
+        fileSizeBytes: input.fileSizeBytes,
+        fileMimeType: input.fileMimeType,
+        uploadedByEmployeeId: input.uploadedByEmployeeId,
+        uploadedByEmail: input.uploadedByEmail,
+        uploadedByRole: input.uploadedByRole,
+      })
+
+      const targetStatus = this.resolveReplacementTargetStatus({
+        currentStatus: contract.status,
+        uploadedByRole: input.uploadedByRole,
+        isFinalExecuted: input.isFinalExecuted,
+      })
+      const updateStatusPromise =
+        targetStatus !== contract.status
+          ? this.contractRepository.updateContractStatus({
+              tenantId: input.tenantId,
+              contractId: input.contractId,
+              status: targetStatus,
+            })
+          : Promise.resolve()
+
+      const [document] = await Promise.all([replaceDocumentPromise, updateStatusPromise])
+      return document
+    } catch (error) {
+      throw new DatabaseError('Failed to replace main contract document', error as Error, {
+        tenantId: input.tenantId,
+        contractId: input.contractId,
+      })
+    }
+  }
+
+  private assertSupportingReplacementPermissions(
+    contract: ContractAccessRecord,
+    input: { uploadedByRole: string }
+  ): void {
+    if (contract.status === contractStatuses.underReview) {
+      return
+    }
+
+    const isLegalOrAdminStatus = this.legalReplacementStatuses.has(contract.status)
+    const isAdminOnlyStatus = this.adminOnlyReplacementStatuses.has(contract.status)
+    const isLegalActor = input.uploadedByRole === 'LEGAL_TEAM'
+    const isAdminActor = input.uploadedByRole === 'ADMIN'
+
+    if (isAdminOnlyStatus && !isAdminActor) {
+      throw new AuthorizationError(
+        'CONTRACT_REPLACEMENT_FORBIDDEN',
+        'Only ADMIN can replace documents for rejected or void contracts'
+      )
+    }
+
+    if (isLegalOrAdminStatus && !isLegalActor && !isAdminActor) {
+      throw new AuthorizationError(
+        'CONTRACT_REPLACEMENT_FORBIDDEN',
+        'Only LEGAL_TEAM or ADMIN can replace documents in this contract status'
+      )
+    }
+
+    if (!isLegalOrAdminStatus && !isAdminOnlyStatus) {
+      throw new BusinessRuleError(
+        'CONTRACT_REPLACEMENT_STATUS_FORBIDDEN',
+        'Supporting document replacement is unavailable for the current contract status'
+      )
+    }
+  }
+
+  private async persistSupportingReplacementMetadata(
+    contract: ContractAccessRecord,
+    sourceDocument: ContractDocumentAccessRecord,
+    input: ReplaceSupportingDocumentMetadataInput & { path: string }
+  ): Promise<void> {
+    try {
+      const replaceDocumentPromise = this.contractRepository.replaceSupportingDocument({
+        tenantId: input.tenantId,
+        contractId: input.contractId,
+        sourceDocumentId: input.sourceDocumentId,
+        counterpartyId: sourceDocument.counterpartyId ?? null,
+        displayName: sourceDocument.displayName ?? 'Counterparty Supporting Document',
+        fileName: input.fileName,
+        filePath: input.path,
+        fileSizeBytes: input.fileSizeBytes,
+        fileMimeType: input.fileMimeType,
+        uploadedByEmployeeId: input.uploadedByEmployeeId,
+        uploadedByEmail: input.uploadedByEmail,
+        uploadedByRole: input.uploadedByRole,
+      })
+      const updateStatusPromise =
+        contract.status !== contractStatuses.underReview
+          ? this.contractRepository.updateContractStatus({
+              tenantId: input.tenantId,
+              contractId: input.contractId,
+              status: contractStatuses.underReview,
+            })
+          : Promise.resolve()
+      await Promise.all([replaceDocumentPromise, updateStatusPromise])
+    } catch (error) {
+      throw new DatabaseError('Failed to replace supporting contract document', error as Error, {
+        tenantId: input.tenantId,
+        contractId: input.contractId,
+        sourceDocumentId: input.sourceDocumentId,
+      })
     }
   }
 
@@ -835,6 +1782,86 @@ export class ContractUploadService {
     ]
   }
 
+  private normalizeCounterpartiesMetadataInput(input: UploadContractInput): Array<{
+    counterpartyName: string
+    backgroundOfRequest: string
+    budgetApproved: boolean
+    signatories: Array<{
+      name: string
+      designation: string
+      email: string
+    }>
+    supportingFiles: Array<{
+      fileName: string
+      fileSizeBytes: number
+      fileMimeType: string
+    }>
+  }> {
+    if (input.counterparties && input.counterparties.length > 0) {
+      return input.counterparties
+        .map((entry) => {
+          const normalizedCounterpartyName = entry.counterpartyName.trim()
+          const isNotApplicableCounterparty =
+            normalizedCounterpartyName.toUpperCase() === contractCounterpartyValues.notApplicable
+
+          return {
+            counterpartyName: normalizedCounterpartyName,
+            backgroundOfRequest: isNotApplicableCounterparty
+              ? contractCounterpartyValues.notApplicable
+              : (entry.backgroundOfRequest?.trim() ?? ''),
+            budgetApproved: isNotApplicableCounterparty ? false : Boolean(entry.budgetApproved),
+            signatories: isNotApplicableCounterparty
+              ? []
+              : (entry.signatories ?? []).map((signatory) => ({
+                  name: signatory.name.trim(),
+                  designation: signatory.designation.trim(),
+                  email: signatory.email.trim().toLowerCase(),
+                })),
+            supportingFiles: isNotApplicableCounterparty
+              ? []
+              : entry.supportingFiles.map((supportingFile) => ({
+                  fileName: supportingFile.fileName,
+                  fileSizeBytes: supportingFile.fileSizeBytes,
+                  fileMimeType: supportingFile.fileMimeType,
+                })),
+          }
+        })
+        .filter((entry) => entry.counterpartyName.length > 0)
+    }
+
+    const counterpartyName = input.counterpartyName?.trim() ?? ''
+    if (!counterpartyName) {
+      return []
+    }
+    const isNotApplicableCounterparty = counterpartyName.toUpperCase() === contractCounterpartyValues.notApplicable
+
+    return [
+      {
+        counterpartyName,
+        backgroundOfRequest: isNotApplicableCounterparty
+          ? contractCounterpartyValues.notApplicable
+          : input.backgroundOfRequest.trim(),
+        budgetApproved: isNotApplicableCounterparty ? false : input.budgetApproved,
+        signatories: isNotApplicableCounterparty
+          ? []
+          : [
+              {
+                name: input.signatoryName.trim(),
+                designation: input.signatoryDesignation.trim(),
+                email: input.signatoryEmail.trim().toLowerCase(),
+              },
+            ],
+        supportingFiles: isNotApplicableCounterparty
+          ? []
+          : (input.supportingFiles ?? []).map((supportingFile) => ({
+              fileName: supportingFile.fileName,
+              fileSizeBytes: supportingFile.fileSizeBytes,
+              fileMimeType: supportingFile.fileMimeType,
+            })),
+      },
+    ]
+  }
+
   private sanitizeFileName(fileName: string): string {
     const normalized = fileName.replace(/\\/g, '/').split('/').pop() ?? 'contract-file'
     const safe = normalized.replace(/[^a-zA-Z0-9._-]/g, '_')
@@ -850,7 +1877,9 @@ export class ContractUploadService {
     return this.emailPattern.test(normalizedValue)
   }
 
-  private validateReplacementInput(input: ReplacePrimaryDocumentInput): void {
+  private validateReplacementInput(
+    input: Pick<ReplacePrimaryDocumentInput, 'contractId' | 'fileName' | 'fileSizeBytes' | 'fileMimeType'>
+  ): void {
     if (!input.contractId.trim()) {
       throw new BusinessRuleError('CONTRACT_ID_REQUIRED', 'Contract ID is required')
     }
@@ -871,5 +1900,57 @@ export class ContractUploadService {
     if (!input.fileMimeType.trim()) {
       throw new BusinessRuleError('CONTRACT_FILE_MIME_REQUIRED', 'File MIME type is required')
     }
+  }
+
+  private validateSupportingReplacementInput(
+    input: Pick<
+      ReplaceSupportingDocumentInput,
+      'contractId' | 'sourceDocumentId' | 'fileName' | 'fileSizeBytes' | 'fileMimeType'
+    >
+  ): void {
+    if (!input.contractId.trim()) {
+      throw new BusinessRuleError('CONTRACT_ID_REQUIRED', 'Contract ID is required')
+    }
+
+    if (!input.sourceDocumentId.trim()) {
+      throw new BusinessRuleError('DOCUMENT_ID_REQUIRED', 'Document ID is required')
+    }
+
+    if (!input.fileName.trim()) {
+      throw new BusinessRuleError('CONTRACT_FILE_REQUIRED', 'A contract file is required')
+    }
+
+    if (input.fileSizeBytes <= 0) {
+      throw new BusinessRuleError('CONTRACT_FILE_EMPTY', 'Uploaded contract file is empty')
+    }
+
+    const maxFileSizeBytes = limits.maxUploadSizeMb * 1024 * 1024
+    if (input.fileSizeBytes > maxFileSizeBytes) {
+      throw new BusinessRuleError('CONTRACT_FILE_TOO_LARGE', `Uploaded file exceeds ${limits.maxUploadSizeMb}MB limit`)
+    }
+
+    if (!input.fileMimeType.trim()) {
+      throw new BusinessRuleError('CONTRACT_FILE_MIME_REQUIRED', 'File MIME type is required')
+    }
+  }
+
+  private resolveReplacementTargetStatus(params: {
+    currentStatus: ContractStatus
+    uploadedByRole: string
+    isFinalExecuted?: boolean
+  }): ContractStatus {
+    const shouldRemainOrRouteToHodPendingForPoc =
+      params.uploadedByRole === 'POC' &&
+      (params.currentStatus === contractStatuses.hodPending || params.currentStatus === contractStatuses.rejected)
+
+    if (params.isFinalExecuted) {
+      return contractStatuses.executed
+    }
+
+    if (shouldRemainOrRouteToHodPendingForPoc) {
+      return contractStatuses.hodPending
+    }
+
+    return contractStatuses.underReview
   }
 }

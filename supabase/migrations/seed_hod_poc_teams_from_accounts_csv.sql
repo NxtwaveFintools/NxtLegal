@@ -28,11 +28,12 @@ BEGIN
   INSERT INTO tmp_hod_poc_seed (team_name, hod_name, hod_email, poc_name, poc_email)
   VALUES
     ('PRE- Program Registration Expert', 'Anil Kuman Ganguri', 'anil@nxtwave.tech', 'Romya Agarwal', 'romya.agarwal@nxtwave.co.in'),
-    ('Business Operations', 'Shivam Singh', 'shivam.singh@nxtwave.tech', 'Hemanth Pidugu', 'hemanth.pidugu@nxtwave.tech'),
+    ('Business Operations', 'Shivam Singh', 'shivam.singh@nxtwave.tech', 'Vineel Kumar Erninti', 'vineelkumar.erninti@nxtwave.co.in'),
+    ('Sales', 'Sumanth Reddy', 'sumanth@nxtwave.tech', 'Hemanth Pidugu', 'hemanth.pidugu@nxtwave.tech'),
     ('Finance Operations', 'Akhilesh Jhawar', 'akhilesh.jhawar@nxtwave.in', 'Hemanth Kothuru', 'hemanth.kothuru@nxtwave.co.in'),
     ('Product Design', 'Aman Maheshwari', 'aman.maheshwari@nxtwave.co.in', 'Nandigam Sivani Sanjana', 'nandigam.sivanisanjana@nxtwave.co.in'),
-    ('TA - Operations', 'Hari Haran Gorijavola', 'hari@nxtwave.tech', 'Mohammad Arifulla Gori', 'arifulla.mohammad@nxtwave.co.in'),
-    ('Presales', 'Shiva Shanker Reddy Devasani (NW0000302)', 'shanker@nxtwave.tech', 'Abidhusain R Sunagad', 'abidhusain.r@nxtwave.co.in'),
+    ('TA - Operations', 'Hari Haran Gorijavola', 'hari@nxtwave.co.in', 'Mohammad Arifulla Gori', 'arifulla.mohammad@nxtwave.co.in'),
+    ('Presales', 'Shiva Shanker Reddy Devasani (NW0000302)', 'shanker@nxtwave.co.in', 'Abidhusain R Sunagad', 'abidhusain.r@nxtwave.co.in'),
     ('Brand Marketing', 'Nikita Aggarwal', 'nikita.aggarwal@nxtwave.co.in', 'Adhiraj Singh', 'adhiraj.singh@nxtwave.co.in'),
     ('Facilities', 'Bala Bhaskar', 'balabhaskar@nxtwave.co.in', 'Siva Prasad Chary', 'facilities_nxtwave@nxtwave.co.in'),
     ('NIAT Program Operations', 'Pavan Reddy Dharma', 'pavan.dharma@nxtwave.tech', 'Anushka Biswas', 'anushka.biswas@nxtwave.co.in'),
@@ -41,6 +42,7 @@ BEGIN
     ('HR Operations', 'Radha Alekhya Kommanaboina', 'alekhya.k@nxtwave.co.in', 'Divya Sri Nandigam', 'hr@nxtwave.tech'),
     ('Placements Support Team', 'Girish Akash', 'girish@nxtwave.tech', 'Hemanth Peddinti', 'hemanth.peddinti@nxtwave.co.in'),
     ('University B2B Partnerships', 'Varshith', 'varshith@nxtwave.tech', 'Aryabo Bannerjee', 'aryabo.banerjee@nxtwave.co.in'),
+    ('Intensive', 'Aniketh Reddy Mastoor', 'aniketh@nxtwave.co.in', 'Sobha Rani Potnuru', 'sobharani@nxtwave.tech'),
     ('Tech Team', 'Revanth', 'revanth@nxtwave.tech', 'Tallaparthi Dinesh Hanumnathkumar', 'tallaparthi.dineshhanumnathkumar@nxtwave.co.in');
 
   FOR rec IN

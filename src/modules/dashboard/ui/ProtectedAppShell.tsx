@@ -201,9 +201,10 @@ export default function ProtectedAppShell({
         <header className={styles.topbar}>
           <div className={styles.topbarLeft}>
             <div className={styles.searchBar}>
-              <span>Search</span>
-              <input type="text" className={styles.searchInput} placeholder="Shortcuts" aria-label="Search shortcuts" />
-              <span>Ctrl+K</span>
+              <span>
+                Contact <a>shivam.kansagara@nxtwave.co.in</a> or <a>arjun.chander@nxtwave.co.in</a> in case you face any
+                issues.
+              </span>
             </div>
           </div>
           <div className={styles.topbarRight}>

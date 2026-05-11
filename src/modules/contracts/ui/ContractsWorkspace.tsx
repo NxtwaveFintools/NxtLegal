@@ -1238,7 +1238,11 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   }
 
   const handleSaveLegalMetadata = async () => {
-    if (!selectedContractId || session.role !== 'LEGAL_TEAM' || isSavingLegalMetadata) {
+    if (
+      !selectedContractId ||
+      (session.role !== contractWorkflowRoles.legalTeam && session.role !== contractWorkflowRoles.admin) ||
+      isSavingLegalMetadata
+    ) {
       return
     }
 
@@ -1657,7 +1661,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     return selectedContract.currentAssigneeEmail?.trim() || '—'
   }, [selectedContract])
   const canManageLegalWorkSharing = useMemo(() => {
-    if (session.role !== 'LEGAL_TEAM') {
+    if (session.role !== contractWorkflowRoles.legalTeam && session.role !== contractWorkflowRoles.admin) {
       return false
     }
 
@@ -1669,7 +1673,8 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       selectedContract.status as (typeof contractLegalAssignmentEditableStatuses)[number]
     )
   }, [selectedContract, session.role])
-  const canManageLegalMetadata = session.role === 'LEGAL_TEAM'
+  const canManageLegalMetadata =
+    session.role === contractWorkflowRoles.legalTeam || session.role === contractWorkflowRoles.admin
   const selectedContractListRow = useMemo(
     () => contracts.find((contract) => contract.id === selectedContractId) ?? null,
     [contracts, selectedContractId]
@@ -1818,8 +1823,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
           }
 
           const normalizedStatus = (contractView.contract.status ?? '').toUpperCase()
-          const hasExitedPrepareForSigningStatus =
-            normalizedStatus !== contractStatuses.underReview && normalizedStatus !== contractStatuses.completed
+          const hasExitedPrepareForSigningStatus = normalizedStatus !== contractStatuses.completed
 
           if (hasExitedPrepareForSigningStatus) {
             clearSigningSendPolling(contractId)
@@ -2239,6 +2243,16 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                       </button>
                     )
                   })}
+                  <div className={styles.tabHeaderActions}>
+                    <button
+                      type="button"
+                      className={`${styles.button} ${styles.buttonPrimary}`}
+                      onClick={() => void handleViewDocument()}
+                      disabled={!selectedContractId}
+                    >
+                      View Contract
+                    </button>
+                  </div>
                 </div>
 
                 <div
@@ -2426,9 +2440,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                         <>
                           <div className={styles.card}>
                             <div className={styles.sectionTitle}>Signatories</div>
-                            {([contractStatuses.underReview, contractStatuses.completed] as string[]).includes(
-                              selectedContract.status
-                            ) ? (
+                            {([contractStatuses.completed] as string[]).includes(selectedContract.status) ? (
                               <div className={styles.inlineForm}>
                                 <button
                                   type="button"
@@ -2440,18 +2452,15 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                                 </button>
                               </div>
                             ) : (
-                              <div className={styles.eventMeta}>
-                                Sign is available only in UNDER REVIEW or COMPLETED.
-                              </div>
+                              <div className={styles.eventMeta}>Sign is available only in COMPLETED.</div>
                             )}
                             {isSigningSendProcessing ? (
                               <div className={styles.eventMeta}>
                                 Signing request is processing in background. This section updates automatically.
                               </div>
                             ) : null}
-                            {([contractStatuses.underReview, contractStatuses.completed] as string[]).includes(
-                              selectedContract.status
-                            ) && !signingPreviewDocument ? (
+                            {([contractStatuses.completed] as string[]).includes(selectedContract.status) &&
+                            !signingPreviewDocument ? (
                               <div className={styles.eventMeta}>
                                 Prepare for Signing requires a PDF primary document.
                               </div>
@@ -2670,6 +2679,8 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                       contractId={selectedContract.id}
                       contractStatus={selectedContract.status}
                       userRole={session.role}
+                      actorEmployeeId={session.employeeId}
+                      uploadedByEmployeeId={selectedContract.uploadedByEmployeeId}
                       currentDocumentId={selectedContract.currentDocumentId}
                       documents={documents}
                       defaultUploaderEmail={selectedContract.uploadedByEmail}

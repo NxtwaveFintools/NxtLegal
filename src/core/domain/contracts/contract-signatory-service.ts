@@ -162,12 +162,9 @@ export class ContractSignatoryService {
     })
     const contractDetailMs = Date.now() - contractDetailStartedAt
 
-    const assignAllowedStatuses: string[] = [contractStatuses.underReview, contractStatuses.completed]
+    const assignAllowedStatuses: string[] = [contractStatuses.completed]
     if (!assignAllowedStatuses.includes(contractView.contract.status)) {
-      throw new BusinessRuleError(
-        'SIGNATORY_ASSIGN_INVALID_STATUS',
-        'Signatories can only be assigned in UNDER_REVIEW or COMPLETED'
-      )
+      throw new BusinessRuleError('SIGNATORY_ASSIGN_INVALID_STATUS', 'Signatories can only be assigned in COMPLETED')
     }
 
     const normalizedRecipients = params.recipients.map((recipient) => ({
@@ -447,7 +444,33 @@ export class ContractSignatoryService {
       })
       const pendingSignatoryCheckMs = Date.now() - pendingSignatoryCheckStartedAt
 
-      if (pendingSignatoryCount > 0) {
+      let effectivePendingSignatoryCount = pendingSignatoryCount
+      if (effectivePendingSignatoryCount > 0) {
+        const contractView = await this.contractQueryService.getContractDetail({
+          tenantId: params.tenantId,
+          contractId: params.contractId,
+          employeeId: params.actorEmployeeId,
+          role: params.actorRole,
+        })
+
+        // Stale pending signatories can remain after legal moves a contract out of signing and back.
+        // Soft-reset active signing rows in COMPLETED so prepare->review->send can start a new cycle.
+        if (contractView.contract.status === contractStatuses.completed) {
+          await this.contractQueryService.softResetActiveSigningCycle({
+            tenantId: params.tenantId,
+            contractId: params.contractId,
+            actorEmployeeId: params.actorEmployeeId,
+            actorRole: params.actorRole,
+            actorEmail: params.actorEmail,
+          })
+          effectivePendingSignatoryCount = await this.contractQueryService.countPendingSignatoriesByContract({
+            tenantId: params.tenantId,
+            contractId: params.contractId,
+          })
+        }
+      }
+
+      if (effectivePendingSignatoryCount > 0) {
         throw new BusinessRuleError(
           'SIGNING_PREPARATION_ALREADY_SENT',
           'Signing preparation draft already sent for this contract'
