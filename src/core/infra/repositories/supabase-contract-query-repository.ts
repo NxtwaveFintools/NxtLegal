@@ -29,6 +29,7 @@ import { createServiceSupabase } from '@/lib/supabase/service'
 import type {
   AdditionalApproverDecisionHistoryItem,
   ContractActivityReadState,
+  ContractActionMutationResult,
   ContractCounterparty,
   ContractDocument,
   ContractNotificationDeliverySummary,
@@ -1626,16 +1627,18 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       return null
     }
 
-    const metadata = await this.resolveContractDetailMetadata({
-      tenantId,
-      contractTypeId: data.contract_type_id,
-      departmentId: data.department_id,
-      uploadMode: data.upload_mode,
-      contractStatus: data.status,
-      currentAssigneeEmail: data.current_assignee_email,
-    })
+    const [metadata, additionalApproverContext] = await Promise.all([
+      this.resolveContractDetailMetadata({
+        tenantId,
+        contractTypeId: data.contract_type_id,
+        departmentId: data.department_id,
+        uploadMode: data.upload_mode,
+        contractStatus: data.status,
+        currentAssigneeEmail: data.current_assignee_email,
+      }),
+      this.getAdditionalApproverContractContextMap(tenantId, [data.id], null),
+    ])
 
-    const additionalApproverContext = await this.getAdditionalApproverContractContextMap(tenantId, [data.id], null)
     return this.mapDetail(data, metadata, additionalApproverContext.get(data.id))
   }
 
@@ -2700,7 +2703,11 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
     const actorRole = params.actorRole
 
-    const transitions = await this.getTransitionsForStatus(params.tenantId, params.contract.status, actorRole)
+    const [transitions, pendingApproverCount, firstPendingApprover] = await Promise.all([
+      this.getTransitionsForStatus(params.tenantId, params.contract.status, actorRole),
+      this.getPendingApproverCount(params.tenantId, params.contract.id),
+      this.getFirstPendingApprover(params.tenantId, params.contract.id),
+    ])
 
     const actionsByName = new Map<ContractActionName, ContractAllowedAction>()
     for (const transition of transitions) {
@@ -2721,8 +2728,6 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
     const actionsFromGraph = Array.from(actionsByName.values())
 
-    const pendingApproverCount = await this.getPendingApproverCount(params.tenantId, params.contract.id)
-    const firstPendingApprover = await this.getFirstPendingApprover(params.tenantId, params.contract.id)
     const isAssignee = params.contract.currentAssigneeEmployeeId === params.actorEmployeeId
 
     const actions = actionsFromGraph.filter((item) => {
@@ -2774,7 +2779,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     actorRole: string
     actorEmail: string
     noteText?: string
-  }): Promise<ContractDetail> {
+  }): Promise<ContractActionMutationResult> {
     this.assertActorMetadata({
       actorEmployeeId: params.actorEmployeeId,
       actorEmail: params.actorEmail,
@@ -2845,11 +2850,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         actorEmail: params.actorEmail,
       })
 
-      const unchanged = await this.getById(params.tenantId, params.contractId)
-      if (!unchanged) {
-        throw new DatabaseError('Failed to load contract after approver action')
+      return {
+        contract,
+        previousStatus: contract.status,
       }
-      return unchanged
     }
 
     if (effectiveAction === 'approver.reject') {
@@ -2866,11 +2870,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         noteText: params.noteText,
       })
 
-      const unchanged = await this.getById(params.tenantId, params.contractId)
-      if (!unchanged) {
-        throw new DatabaseError('Failed to load contract after approver rejection action')
+      return {
+        contract,
+        previousStatus: contract.status,
       }
-      return unchanged
     }
 
     if (remarkRequiredActions.has(effectiveAction) && !params.noteText?.trim()) {
@@ -2881,7 +2884,12 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       throw new AuthorizationError('CONTRACT_ACTION_FORBIDDEN', 'Only legal team or admin can skip HOD approval')
     }
 
-    const transition = await this.resolveTransition(params.tenantId, contract.status, effectiveAction)
+    const [transition, pendingApproverCount] = await Promise.all([
+      this.resolveTransition(params.tenantId, contract.status, effectiveAction),
+      effectiveAction === 'legal.set.completed'
+        ? this.getPendingApproverCount(params.tenantId, params.contractId)
+        : Promise.resolve(0),
+    ])
     logger.debug('TEMP_DIAG hod.skip transition resolved', {
       contractId: params.contractId,
       tenantId: params.tenantId,
@@ -2899,7 +2907,6 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       throw new AuthorizationError('CONTRACT_ACTION_FORBIDDEN', 'You are not allowed to perform this action')
     }
 
-    const pendingApproverCount = await this.getPendingApproverCount(params.tenantId, params.contractId)
     if (effectiveAction === 'legal.set.completed' && pendingApproverCount > 0) {
       throw new BusinessRuleError('APPROVERS_PENDING', 'All additional approvers must approve before final approval')
     }
@@ -2913,7 +2920,16 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     let tatDeadlineAt = contract.tatDeadlineAt ?? null
 
     if (effectiveAction === 'hod.approve' || effectiveAction === 'hod.bypass') {
-      const legalAssignee = await this.getLegalAssignee(params.tenantId, contract.departmentId)
+      const nowIso = new Date().toISOString()
+      const todayUtc = nowIso.slice(0, 10)
+      const [legalAssignee, { data: deadlineDate, error: deadlineError }] = await Promise.all([
+        this.getLegalAssignee(params.tenantId, contract.departmentId),
+        supabase.rpc('business_day_add', {
+          start_date: todayUtc,
+          days: contractRepositoryTatPolicy.businessDays,
+        }),
+      ])
+
       assigneeEmployeeId = legalAssignee.id
       assigneeEmail = legalAssignee.email
       nextStatus = contractStatuses.underReview
@@ -2922,13 +2938,6 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         tenantId: params.tenantId,
         assigneeEmployeeId,
         assigneeEmail,
-      })
-
-      const nowIso = new Date().toISOString()
-      const todayUtc = nowIso.slice(0, 10)
-      const { data: deadlineDate, error: deadlineError } = await supabase.rpc('business_day_add', {
-        start_date: todayUtc,
-        days: contractRepositoryTatPolicy.businessDays,
       })
 
       logger.debug('TEMP_DIAG hod.skip deadline rpc result', {
@@ -3055,13 +3064,20 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       })
     }
 
-    const updated = await this.getById(params.tenantId, params.contractId)
-
-    if (!updated) {
-      throw new DatabaseError('Failed to load contract after action update')
+    return {
+      contract: {
+        ...contract,
+        status: nextStatus,
+        currentAssigneeEmployeeId: assigneeEmployeeId,
+        currentAssigneeEmail: assigneeEmail,
+        hodApprovedAt,
+        tatDeadlineAt,
+        voidReason: effectiveAction === 'legal.void' ? (updatePayload.void_reason ?? null) : contract.voidReason,
+        rowVersion: updatePayload.row_version,
+        updatedAt: new Date().toISOString(),
+      },
+      previousStatus: contract.status,
     }
-
-    return updated
   }
 
   async addAdditionalApprover(params: {

@@ -10,6 +10,7 @@ import type {
 import { contractStatuses, contractWorkflowRoles } from '@/core/constants/contracts'
 import type {
   AdditionalApproverDecisionHistoryItem,
+  ContractActionMutationResult,
   ContractActivityReadState,
   ContractNotificationDeliverySummary,
   ContractNotificationFailure,
@@ -36,6 +37,11 @@ import type {
   ContractTimelineEvent,
 } from '@/core/domain/contracts/contract-query-repository'
 import type { ContractActionName, ContractLegalAssignmentOperation } from '@/core/domain/contracts/schemas'
+
+export type ApplyContractActionResult = {
+  contractView: ContractDetailView
+  previousStatus: ContractStatus
+}
 
 export class ContractQueryService {
   constructor(private readonly contractRepository: ContractQueryRepository) {}
@@ -276,7 +282,7 @@ export class ContractQueryService {
     actorRole?: string
     actorEmail: string
     noteText?: string
-  }): Promise<ContractDetailView> {
+  }): Promise<ApplyContractActionResult> {
     if (!params.actorRole) {
       throw new AuthorizationError('CONTRACT_ACTION_FORBIDDEN', 'User role is required for contract action')
     }
@@ -296,7 +302,7 @@ export class ContractQueryService {
       throw new BusinessRuleError('REMARK_REQUIRED', 'Remarks are mandatory for this action')
     }
 
-    const updatedContract = await this.contractRepository.applyAction({
+    const mutationResult = await this.contractRepository.applyAction({
       tenantId: params.tenantId,
       contractId: params.contractId,
       action: params.action,
@@ -306,13 +312,18 @@ export class ContractQueryService {
       noteText: params.noteText,
     })
 
-    return this.getContractDetailAfterMutation({
+    const contractView = await this.getContractDetailAfterMutation({
       tenantId: params.tenantId,
       contractId: params.contractId,
       employeeId: params.actorEmployeeId,
       role: params.actorRole,
-      updatedContract,
+      updatedContract: mutationResult.contract,
     })
+
+    return {
+      contractView,
+      previousStatus: mutationResult.previousStatus,
+    }
   }
 
   async addContractNote(params: {
@@ -500,18 +511,11 @@ export class ContractQueryService {
       reason: params.reason,
     })
 
-    const contract = await this.contractRepository.getById(params.tenantId, params.contractId)
-
-    if (!contract) {
-      throw new NotFoundError('Contract', params.contractId)
-    }
-
     return this.getContractDetailAfterMutation({
       tenantId: params.tenantId,
       contractId: params.contractId,
       employeeId: params.actorEmployeeId,
       role: params.actorRole,
-      updatedContract: contract,
     })
   }
 
@@ -900,7 +904,7 @@ export class ContractQueryService {
     contractId: string
     employeeId: string
     role?: string
-    updatedContract: ContractDetail
+    updatedContract?: ContractDetail
   }): Promise<ContractDetailView> {
     try {
       return await this.getContractDetail({
@@ -911,8 +915,15 @@ export class ContractQueryService {
       })
     } catch (error) {
       if (error instanceof AuthorizationError && error.code === 'CONTRACT_READ_FORBIDDEN') {
+        const updatedContract =
+          params.updatedContract ?? (await this.contractRepository.getById(params.tenantId, params.contractId))
+
+        if (!updatedContract) {
+          throw new NotFoundError('Contract', params.contractId)
+        }
+
         return {
-          contract: params.updatedContract,
+          contract: updatedContract,
           counterparties: [],
           documents: [],
           availableActions: [],

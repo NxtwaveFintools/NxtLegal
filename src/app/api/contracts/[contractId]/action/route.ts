@@ -65,66 +65,55 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
     const contractQueryService = getContractQueryService()
 
     let previousStatus: string | null = null
-    const shouldCheckPreviousStatusForSigningExit =
-      payload.action !== bypassApprovalActionName &&
-      (session.role === contractWorkflowRoles.legalTeam || session.role === contractWorkflowRoles.admin)
-
-    if (shouldCheckPreviousStatusForSigningExit) {
-      const previousStatusTimerLabel = `contract-action.previous-status.${contractId}`
-      if (shouldLogPerformance) {
-        console.time(previousStatusTimerLabel)
-      }
-      const previousContractView = await contractQueryService.getContractDetail({
-        tenantId,
-        contractId,
-        employeeId: session.employeeId,
-        role: session.role,
-      })
-      previousStatus = previousContractView.contract.status
-      if (shouldLogPerformance) {
-        console.timeEnd(previousStatusTimerLabel)
-      }
-    }
 
     const applyActionTimerLabel = `contract-action.apply.${contractId}`
     if (shouldLogPerformance) {
       console.time(applyActionTimerLabel)
     }
-    const contractView =
-      payload.action === bypassApprovalActionName
-        ? await (() => {
-            if (session.role !== contractWorkflowRoles.legalTeam && session.role !== contractWorkflowRoles.admin) {
-              return NextResponse.json(
-                errorResponse('CONTRACT_ACTION_FORBIDDEN', 'Only LEGAL_TEAM or ADMIN can skip approvals'),
-                { status: 403 }
-              )
-            }
+    let contractView: Awaited<ReturnType<typeof contractQueryService.bypassAdditionalApprover>>
 
-            return contractQueryService.bypassAdditionalApprover({
-              tenantId,
-              contractId,
-              approverId: payload.approverId,
-              actorEmployeeId: session.employeeId,
-              actorRole: session.role,
-              actorEmail: session.email ?? '',
-              reason: payload.reason,
-            })
-          })()
-        : await contractQueryService.applyContractAction({
-            tenantId,
-            contractId,
-            action: payload.action,
-            actorEmployeeId: session.employeeId,
-            actorRole: session.role,
-            actorEmail: session.email ?? '',
-            noteText: payload.noteText,
-          })
-    if (shouldLogPerformance) {
-      console.timeEnd(applyActionTimerLabel)
+    if (payload.action === bypassApprovalActionName) {
+      const bypassResult = await (() => {
+        if (session.role !== contractWorkflowRoles.legalTeam && session.role !== contractWorkflowRoles.admin) {
+          return NextResponse.json(
+            errorResponse('CONTRACT_ACTION_FORBIDDEN', 'Only LEGAL_TEAM or ADMIN can skip approvals'),
+            { status: 403 }
+          )
+        }
+
+        return contractQueryService.bypassAdditionalApprover({
+          tenantId,
+          contractId,
+          approverId: payload.approverId,
+          actorEmployeeId: session.employeeId,
+          actorRole: session.role,
+          actorEmail: session.email ?? '',
+          reason: payload.reason,
+        })
+      })()
+
+      if (bypassResult instanceof NextResponse) {
+        return bypassResult
+      }
+
+      contractView = bypassResult
+    } else {
+      const actionResult = await contractQueryService.applyContractAction({
+        tenantId,
+        contractId,
+        action: payload.action,
+        actorEmployeeId: session.employeeId,
+        actorRole: session.role,
+        actorEmail: session.email ?? '',
+        noteText: payload.noteText,
+      })
+
+      contractView = actionResult.contractView
+      previousStatus = actionResult.previousStatus
     }
 
-    if (contractView instanceof NextResponse) {
-      return contractView
+    if (shouldLogPerformance) {
+      console.timeEnd(applyActionTimerLabel)
     }
 
     const contractApprovalNotificationService = getContractApprovalNotificationService()
