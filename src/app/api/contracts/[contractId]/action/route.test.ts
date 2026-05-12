@@ -103,20 +103,23 @@ describe('Contract action route idempotency', () => {
   it('stores successful action response when idempotency key is provided', async () => {
     mockIdempotencyService.claimOrGet.mockResolvedValue({ status: 'claimed' })
     mockContractQueryService.applyContractAction.mockResolvedValue({
-      contract: {
-        id: '33333333-3333-3333-3333-333333333333',
-        title: 'NDA',
-        status: 'UNDER_REVIEW',
-        currentAssigneeEmail: 'legal@nxtwave.co.in',
-        uploadedByEmail: 'poc@nxtwave.co.in',
-        departmentHodEmail: 'hod@nxtwave.co.in',
+      contractView: {
+        contract: {
+          id: '33333333-3333-3333-3333-333333333333',
+          title: 'NDA',
+          status: 'UNDER_REVIEW',
+          currentAssigneeEmail: 'legal@nxtwave.co.in',
+          uploadedByEmail: 'poc@nxtwave.co.in',
+          departmentHodEmail: 'hod@nxtwave.co.in',
+        },
+        counterparties: [],
+        documents: [],
+        availableActions: [],
+        additionalApprovers: [],
+        legalCollaborators: [],
+        signatories: [],
       },
-      counterparties: [],
-      documents: [],
-      availableActions: [],
-      additionalApprovers: [],
-      legalCollaborators: [],
-      signatories: [],
+      previousStatus: 'UNDER_REVIEW',
     })
 
     const response = await POST(
@@ -140,29 +143,29 @@ describe('Contract action route idempotency', () => {
 
   it('recalls Zoho envelopes when legal.void is applied', async () => {
     mockIdempotencyService.claimOrGet.mockResolvedValue({ status: 'claimed' })
-    mockContractQueryService.getContractDetail.mockResolvedValueOnce({
-      contract: { status: 'SIGNING' },
-    })
     mockContractSignatoryService.recallSigningEnvelopes.mockResolvedValue(undefined)
     mockContractQueryService.applyContractAction.mockResolvedValue({
-      contract: {
-        id: '33333333-3333-3333-3333-333333333333',
-        title: 'NDA',
-        status: 'VOID',
-        currentAssigneeEmail: 'legal@nxtwave.co.in',
-        uploadedByEmail: 'poc@nxtwave.co.in',
-        departmentHodEmail: 'hod@nxtwave.co.in',
+      contractView: {
+        contract: {
+          id: '33333333-3333-3333-3333-333333333333',
+          title: 'NDA',
+          status: 'VOID',
+          currentAssigneeEmail: 'legal@nxtwave.co.in',
+          uploadedByEmail: 'poc@nxtwave.co.in',
+          departmentHodEmail: 'hod@nxtwave.co.in',
+        },
+        counterparties: [],
+        documents: [],
+        availableActions: [],
+        additionalApprovers: [],
+        legalCollaborators: [],
+        signatories: [
+          { zohoSignEnvelopeId: 'envelope-1' },
+          { zohoSignEnvelopeId: 'envelope-1' },
+          { zohoSignEnvelopeId: 'envelope-2' },
+        ],
       },
-      counterparties: [],
-      documents: [],
-      availableActions: [],
-      additionalApprovers: [],
-      legalCollaborators: [],
-      signatories: [
-        { zohoSignEnvelopeId: 'envelope-1' },
-        { zohoSignEnvelopeId: 'envelope-1' },
-        { zohoSignEnvelopeId: 'envelope-2' },
-      ],
+      previousStatus: 'SIGNING',
     })
 
     const response = await POST(
@@ -197,25 +200,25 @@ describe('Contract action route idempotency', () => {
 
   it('recalls and soft-resets when legal exits signing to a non-signing status', async () => {
     mockIdempotencyService.claimOrGet.mockResolvedValue({ status: 'claimed' })
-    mockContractQueryService.getContractDetail.mockResolvedValueOnce({
-      contract: { status: 'SIGNING' },
-    })
     mockContractSignatoryService.recallSigningEnvelopes.mockResolvedValue(undefined)
     mockContractQueryService.applyContractAction.mockResolvedValue({
-      contract: {
-        id: '33333333-3333-3333-3333-333333333333',
-        title: 'NDA',
-        status: 'COMPLETED',
-        currentAssigneeEmail: 'legal@nxtwave.co.in',
-        uploadedByEmail: 'poc@nxtwave.co.in',
-        departmentHodEmail: 'hod@nxtwave.co.in',
+      contractView: {
+        contract: {
+          id: '33333333-3333-3333-3333-333333333333',
+          title: 'NDA',
+          status: 'COMPLETED',
+          currentAssigneeEmail: 'legal@nxtwave.co.in',
+          uploadedByEmail: 'poc@nxtwave.co.in',
+          departmentHodEmail: 'hod@nxtwave.co.in',
+        },
+        counterparties: [],
+        documents: [],
+        availableActions: [],
+        additionalApprovers: [],
+        legalCollaborators: [],
+        signatories: [{ zohoSignEnvelopeId: 'envelope-3' }],
       },
-      counterparties: [],
-      documents: [],
-      availableActions: [],
-      additionalApprovers: [],
-      legalCollaborators: [],
-      signatories: [{ zohoSignEnvelopeId: 'envelope-3' }],
+      previousStatus: 'SIGNING',
     })
 
     const response = await POST(
@@ -243,24 +246,24 @@ describe('Contract action route idempotency', () => {
 
   it('does not recall when previous status is not signing', async () => {
     mockIdempotencyService.claimOrGet.mockResolvedValue({ status: 'claimed' })
-    mockContractQueryService.getContractDetail.mockResolvedValueOnce({
-      contract: { status: 'UNDER_REVIEW' },
-    })
     mockContractQueryService.applyContractAction.mockResolvedValue({
-      contract: {
-        id: '33333333-3333-3333-3333-333333333333',
-        title: 'NDA',
-        status: 'COMPLETED',
-        currentAssigneeEmail: 'legal@nxtwave.co.in',
-        uploadedByEmail: 'poc@nxtwave.co.in',
-        departmentHodEmail: 'hod@nxtwave.co.in',
+      contractView: {
+        contract: {
+          id: '33333333-3333-3333-3333-333333333333',
+          title: 'NDA',
+          status: 'COMPLETED',
+          currentAssigneeEmail: 'legal@nxtwave.co.in',
+          uploadedByEmail: 'poc@nxtwave.co.in',
+          departmentHodEmail: 'hod@nxtwave.co.in',
+        },
+        counterparties: [],
+        documents: [],
+        availableActions: [],
+        additionalApprovers: [],
+        legalCollaborators: [],
+        signatories: [{ zohoSignEnvelopeId: 'envelope-4' }],
       },
-      counterparties: [],
-      documents: [],
-      availableActions: [],
-      additionalApprovers: [],
-      legalCollaborators: [],
-      signatories: [{ zohoSignEnvelopeId: 'envelope-4' }],
+      previousStatus: 'UNDER_REVIEW',
     })
 
     const response = await POST(
@@ -281,20 +284,23 @@ describe('Contract action route idempotency', () => {
   it('notifies POC when HOD approves a contract', async () => {
     mockIdempotencyService.claimOrGet.mockResolvedValue({ status: 'claimed' })
     mockContractQueryService.applyContractAction.mockResolvedValue({
-      contract: {
-        id: '33333333-3333-3333-3333-333333333333',
-        title: 'MSA',
-        status: 'UNDER_REVIEW',
-        currentAssigneeEmail: 'legal@nxtwave.co.in',
-        uploadedByEmail: 'poc@nxtwave.co.in',
-        departmentHodEmail: 'hod@nxtwave.co.in',
+      contractView: {
+        contract: {
+          id: '33333333-3333-3333-3333-333333333333',
+          title: 'MSA',
+          status: 'UNDER_REVIEW',
+          currentAssigneeEmail: 'legal@nxtwave.co.in',
+          uploadedByEmail: 'poc@nxtwave.co.in',
+          departmentHodEmail: 'hod@nxtwave.co.in',
+        },
+        counterparties: [],
+        documents: [],
+        availableActions: [],
+        additionalApprovers: [],
+        legalCollaborators: [],
+        signatories: [],
       },
-      counterparties: [],
-      documents: [],
-      availableActions: [],
-      additionalApprovers: [],
-      legalCollaborators: [],
-      signatories: [],
+      previousStatus: 'HOD_PENDING',
     })
 
     const response = await POST(
@@ -322,20 +328,23 @@ describe('Contract action route idempotency', () => {
   it('notifies POC when HOD rejects a contract', async () => {
     mockIdempotencyService.claimOrGet.mockResolvedValue({ status: 'claimed' })
     mockContractQueryService.applyContractAction.mockResolvedValue({
-      contract: {
-        id: '33333333-3333-3333-3333-333333333333',
-        title: 'MSA',
-        status: 'REJECTED',
-        currentAssigneeEmail: 'hod@nxtwave.co.in',
-        uploadedByEmail: 'poc@nxtwave.co.in',
-        departmentHodEmail: 'hod@nxtwave.co.in',
+      contractView: {
+        contract: {
+          id: '33333333-3333-3333-3333-333333333333',
+          title: 'MSA',
+          status: 'REJECTED',
+          currentAssigneeEmail: 'hod@nxtwave.co.in',
+          uploadedByEmail: 'poc@nxtwave.co.in',
+          departmentHodEmail: 'hod@nxtwave.co.in',
+        },
+        counterparties: [],
+        documents: [],
+        availableActions: [],
+        additionalApprovers: [],
+        legalCollaborators: [],
+        signatories: [],
       },
-      counterparties: [],
-      documents: [],
-      availableActions: [],
-      additionalApprovers: [],
-      legalCollaborators: [],
-      signatories: [],
+      previousStatus: 'HOD_PENDING',
     })
 
     const response = await POST(

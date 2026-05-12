@@ -65,6 +65,7 @@ const createRepositoryMock = (): jest.Mocked<ContractQueryRepository> => ({
   getSigningPreparationDraft: jest.fn(),
   countPendingSignatoriesByContract: jest.fn(),
   moveContractToInSignature: jest.fn(),
+  softResetActiveSigningCycle: jest.fn(),
   deleteSigningPreparationDraft: jest.fn(),
   resolveEnvelopeContext: jest.fn(),
   recordZohoSignWebhookEvent: jest.fn(),
@@ -96,7 +97,10 @@ describe('ContractQueryService', () => {
       rowVersion: 2,
     }
 
-    repository.applyAction.mockResolvedValue(updatedContract)
+    repository.applyAction.mockResolvedValue({
+      contract: updatedContract,
+      previousStatus: 'HOD_PENDING',
+    })
     repository.getById.mockResolvedValue(updatedContract)
     repository.canAccessContract.mockResolvedValue(false)
 
@@ -110,13 +114,16 @@ describe('ContractQueryService', () => {
     })
 
     expect(result).toEqual({
-      contract: updatedContract,
-      counterparties: [],
-      documents: [],
-      availableActions: [],
-      additionalApprovers: [],
-      legalCollaborators: [],
-      signatories: [],
+      contractView: {
+        contract: updatedContract,
+        counterparties: [],
+        documents: [],
+        availableActions: [],
+        additionalApprovers: [],
+        legalCollaborators: [],
+        signatories: [],
+      },
+      previousStatus: 'HOD_PENDING',
     })
   })
 
@@ -152,7 +159,10 @@ describe('ContractQueryService', () => {
     const repository = createRepositoryMock()
     const service = new ContractQueryService(repository)
 
-    repository.applyAction.mockResolvedValue(baseContract)
+    repository.applyAction.mockResolvedValue({
+      contract: baseContract,
+      previousStatus: 'HOD_PENDING',
+    })
     repository.getById.mockResolvedValue(baseContract)
     repository.canAccessContract.mockRejectedValue(
       new AuthorizationError('CONTRACT_TIMELINE_FORBIDDEN', 'timeline unavailable')
