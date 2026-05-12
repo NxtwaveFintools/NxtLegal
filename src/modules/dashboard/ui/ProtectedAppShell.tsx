@@ -53,7 +53,12 @@ export default function ProtectedAppShell({
   return (
     <div className={styles.page}>
       <aside className={styles.sidebar}>
-        <div className={styles.sidebarBrand} aria-label="NxtWave logo" role="img">
+        <Link
+          className={styles.sidebarBrand}
+          aria-label="Go to dashboard"
+          href={routeRegistry.protected.dashboard}
+          prefetch
+        >
           <div className={styles.sidebarLogo}>
             <svg viewBox="0 0 24 24" className={styles.sidebarLogoSvg} aria-hidden="true" focusable="false">
               <path d="M4 17V7h2.5l4 5.2V7H13v10h-2.4L6.6 11.8V17H4Z" fill="currentColor" />
@@ -64,7 +69,7 @@ export default function ProtectedAppShell({
             </svg>
           </div>
           <span className={styles.sidebarBrandText}>NxtWave</span>
-        </div>
+        </Link>
         <div className={styles.navList}>
           {quickAction ? (
             <button

@@ -21,6 +21,15 @@
   flex-direction: column;
   align-items: center;
   gap: 4px;
+  border-radius: 14px;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.sidebarBrand:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-accent) 70%, transparent);
+  outline-offset: 4px;
 }
 
 .sidebarLogo {
@@ -38,7 +47,8 @@
     box-shadow 0.2s ease;
 }
 
-.sidebarLogo:hover {
+.sidebarBrand:hover .sidebarLogo,
+.sidebarBrand:focus-visible .sidebarLogo {
   transform: scale(1.08);
   box-shadow: 0 2px 12px color-mix(in srgb, var(--color-accent) 28%, transparent);
 }
