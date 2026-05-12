@@ -1,10 +1,7 @@
 import { readFileSync } from 'fs'
 import { resolve } from 'path'
 
-const migrationPath = resolve(
-  process.cwd(),
-  'supabase/migrations/20260228123000_polish_legal_send_for_signing_audit_semantics.sql'
-)
+const migrationPath = resolve(process.cwd(), 'supabase/migrations/20260511113928_remote_schema.sql')
 
 const readMigrationSql = (): string => readFileSync(migrationPath, 'utf8')
 

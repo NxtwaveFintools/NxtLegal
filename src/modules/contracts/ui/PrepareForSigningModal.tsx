@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Document, Page, pdfjs } from 'react-pdf'
 import { toast } from 'sonner'
 import { contractsClient } from '@/core/client/contracts-client'
@@ -396,8 +396,11 @@ export default function PrepareForSigningModal({
 
   const blockingPreflightChecks = preflightChecks.filter((check) => !check.isReady)
 
-  const getPageMetrics = (pageNumber: number) => pageMetricsByNumber[pageNumber]
-  const getPageRenderBox = (pageNumber: number) => pageRenderBoxByNumber[pageNumber]
+  const getPageMetrics = useCallback((pageNumber: number) => pageMetricsByNumber[pageNumber], [pageMetricsByNumber])
+  const getPageRenderBox = useCallback(
+    (pageNumber: number) => pageRenderBoxByNumber[pageNumber],
+    [pageRenderBoxByNumber]
+  )
 
   const measureRenderBox = (pageNumber: number) => {
     const el = pageRenderRef.current
@@ -804,7 +807,7 @@ export default function PrepareForSigningModal({
       window.removeEventListener('mousemove', onMouseMove)
       window.removeEventListener('mouseup', onMouseUp)
     }
-  }, [activeResizeFieldId, canEdit, pageMetricsByNumber, pageRenderBoxByNumber])
+  }, [activeResizeFieldId, canEdit, getPageMetrics, getPageRenderBox, pageMetricsByNumber, pageRenderBoxByNumber])
 
   const handleResizeStart = (event: React.MouseEvent<HTMLSpanElement>, field: DraftField) => {
     event.stopPropagation()
@@ -974,7 +977,7 @@ export default function PrepareForSigningModal({
             <div className={styles.panelTitle}>Recipients</div>
 
             {(['EXTERNAL', 'INTERNAL'] as const).map((recipientType) => {
-              const groupTitle = recipientType === 'EXTERNAL' ? 'Counter Party' : 'Nxtwave'
+              const groupTitle = recipientType === 'EXTERNAL' ? 'Counter Party' : 'NxtWave'
               const groupRecipients = recipients.filter((recipient) => recipient.recipientType === recipientType)
 
               return (

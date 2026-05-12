@@ -188,6 +188,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const [documents, setDocuments] = useState<ContractDocument[]>([])
   const [noteText, setNoteText] = useState('')
   const [approverEmail, setApproverEmail] = useState('')
+  const [approverNote, setApproverNote] = useState('')
   const [collaboratorEmail, setCollaboratorEmail] = useState('')
   const [activityMessageText, setActivityMessageText] = useState('')
   const [legalEffectiveDate, setLegalEffectiveDate] = useState('')
@@ -216,6 +217,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const [isMutating, setIsMutating] = useState(false)
   const [activeAction, setActiveAction] = useState<ContractAllowedAction['action'] | null>(null)
   const [confirmActionItem, setConfirmActionItem] = useState<ContractAllowedAction | null>(null)
+  const [confirmNote, setConfirmNote] = useState('')
   const [remarkActionItem, setRemarkActionItem] = useState<ContractAllowedAction | null>(null)
   const [selectedLegalAction, setSelectedLegalAction] = useState<ContractAllowedAction['action'] | ''>('')
   const [remarkDraft, setRemarkDraft] = useState('')
@@ -240,7 +242,6 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const signingSendPollingIntervalByContractIdRef = useRef<Record<string, number>>({})
   const signingSendPollingInFlightByContractIdRef = useRef<Record<string, boolean>>({})
   const signingSendPollingDeadlineByContractIdRef = useRef<Record<string, number>>({})
-  const [error, setError] = useState<string | null>(null)
   const canViewSignedDocsTab = session.role === 'LEGAL_TEAM' || session.role === 'ADMIN'
   const isHodSession = session.role === contractWorkflowRoles.hod
   const shouldShowRemarkBackgroundContext =
@@ -432,7 +433,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
         setTimeline([])
       }
     },
-    [upsertContractInSidebarList]
+    [applyContractView, upsertContractInSidebarList]
   )
 
   useEffect(() => {
@@ -534,7 +535,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     return () => {
       isCancelled = true
     }
-  }, [selectedContractId, upsertContractInSidebarList])
+  }, [applyContractView, selectedContractId, upsertContractInSidebarList])
 
   const selectContract = (contractId: string) => {
     setIsContractContextLoading(true)
@@ -620,7 +621,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
         setActiveAction(null)
       }
     },
-    [loadContractContext, loadContracts, router, selectedContractId]
+    [applyContractView, loadContractContext, loadContracts, router, selectedContractId]
   )
 
   const executeAction = async (actionItem: ContractAllowedAction) => {
@@ -648,6 +649,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     }
 
     setConfirmActionItem(null)
+    setConfirmNote('')
   }, [activeAction])
 
   const submitConfirmDialog = useCallback(async () => {
@@ -662,11 +664,12 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       return
     }
 
-    const didApply = await applyAction(confirmActionItem)
+    const didApply = await applyAction(confirmActionItem, confirmNote.trim() || undefined)
     if (didApply) {
       setConfirmActionItem(null)
+      setConfirmNote('')
     }
-  }, [applyAction, confirmActionItem])
+  }, [applyAction, confirmActionItem, confirmNote])
 
   const closeRemarkDialog = useCallback(() => {
     if (activeAction) {
@@ -1052,6 +1055,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     setIsMutating(true)
     const response = await contractsClient.addApprover(selectedContractId, {
       approverEmail: approverEmail.trim().toLowerCase(),
+      noteText: approverNote.trim() || undefined,
     })
     setIsMutating(false)
 
@@ -1060,8 +1064,9 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     }
 
     setApproverEmail('')
+    setApproverNote('')
     applyContractView(response.data)
-  }, [approverEmail, selectedContractId])
+  }, [applyContractView, approverEmail, approverNote, selectedContractId])
 
   const handleGenerateSigningLink = async (recipientEmail: string, recipientType: string) => {
     if (!selectedContractId) {
@@ -1069,7 +1074,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     }
 
     if (recipientType !== 'INTERNAL') {
-      setError('Signing link can only be generated for Nxtwave recipients')
+      toast.error('Signing link can only be generated for NxtWave recipients')
       return
     }
     setIsGeneratingLinkFor(recipientEmail)
@@ -1088,8 +1093,6 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
         ...current,
         [normalizedRecipientEmail]: signingUrl,
       }))
-      setError(null)
-
       const copied = await copyTextToClipboard(signingUrl)
       if (copied) {
         setCopiedSigningLinkFor(normalizedRecipientEmail)
@@ -1101,10 +1104,10 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
         }, 2000)
       } else {
         setCopiedSigningLinkFor(null)
-        setError('Signing link generated. Clipboard copy failed, copy the link shown below.')
+        toast.error('Signing link generated. Clipboard copy failed, copy the link shown below.')
       }
     } catch (error) {
-      setError(error instanceof Error ? error.message : 'Failed to generate signing link')
+      toast.error(error instanceof Error ? error.message : 'Failed to generate signing link')
     } finally {
       setIsGeneratingLinkFor(null)
     }
@@ -1167,7 +1170,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       await loadContractContext(selectedContractId)
       await loadContracts()
     },
-    [loadContractContext, loadContracts, selectedContractId]
+    [applyContractView, loadContractContext, loadContracts, selectedContractId]
   )
   const handleAddCollaborator = async () => {
     if (!selectedContractId || !collaboratorEmail.trim() || isAddingCollaborator) {
@@ -2526,7 +2529,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                                       </div>
                                     ) : (
                                       <div className={styles.signatoryActionHint}>
-                                        Signing link available for Nxtwave users.
+                                        Signing link available for NxtWave users.
                                       </div>
                                     )}
                                   </div>
@@ -2699,6 +2702,8 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                       canSkipApprovals={canManageApprovals}
                       approverEmail={approverEmail}
                       onApproverEmailChange={setApproverEmail}
+                      approverNote={approverNote}
+                      onApproverNoteChange={setApproverNote}
                       onAddApprover={handleAddApprover}
                       onRemindApprover={handleRemindApprover}
                       onSkipApprover={handleSkipApprover}
@@ -2919,6 +2924,13 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                 <div>{backgroundOfRequest}</div>
               </div>
             ) : null}
+            <textarea
+              className={styles.textarea}
+              value={confirmNote}
+              onChange={(event) => setConfirmNote(event.target.value)}
+              rows={3}
+              placeholder="Add a note (optional)"
+            />
             <div className={styles.actionRemarkActions}>
               <button
                 type="button"

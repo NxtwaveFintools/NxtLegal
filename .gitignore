@@ -98,3 +98,5 @@ Desktop.ini
 dist/
 coverage/
 *.tsbuildinfo
+.claude/skills
+.agents

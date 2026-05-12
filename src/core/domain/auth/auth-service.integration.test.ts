@@ -23,7 +23,10 @@ const mockLogger: Logger = {
   error: jest.fn(),
 }
 
-describe('AuthService Integration Tests', () => {
+// Skip when no real Supabase backend is configured (set RUN_INTEGRATION_TESTS=1 to run)
+const describeIntegration = process.env.RUN_INTEGRATION_TESTS === '1' ? describe : describe.skip
+
+describeIntegration('AuthService Integration Tests', () => {
   let authService: AuthService
   let supabaseClient: ReturnType<typeof createClient<Database>>
   let testUserId: string

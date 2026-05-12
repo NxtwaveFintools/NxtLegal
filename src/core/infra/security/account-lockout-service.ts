@@ -243,9 +243,10 @@ class AccountLockoutService {
 export const accountLockoutService = new AccountLockoutService()
 
 // Schedule cleanup every 5 minutes
-setInterval(
+const cleanupInterval = setInterval(
   () => {
     accountLockoutService.cleanup()
   },
   5 * 60 * 1000
 )
+cleanupInterval.unref?.()

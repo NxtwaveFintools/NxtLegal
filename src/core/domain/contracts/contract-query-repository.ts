@@ -210,6 +210,7 @@ export type ContractAdditionalApprover = {
   sequenceOrder: number
   status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'SKIPPED' | 'BYPASSED'
   approvedAt: string | null
+  noteText?: string | null
 }
 
 export type ContractLegalCollaborator = {
@@ -290,6 +291,11 @@ export type ContractDetailView = {
   additionalApprovers: ContractAdditionalApprover[]
   legalCollaborators: ContractLegalCollaborator[]
   signatories: ContractSignatory[]
+}
+
+export type ContractActionMutationResult = {
+  contract: ContractDetail
+  previousStatus: ContractStatus
 }
 
 export type ContractNotificationFailure = {
@@ -461,7 +467,7 @@ export interface ContractQueryRepository {
     actorRole: string
     actorEmail: string
     noteText?: string
-  }): Promise<ContractDetail>
+  }): Promise<ContractActionMutationResult>
   addAdditionalApprover(params: {
     tenantId: string
     contractId: string
@@ -469,6 +475,7 @@ export interface ContractQueryRepository {
     actorRole: string
     actorEmail: string
     approverEmail: string
+    noteText?: string
   }): Promise<void>
   updateLegalMetadata(params: {
     tenantId: string

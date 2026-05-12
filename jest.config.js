@@ -34,4 +34,10 @@ const customJestConfig = {
   },
 }
 
-module.exports = createJestConfig(customJestConfig)
+// next/jest prepends '/node_modules/' to transformIgnorePatterns before merging,
+// so we override after the fact to ensure jose (ESM) is transpiled by Jest.
+module.exports = async () => {
+  const config = await createJestConfig(customJestConfig)()
+  config.transformIgnorePatterns = ['/node_modules/(?!(jose)/)']
+  return config
+}

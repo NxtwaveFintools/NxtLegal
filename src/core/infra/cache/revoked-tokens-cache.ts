@@ -61,7 +61,8 @@ class RevokedTokensCache {
   }
 
   private setupCleanup(): void {
-    setInterval(() => this.cleanup(), this.cleanupIntervalMs)
+    const cleanupInterval = setInterval(() => this.cleanup(), this.cleanupIntervalMs)
+    cleanupInterval.unref?.()
   }
 
   /**

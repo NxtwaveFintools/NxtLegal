@@ -13,6 +13,8 @@ type ApprovalsTabProps = {
   canSkipApprovals: boolean
   approverEmail: string
   onApproverEmailChange: (value: string) => void
+  approverNote: string
+  onApproverNoteChange: (value: string) => void
   onAddApprover: () => Promise<void>
   onRemindApprover: (email?: string) => Promise<void>
   onSkipApprover: (params: { approverRole: 'HOD' | 'ADDITIONAL'; approverId?: string; reason: string }) => Promise<void>
@@ -28,6 +30,7 @@ type ApprovalStep = {
   approverLabel: string
   status: ApprovalStatus
   timeLabel: string
+  noteText?: string | null
 }
 
 function resolveStepStatus(input: {
@@ -109,6 +112,7 @@ function buildSteps(params: {
         additionalStatus: approver.status,
       }),
       timeLabel: approver.approvedAt ? new Date(approver.approvedAt).toLocaleString() : '—',
+      noteText: approver.noteText,
     })
   })
 
@@ -142,6 +146,8 @@ export default function ApprovalsTab({
   canSkipApprovals,
   approverEmail,
   onApproverEmailChange,
+  approverNote,
+  onApproverNoteChange,
   onAddApprover,
   onRemindApprover,
   onSkipApprover,
@@ -314,6 +320,7 @@ export default function ApprovalsTab({
                   <div className={styles.approvalStepMeta}>POC: {contract.uploadedByEmail}</div>
                   <div className={styles.approvalStepMeta}>Approver: {step.approverLabel}</div>
                   <div className={styles.approvalStepMeta}>Time: {step.timeLabel}</div>
+                  {step.noteText ? <div className={styles.approvalStepNote}>Note: {step.noteText}</div> : null}
 
                   {canRemindStep || canSkipStep ? (
                     <div className={styles.approvalStepActions}>
@@ -368,13 +375,20 @@ export default function ApprovalsTab({
       {canManageApprovals ? (
         <div className={styles.card}>
           <div className={styles.sectionTitle}>Add Approval</div>
-          <form className={styles.inlineForm} onSubmit={handleAddApprovalSubmit}>
+          <form className={styles.addApprovalForm} onSubmit={handleAddApprovalSubmit}>
             <input
               type="email"
               className={styles.input}
               placeholder={approvalEmailPlaceholder}
               value={approverEmail}
               onChange={(event) => onApproverEmailChange(event.target.value)}
+            />
+            <textarea
+              className={styles.textarea}
+              placeholder="Add a note (optional)"
+              value={approverNote}
+              onChange={(event) => onApproverNoteChange(event.target.value)}
+              rows={3}
             />
             <button
               type="submit"

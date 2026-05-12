@@ -1,6 +1,7 @@
 # Supabase
 .branches
 .temp
+/migrations/20260512123000_seed_test_accounts_mcp.sql
 
 # dotenvx
 .env.keys

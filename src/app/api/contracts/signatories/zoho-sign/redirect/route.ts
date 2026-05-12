@@ -45,10 +45,6 @@ export async function GET(request: NextRequest) {
       return redirectToLogin(request)
     }
 
-    if (context.recipientType !== 'INTERNAL') {
-      return redirectToLogin(request)
-    }
-
     // Internal recipients must be signed in as the intended account.
     if (context.recipientType === 'INTERNAL') {
       const session = await getSession()
