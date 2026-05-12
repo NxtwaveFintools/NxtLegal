@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs grep -l \"LOGS TIMELINE\\\\|Activity\\\\|activity log\\\\|log entry\")",
+      "Bash(xargs grep -l \"tab\\\\|Tab\")",
+      "Bash(npx tsc *)",
+      "Bash(npm run *)",
+      "Bash(npm test *)",
+      "Bash(Get-Content \"C:\\\\Users\\\\Nxtwave\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Nxtwave-Documents-NxtLegal\\\\e76134ac-c56f-4c4c-88d3-d53e87a76ebb\\\\tasks\\\\b6y2k7w3r.output\" -Wait)",
+      "Bash(Select-String -Pattern \"Tests:|Test Suites:|PASS|FAIL|ERROR|passed|failed|error\" --SimpleMatch)",
+      "Bash(Get-Content \"C:\\\\Users\\\\Nxtwave\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Nxtwave-Documents-NxtLegal\\\\e76134ac-c56f-4c4c-88d3-d53e87a76ebb\\\\tasks\\\\b6y2k7w3r.output\")",
+      "Bash(npx jest *)"
+    ]
+  },
+  "enabledMcpjsonServers": ["supabase"]
+}

@@ -49,6 +49,15 @@ jest.mock('@/core/http/error-sanitizer', () => ({
   sanitizeZodError: jest.fn().mockReturnValue({ message: 'Validation failed', errors: [] }),
 }))
 
+// auth-schemas imports app-config → env.server.ts which requires env vars.
+jest.mock('@/core/config/app-config', () => ({
+  appConfig: {
+    auth: {
+      allowedDomains: ['nxtwave.co.in'],
+    },
+  },
+}))
+
 // ─── Import after mocks ───────────────────────────────────────────────────────
 
 import { POST } from '@/app/api/auth/login/route'

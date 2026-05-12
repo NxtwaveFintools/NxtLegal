@@ -196,7 +196,7 @@ export class ZohoSignClient {
           recipient_name: recipient.name || recipient.email,
           recipient_email: recipient.email,
           signing_order: recipient.routingOrder,
-          is_embedded: recipient.recipientType === 'INTERNAL',
+          is_embedded: true,
         })),
         expiration_days: 30,
       },
@@ -248,7 +248,7 @@ export class ZohoSignClient {
         recipient_name: recipient.name || recipient.email,
         recipient_email: recipient.email,
         signing_order: recipient.routingOrder,
-        is_embedded: recipient.recipientType === 'INTERNAL',
+        is_embedded: true,
         fields: fieldsForRecipient.map((field, index) =>
           this.mapFieldToZohoField(field, params.documentId, actionId, index)
         ),

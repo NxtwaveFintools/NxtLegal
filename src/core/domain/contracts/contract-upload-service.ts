@@ -1550,8 +1550,6 @@ export class ContractUploadService {
   }
 
   private validateUploadInput(input: UploadContractInput): void {
-    const isLegalSendForSigning = input.uploadMode === contractUploadModes.legalSendForSigning
-
     if (!input.title.trim()) {
       throw new BusinessRuleError('CONTRACT_TITLE_REQUIRED', 'Contract title is required')
     }

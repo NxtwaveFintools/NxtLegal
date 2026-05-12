@@ -134,11 +134,13 @@ export type Database = {
       contract_additional_approvers: {
         Row: {
           approved_at: string | null
+          assignment_note_text: string | null
           approver_email: string
           approver_employee_id: string
           contract_id: string
           created_at: string
           created_by_employee_id: string
+          decision_note_text: string | null
           deleted_at: string | null
           id: string
           sequence_order: number
@@ -148,11 +150,13 @@ export type Database = {
         }
         Insert: {
           approved_at?: string | null
+          assignment_note_text?: string | null
           approver_email: string
           approver_employee_id: string
           contract_id: string
           created_at?: string
           created_by_employee_id: string
+          decision_note_text?: string | null
           deleted_at?: string | null
           id?: string
           sequence_order: number
@@ -162,11 +166,13 @@ export type Database = {
         }
         Update: {
           approved_at?: string | null
+          assignment_note_text?: string | null
           approver_email?: string
           approver_employee_id?: string
           contract_id?: string
           created_at?: string
           created_by_employee_id?: string
+          decision_note_text?: string | null
           deleted_at?: string | null
           id?: string
           sequence_order?: number

@@ -3,7 +3,6 @@
 import { useMemo, useState } from 'react'
 import { contractsClient, type ContractDocument } from '@/core/client/contracts-client'
 import { contractDocumentKinds, contractStatuses } from '@/core/constants/contracts'
-import Spinner from '@/components/ui/Spinner'
 import { toast } from 'sonner'
 import workspaceStyles from '@/modules/contracts/ui/contracts-workspace.module.css'
 

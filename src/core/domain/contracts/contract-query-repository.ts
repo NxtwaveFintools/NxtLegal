@@ -210,6 +210,7 @@ export type ContractAdditionalApprover = {
   sequenceOrder: number
   status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'SKIPPED' | 'BYPASSED'
   approvedAt: string | null
+  noteText?: string | null
 }
 
 export type ContractLegalCollaborator = {
@@ -474,6 +475,7 @@ export interface ContractQueryRepository {
     actorRole: string
     actorEmail: string
     approverEmail: string
+    noteText?: string
   }): Promise<void>
   updateLegalMetadata(params: {
     tenantId: string

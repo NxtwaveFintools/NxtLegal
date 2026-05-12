@@ -5,6 +5,11 @@ import nextTs from 'eslint-config-next/typescript'
 const eslintConfig = defineConfig([
   ...nextVitals,
   ...nextTs,
+  {
+    rules: {
+      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+    },
+  },
   // Override default ignores of eslint-config-next.
   globalIgnores([
     // Default ignores of eslint-config-next:
@@ -21,6 +26,8 @@ const eslintConfig = defineConfig([
     'tests/e2e/**',
     // Vendored/minified worker assets
     'public/**/*.mjs',
+    // Generated coverage reports
+    'coverage/**',
   ]),
 ])
 

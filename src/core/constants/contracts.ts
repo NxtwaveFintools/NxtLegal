@@ -158,12 +158,28 @@ export type ContractSignatoryRecipientType =
   (typeof contractSignatoryRecipientTypes)[keyof typeof contractSignatoryRecipientTypes]
 
 export const contractSignatoryRecipientTypeLabels: Record<ContractSignatoryRecipientType, string> = {
-  INTERNAL: 'Nxtwave',
+  INTERNAL: 'NxtWave',
   EXTERNAL: 'Counter Party',
 }
 
 export const getContractSignatoryRecipientTypeLabel = (recipientType: ContractSignatoryRecipientType): string => {
   return contractSignatoryRecipientTypeLabels[recipientType]
+}
+
+export const contractSigningSubject = {
+  requestPrefix: 'Signature Requested',
+  senderOrganizationName: 'NxtWave Disruptive Technologies Private Limited',
+  missingDocumentFallbackTitle: 'Contract',
+} as const
+
+export const buildContractSignatureRequestedSubject = (documentTitle: string): string => {
+  const normalizedDocumentTitle = documentTitle.trim() || contractSigningSubject.missingDocumentFallbackTitle
+
+  return `${contractSigningSubject.requestPrefix}: ${normalizedDocumentTitle} - ${contractSigningSubject.senderOrganizationName}`
+}
+
+export const buildContractZohoSignatureRequestName = (documentTitle: string): string => {
+  return documentTitle.trim() || contractSigningSubject.missingDocumentFallbackTitle
 }
 
 export const contractSignatoryFieldTypes = {

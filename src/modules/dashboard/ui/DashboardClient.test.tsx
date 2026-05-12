@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import DashboardClient from '@/modules/dashboard/ui/DashboardClient'
 import { contractsClient } from '@/core/client/contracts-client'
@@ -76,7 +76,7 @@ describe('DashboardClient legal upload action cards', () => {
     } as never)
   })
 
-  it('shows Send for Signing card for LEGAL_TEAM users', () => {
+  it('shows Send for Signing card for LEGAL_TEAM users', async () => {
     render(
       <DashboardClient
         session={{
@@ -88,6 +88,7 @@ describe('DashboardClient legal upload action cards', () => {
       />
     )
 
+    expect(await screen.findByText('No contracts found')).toBeTruthy()
     expect(screen.getByRole('button', { name: /Upload Third-Party Contract/i })).toBeTruthy()
     expect(screen.getByRole('button', { name: /Send for Signing/i })).toBeTruthy()
     expect(screen.queryByRole('button', { name: /Approve/i })).toBeNull()
@@ -95,7 +96,7 @@ describe('DashboardClient legal upload action cards', () => {
     expect(screen.queryByText(/Custom Task/i)).toBeNull()
   })
 
-  it('shows Send for Signing card for ADMIN users', () => {
+  it('shows Send for Signing card for ADMIN users', async () => {
     render(
       <DashboardClient
         session={{
@@ -107,12 +108,13 @@ describe('DashboardClient legal upload action cards', () => {
       />
     )
 
+    expect(await screen.findByText('No contracts found')).toBeTruthy()
     expect(screen.getByRole('button', { name: /Upload Third-Party Contract/i })).toBeTruthy()
     expect(screen.getByRole('button', { name: /Send for Signing/i })).toBeTruthy()
     expect(screen.queryByText('Contracts assigned to your queue')).toBeNull()
   })
 
-  it('hides Send for Signing card for non-legal users', () => {
+  it('hides Send for Signing card for non-legal users', async () => {
     render(
       <DashboardClient
         session={{
@@ -124,11 +126,12 @@ describe('DashboardClient legal upload action cards', () => {
       />
     )
 
+    expect(await screen.findByText('No contracts found')).toBeTruthy()
     expect(screen.getByRole('button', { name: /Upload Third-Party Contract/i })).toBeTruthy()
     expect(screen.queryByRole('button', { name: /Send for Signing/i })).toBeNull()
   })
 
-  it('hides numeric count from upload and send-for-signing cards', () => {
+  it('hides numeric count from upload and send-for-signing cards', async () => {
     render(
       <DashboardClient
         session={{
@@ -140,6 +143,7 @@ describe('DashboardClient legal upload action cards', () => {
       />
     )
 
+    expect(await screen.findByText('No contracts found')).toBeTruthy()
     const uploadCard = screen.getByRole('button', { name: /Upload Third-Party Contract/i })
     const sendForSigningCard = screen.getByRole('button', { name: /Send for Signing/i })
 
@@ -179,6 +183,7 @@ describe('DashboardClient legal upload action cards', () => {
       throw new Error('Review action card was not rendered')
     }
     expect(within(reviewCard).getByText('9')).toBeTruthy()
+    expect(await screen.findByText('No contracts found')).toBeTruthy()
 
     const assignedCardMeta = await screen.findByText('Contracts assigned to your queue')
     const assignedCard = assignedCardMeta.closest('button')
@@ -188,7 +193,10 @@ describe('DashboardClient legal upload action cards', () => {
     }
     expect(within(assignedCard).getByText('3')).toBeTruthy()
 
-    fireEvent.click(assignedCard)
+    await act(async () => {
+      fireEvent.click(assignedCard)
+      await Promise.resolve()
+    })
     expect(mockReplace).toHaveBeenCalledWith('/dashboard?filter=ASSIGNED_TO_ME', { scroll: false })
   })
 })
@@ -373,7 +381,7 @@ describe('DashboardClient HOD experience updates', () => {
       />
     )
 
-    expect(await screen.findByText('My Contracts')).toBeTruthy()
+    expect(await screen.findByText('No contracts found')).toBeTruthy()
     expect(screen.queryByRole('button', { name: /Upload Third-Party Contract/i })).toBeNull()
     expect(screen.getByText('Contracts waiting for your approval')).toBeTruthy()
     expect(screen.getByRole('button', { name: /Rejected \(0\)/i })).toBeTruthy()
@@ -498,6 +506,7 @@ describe('DashboardClient admin personal approvals queue', () => {
 
     expect(await screen.findByRole('button', { name: /Assigned To Me \(0\)/i })).toBeTruthy()
     expect(await screen.findByRole('button', { name: /All HOD Pending \(0\)/i })).toBeTruthy()
+    expect(await screen.findByText('No contracts found')).toBeTruthy()
 
     expect(
       dashboardContractsSpy.mock.calls.some(
@@ -575,7 +584,7 @@ describe('DashboardClient HOD bulk approve feature', () => {
         }}
       />
     )
-    await screen.findByText('My Contracts')
+    await screen.findByText('Bulk Test Contract')
     expect(screen.queryByRole('checkbox', { name: /select all visible contracts/i })).toBeNull()
     expect(screen.queryByRole('button', { name: /bulk approve/i })).toBeNull()
   })

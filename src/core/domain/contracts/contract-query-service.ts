@@ -10,7 +10,6 @@ import type {
 import { contractStatuses, contractWorkflowRoles } from '@/core/constants/contracts'
 import type {
   AdditionalApproverDecisionHistoryItem,
-  ContractActionMutationResult,
   ContractActivityReadState,
   ContractNotificationDeliverySummary,
   ContractNotificationFailure,
@@ -443,6 +442,7 @@ export class ContractQueryService {
     actorRole?: string
     actorEmail: string
     approverEmail: string
+    noteText?: string
   }): Promise<ContractDetailView> {
     if (!params.actorRole) {
       throw new AuthorizationError('CONTRACT_APPROVER_FORBIDDEN', 'User role is required for adding approver')
@@ -459,6 +459,7 @@ export class ContractQueryService {
       actorRole: params.actorRole,
       actorEmail: params.actorEmail,
       approverEmail: params.approverEmail,
+      noteText: params.noteText,
     })
 
     const contract = await this.contractRepository.getById(params.tenantId, params.contractId)
@@ -726,7 +727,7 @@ export class ContractQueryService {
       throw new AuthorizationError('CONTRACT_SIGNATORY_FORBIDDEN', 'User role is required for signing preparation')
     }
 
-    const contractView = await this.getContractDetail({
+    await this.getContractDetail({
       tenantId: params.tenantId,
       contractId: params.contractId,
       employeeId: params.actorEmployeeId,

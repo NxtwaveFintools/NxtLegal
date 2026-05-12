@@ -2,6 +2,8 @@ import { AuthorizationError, BusinessRuleError, ExternalServiceError } from '@/c
 import { createSignatoryLinkToken } from '@/core/infra/security/signatory-link-token'
 import { PDFDocument } from 'pdf-lib'
 import {
+  buildContractSignatureRequestedSubject,
+  buildContractZohoSignatureRequestName,
   contractDocumentKinds,
   contractStorage,
   contractNotificationChannels,
@@ -290,7 +292,7 @@ export class ContractSignatoryService {
         documentName: download.fileName,
         documentMimeType,
         documentBytes,
-        emailSubject: `Signature requested for ${contractView.contract.title}`,
+        emailSubject: buildContractZohoSignatureRequestName(contractView.contract.title),
         returnUrl: `${this.appSiteUrl}/contracts/${params.contractId}`,
       })
     } catch (error) {
@@ -357,12 +359,9 @@ export class ContractSignatoryService {
       throw new BusinessRuleError('SIGNATORY_ASSIGNMENT_FAILED', 'No signatory recipient was persisted')
     }
 
-    const internalNotificationsStartedAt = Date.now()
-    let internalNotificationCount = 0
+    const signatoryNotificationsStartedAt = Date.now()
+    let signatoryNotificationCount = 0
     for (const recipient of normalizedRecipients) {
-      if (recipient.recipientType !== contractSignatoryRecipientTypes.internal) {
-        continue
-      }
       const envelopeRecipient = envelopeRecipientByEmail.get(recipient.signatoryEmail)
       if (!envelopeRecipient) {
         throw new ExternalServiceError('ZOHO_SIGN', `Missing recipient view URL for ${recipient.signatoryEmail}`)
@@ -374,7 +373,7 @@ export class ContractSignatoryService {
         recipientId: envelopeRecipient.recipientId,
       })
 
-      const subject = `Signature Requested: ${contractView.contract.title}`
+      const subject = buildContractSignatureRequestedSubject(contractView.contract.title)
       const htmlContent = buildMasterTemplate({
         title: 'Signature Requested',
         greeting: 'Hello,',
@@ -394,9 +393,9 @@ export class ContractSignatoryService {
         notificationType: contractNotificationTypes.signatoryLink,
         strictFailure: true,
       })
-      internalNotificationCount += 1
+      signatoryNotificationCount += 1
     }
-    const internalNotificationMs = Date.now() - internalNotificationsStartedAt
+    const signatoryNotificationMs = Date.now() - signatoryNotificationsStartedAt
 
     this.logger.info('Contract signatory assigned', {
       tenantId: params.tenantId,
@@ -405,8 +404,8 @@ export class ContractSignatoryService {
       envelopeId: envelope.envelopeId,
       createEnvelopeMs,
       persistSignatoriesMs,
-      internalNotificationCount,
-      internalNotificationMs,
+      signatoryNotificationCount,
+      signatoryNotificationMs,
       elapsedMs: elapsedMs(),
     })
 

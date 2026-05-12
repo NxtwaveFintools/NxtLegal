@@ -247,8 +247,9 @@ describe('contractActionSchema', () => {
     expect(result.noteText).toBe('trimmed')
   })
 
-  it('rejects noteText longer than 2000 chars', () => {
-    expect(() => contractActionSchema.parse({ action: 'hod.approve', noteText: 'x'.repeat(2001) })).toThrow(ZodError)
+  it('accepts noteText longer than 2000 chars', () => {
+    const result = contractActionSchema.parse({ action: 'hod.approve', noteText: 'x'.repeat(2001) })
+    expect(result.noteText).toHaveLength(2001)
   })
 
   it('rejects unknown or fabricated action names', () => {

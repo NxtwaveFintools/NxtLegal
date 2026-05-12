@@ -183,6 +183,8 @@ type AdditionalApproverEntity = {
   sequence_order: number
   status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'SKIPPED' | 'BYPASSED'
   approved_at: string | null
+  assignment_note_text?: string | null
+  decision_note_text?: string | null
 }
 
 type LegalCollaboratorEntity = {
@@ -2119,7 +2121,9 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     const supabase = createServiceSupabase()
     const { data, error } = await supabase
       .from('contract_additional_approvers')
-      .select('id, approver_employee_id, approver_email, sequence_order, status, approved_at')
+      .select(
+        'id, approver_employee_id, approver_email, sequence_order, status, approved_at, assignment_note_text, decision_note_text'
+      )
       .eq('tenant_id', tenantId)
       .eq('contract_id', contractId)
       .is('deleted_at', null)
@@ -2138,6 +2142,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       sequenceOrder: row.sequence_order,
       status: row.status,
       approvedAt: row.approved_at,
+      noteText: row.decision_note_text ?? row.assignment_note_text,
     }))
   }
 
@@ -2848,6 +2853,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         actorEmployeeId: params.actorEmployeeId,
         actorRole: params.actorRole,
         actorEmail: params.actorEmail,
+        noteText: params.noteText,
       })
 
       return {
@@ -3087,6 +3093,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     actorRole: string
     actorEmail: string
     approverEmail: string
+    noteText?: string
   }): Promise<void> {
     this.assertActorMetadata({
       actorEmployeeId: params.actorEmployeeId,
@@ -3148,6 +3155,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         approver_email: approverUser.email,
         sequence_order: nextSequence,
         status: 'PENDING',
+        assignment_note_text: params.noteText?.trim() || null,
         created_by_employee_id: params.actorEmployeeId,
       },
     ])
@@ -3169,6 +3177,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         resource_type: 'contract',
         resource_id: params.contractId,
         target_email: approverUser.email,
+        note_text: params.noteText?.trim() || null,
         metadata: {
           sequence_order: nextSequence,
         },
@@ -4522,6 +4531,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     actorEmployeeId: string
     actorRole: string
     actorEmail: string
+    noteText?: string
   }): Promise<void> {
     this.assertActorMetadata({
       actorEmployeeId: params.actorEmployeeId,
@@ -4547,6 +4557,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       .update({
         status: 'APPROVED',
         approved_at: new Date().toISOString(),
+        decision_note_text: params.noteText?.trim() || null,
       })
       .eq('tenant_id', params.tenantId)
       .eq('id', firstPendingApprover.id)
@@ -4580,6 +4591,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         actor_role: params.actorRole,
         resource_type: 'contract',
         resource_id: params.contract.id,
+        note_text: params.noteText?.trim() || null,
         metadata: {
           approver_id: firstPendingApprover.id,
           sequence_order: firstPendingApprover.sequenceOrder,
@@ -4626,6 +4638,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       .update({
         status: 'REJECTED',
         approved_at: null,
+        decision_note_text: params.noteText.trim(),
       })
       .eq('tenant_id', params.tenantId)
       .eq('id', firstPendingApprover.id)
@@ -5975,7 +5988,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     tenantId: string,
     employeeId: string,
     contractIds: string[],
-    role?: string
+    _role?: string
   ): Promise<Set<string>> {
     if (contractIds.length === 0) {
       return new Set<string>()

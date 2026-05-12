@@ -5,6 +5,14 @@
  * API boundary. Test valid paths, invalid paths, and injection attempts.
  */
 
+jest.mock('@/core/config/app-config', () => ({
+  appConfig: {
+    auth: {
+      allowedDomains: ['nxtwave.co.in'],
+    },
+  },
+}))
+
 import {
   validateLoginEmail,
   validateEmail,

@@ -33,7 +33,7 @@ jest.mock('@/core/http/with-auth', () => ({
     (handler: MockAuthHandler) =>
     async (
       request: { nextUrl: { pathname: string; searchParams: URLSearchParams; search: string } },
-      context: { params?: Record<string, string> } = {}
+      _context: { params?: Record<string, string> } = {}
     ) =>
       handler(request, { session: mockSession }),
 }))

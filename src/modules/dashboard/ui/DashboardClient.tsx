@@ -629,16 +629,10 @@ export default function DashboardClient({ session }: DashboardClientProps) {
       }
     },
     [
-      activeFilter,
       optimisticActionableAdditionalApprovals,
       optimisticActiveFilterTotal,
-      contractsPageLimit,
       optimisticContracts,
-      loadContractsForFilter,
-      loadDashboardCounts,
       mutatingContractId,
-      pageCursors,
-      pageIndex,
       refreshActiveFilterPage,
       setOptimisticActionableAdditionalApprovals,
       setOptimisticActiveFilterTotal,

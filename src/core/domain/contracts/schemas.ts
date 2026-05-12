@@ -148,7 +148,7 @@ export const repositoryExportQuerySchema = repositoryReportingQuerySchema.extend
 export const contractActionSchema = z
   .object({
     action: z.enum(contractActionNames),
-    noteText: z.string().trim().max(2000).optional(),
+    noteText: z.string().trim().optional(),
   })
   .superRefine((value, context) => {
     const isRemarkMandatoryAction =
@@ -192,6 +192,7 @@ export const contractActivityReadStateSchema = z.object({
 
 export const contractApproverSchema = z.object({
   approverEmail: z.string().trim().toLowerCase().email('Valid approver email is required'),
+  noteText: z.string().trim().optional(),
 })
 
 export const contractApproverReminderSchema = z.object({
