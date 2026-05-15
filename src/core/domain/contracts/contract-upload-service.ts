@@ -406,7 +406,9 @@ export class ContractUploadService {
       for (const [index, supportingFile] of uploadedSupportingFiles.entries()) {
         const displayNameBase = supportingFile.counterpartyName
           ? `Counterparty Docs - ${supportingFile.counterpartyName}`
-          : 'Budget Approval Supporting Docs'
+          : input.budgetApproved
+            ? 'Budget Approval Supporting Docs'
+            : 'Additional Supporting Docs'
 
         await this.contractRepository.createDocument({
           tenantId: input.tenantId,
@@ -1261,7 +1263,9 @@ export class ContractUploadService {
       for (const [index, supportingFile] of params.uploadedSupportingFiles.entries()) {
         const displayNameBase = supportingFile.counterpartyName
           ? `Counterparty Docs - ${supportingFile.counterpartyName}`
-          : 'Budget Approval Supporting Docs'
+          : params.budgetApproved
+            ? 'Budget Approval Supporting Docs'
+            : 'Additional Supporting Docs'
 
         await this.contractRepository.createDocument({
           tenantId: params.tenantId,

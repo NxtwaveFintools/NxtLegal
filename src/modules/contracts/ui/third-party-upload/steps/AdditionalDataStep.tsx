@@ -30,6 +30,7 @@ type AdditionalDataStepProps = {
   backgroundOfRequest: string
   budgetApproved: boolean
   budgetSupportingFiles: File[]
+  naAdditionalFiles: File[]
   onCounterpartyNameChange: (index: number, value: string) => void
   onBackgroundOfRequestChange: (value: string) => void
   onBudgetApprovedChange: (value: boolean) => void
@@ -62,6 +63,8 @@ type AdditionalDataStepProps = {
   onSupportingFileRemoved: (counterpartyIndex: number, fileIndex: number) => void
   onBudgetSupportingFilesSelected: (files: File[]) => void
   onBudgetSupportingFileRemoved: (fileIndex: number) => void
+  onNaAdditionalFilesSelected: (files: File[]) => void
+  onNaAdditionalFileRemoved: (fileIndex: number) => void
 }
 
 export default function AdditionalDataStep({
@@ -72,6 +75,7 @@ export default function AdditionalDataStep({
   backgroundOfRequest,
   budgetApproved,
   budgetSupportingFiles,
+  naAdditionalFiles,
   counterparties,
   counterpartyOptions,
   showCounterpartyModal,
@@ -98,6 +102,8 @@ export default function AdditionalDataStep({
   onSupportingFileRemoved,
   onBudgetSupportingFilesSelected,
   onBudgetSupportingFileRemoved,
+  onNaAdditionalFilesSelected,
+  onNaAdditionalFileRemoved,
 }: AdditionalDataStepProps) {
   const [loadedCounterpartyOptions, setLoadedCounterpartyOptions] = useState<string[]>(counterpartyOptions)
   const [counterpartyMetadataByName, setCounterpartyMetadataByName] = useState<
@@ -574,6 +580,50 @@ export default function AdditionalDataStep({
               <option key={option} value={option} />
             ))}
           </datalist>
+
+          {counterparties.length === 1 && isCounterpartyNa(counterparties[0]?.counterpartyName ?? '') ? (
+            <div className={styles.fieldGroup}>
+              <label className={styles.label} htmlFor="na-additional-docs">
+                Additional Supporting Documents (Optional)
+              </label>
+              <div className={styles.dropzone}>
+                <span>add supporting documents</span>
+                <label className={styles.dropzoneButton} htmlFor="na-additional-docs">
+                  Add files
+                </label>
+                <input
+                  id="na-additional-docs"
+                  className={styles.hiddenInput}
+                  type="file"
+                  multiple
+                  onChange={(event) => {
+                    const files = Array.from(event.target.files || [])
+                    if (files.length) {
+                      onNaAdditionalFilesSelected(files)
+                      event.target.value = ''
+                    }
+                  }}
+                />
+              </div>
+              <div className={styles.supportingList}>
+                {naAdditionalFiles.map((file, fileIndex) => (
+                  <div key={`na-additional-${file.name}-${fileIndex}`} className={styles.fileCard}>
+                    <div className={styles.fileMeta}>
+                      <span className={styles.fileName}>{file.name}</span>
+                      <span className={styles.fileSize}>{formatFileSize(file.size)}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className={styles.removeButton}
+                      onClick={() => onNaAdditionalFileRemoved(fileIndex)}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           {!isSendForSigningFlow && showCounterpartyModal ? <div className={styles.inlineModal} /> : null}
 

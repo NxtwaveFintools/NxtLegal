@@ -249,8 +249,17 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
 
     for (const document of supportingDocuments) {
       const normalizedCounterpartyName = document.counterpartyName?.trim() || ''
-      const label = normalizedCounterpartyName || 'Budget Approval Supporting Documents'
-      const key = document.counterpartyId?.trim() || label
+      let label: string
+      let key: string
+
+      if (document.counterpartyId?.trim()) {
+        key = document.counterpartyId.trim()
+        label = normalizedCounterpartyName || 'Supporting Documents'
+      } else {
+        const isAdditional = (document.displayName ?? '').toLowerCase().startsWith('additional')
+        key = isAdditional ? 'additional-supporting' : 'budget-supporting'
+        label = isAdditional ? 'Additional Supporting Documents' : 'Budget Approval Supporting Documents'
+      }
 
       const existingGroup = groupedDocuments.get(key)
       if (existingGroup) {

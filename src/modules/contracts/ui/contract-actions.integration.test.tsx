@@ -1,5 +1,7 @@
 /** @jest-environment jsdom */
 
+/// <reference types="jest" />
+
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import ContractsWorkspace from '@/modules/contracts/ui/ContractsWorkspace'
@@ -399,5 +401,200 @@ describe('Contract action dialogs', () => {
     expect(screen.getByText('Counterparty 2 Signatory 1 Email')).toBeTruthy()
     expect(screen.getByText('cp2-a@example.com')).toBeTruthy()
     expect(screen.getAllByText('Budget Approved').length).toBeGreaterThan(0)
+  })
+
+  it('hides signing link controls once an internal signatory has signed', async () => {
+    const completedContract = {
+      ...baseContract,
+      status: 'COMPLETED',
+      displayStatusLabel: 'Completed',
+      repositoryStatus: 'COMPLETED',
+      repositoryStatusLabel: 'Completed',
+    }
+
+    jest.spyOn(contractsClient, 'list').mockResolvedValue({
+      ok: true,
+      data: {
+        contracts: [completedContract],
+        pagination: { cursor: null, limit: 15, total: 1 },
+      },
+    } as never)
+
+    jest.spyOn(contractsClient, 'detail').mockResolvedValue({
+      ok: true,
+      data: {
+        ...buildDetail('COMPLETED', 'Completed'),
+        contract: {
+          ...completedContract,
+          currentDocumentId: 'doc-1',
+        },
+        signatories: [
+          {
+            id: 'signatory-1',
+            signatoryEmail: 'rahul@nxtwave.tech',
+            recipientType: 'INTERNAL',
+            routingOrder: 1,
+            fieldConfig: [],
+            status: 'SIGNED',
+            signedAt: '2026-05-12T07:30:00.000Z',
+            zohoSignEnvelopeId: 'envelope-1',
+            zohoSignRecipientId: 'recipient-1',
+            createdAt: '2026-05-12T07:00:00.000Z',
+          },
+        ],
+      },
+    } as never)
+
+    jest.spyOn(contractsClient, 'timeline').mockResolvedValue({ ok: true, data: { events: [] } } as never)
+    jest.spyOn(contractsClient, 'getSigningPreparationDraft').mockResolvedValue({
+      ok: true,
+      data: null,
+    } as never)
+
+    render(
+      <ContractsWorkspace
+        session={{
+          employeeId: 'employee-legal',
+          role: 'LEGAL_TEAM',
+        }}
+      />
+    )
+
+    await waitFor(() => expect(screen.getByText(/rahul@nxtwave\.tech/)).toBeTruthy())
+
+    expect(screen.getByText('This signer has completed signing.')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Copy Signing Link' })).toBeNull()
+    expect(screen.queryByText('Generates fresh secure link')).toBeNull()
+  })
+
+  it('uses legacy contract view path for HOD even when contract is executed', async () => {
+    const executedContract = {
+      ...baseContract,
+      status: 'EXECUTED',
+      displayStatusLabel: 'Executed',
+      repositoryStatus: 'EXECUTED',
+      repositoryStatusLabel: 'Executed',
+    }
+
+    jest.spyOn(contractsClient, 'list').mockResolvedValue({
+      ok: true,
+      data: {
+        contracts: [executedContract],
+        pagination: { cursor: null, limit: 15, total: 1 },
+      },
+    } as never)
+
+    jest.spyOn(contractsClient, 'detail').mockResolvedValue({
+      ok: true,
+      data: {
+        ...buildDetail('EXECUTED', 'Executed'),
+        contract: {
+          ...executedContract,
+          currentDocumentId: 'doc-1',
+        },
+      },
+    } as never)
+
+    jest.spyOn(contractsClient, 'timeline').mockResolvedValue({ ok: true, data: { events: [] } } as never)
+    jest.spyOn(contractsClient, 'getSigningPreparationDraft').mockResolvedValue({
+      ok: true,
+      data: null,
+    } as never)
+
+    const legacyDownloadSpy = jest.spyOn(contractsClient, 'download').mockResolvedValue({
+      ok: true,
+      data: {
+        signedUrl: 'https://example.com/contracts/contract-1.pdf',
+        fileName: 'contract-1.pdf',
+      },
+    } as never)
+
+    const mergedDownloadSpy = jest.spyOn(contractsClient, 'downloadFinalSigningArtifact')
+
+    render(
+      <ContractsWorkspace
+        session={{
+          employeeId: 'employee-hod',
+          role: 'HOD',
+        }}
+      />
+    )
+
+    await waitFor(() => expect(screen.getByText('Board Meeting Documents - NA')).toBeTruthy())
+    await waitFor(() => expect(screen.getByRole('button', { name: 'View Contract' })).toBeTruthy())
+
+    await userEvent.click(screen.getByRole('button', { name: 'View Contract' }))
+
+    await waitFor(() => {
+      expect(legacyDownloadSpy).toHaveBeenCalledTimes(1)
+      expect(legacyDownloadSpy).toHaveBeenCalledWith('contract-1', { documentId: undefined })
+      expect(mergedDownloadSpy).not.toHaveBeenCalled()
+    })
+  })
+
+  it('uses legacy contract view path for legal when executed document has no signatories', async () => {
+    const executedContract = {
+      ...baseContract,
+      status: 'EXECUTED',
+      displayStatusLabel: 'Executed',
+      repositoryStatus: 'EXECUTED',
+      repositoryStatusLabel: 'Executed',
+    }
+
+    jest.spyOn(contractsClient, 'list').mockResolvedValue({
+      ok: true,
+      data: {
+        contracts: [executedContract],
+        pagination: { cursor: null, limit: 15, total: 1 },
+      },
+    } as never)
+
+    jest.spyOn(contractsClient, 'detail').mockResolvedValue({
+      ok: true,
+      data: {
+        ...buildDetail('EXECUTED', 'Executed'),
+        contract: {
+          ...executedContract,
+          currentDocumentId: 'doc-1',
+        },
+        signatories: [],
+      },
+    } as never)
+
+    jest.spyOn(contractsClient, 'timeline').mockResolvedValue({ ok: true, data: { events: [] } } as never)
+    jest.spyOn(contractsClient, 'getSigningPreparationDraft').mockResolvedValue({
+      ok: true,
+      data: null,
+    } as never)
+
+    const legacyDownloadSpy = jest.spyOn(contractsClient, 'download').mockResolvedValue({
+      ok: true,
+      data: {
+        signedUrl: 'https://example.com/contracts/contract-1.pdf',
+        fileName: 'contract-1.pdf',
+      },
+    } as never)
+
+    const mergedDownloadSpy = jest.spyOn(contractsClient, 'downloadFinalSigningArtifact')
+
+    render(
+      <ContractsWorkspace
+        session={{
+          employeeId: 'employee-legal',
+          role: 'LEGAL_TEAM',
+        }}
+      />
+    )
+
+    await waitFor(() => expect(screen.getByText('Board Meeting Documents - NA')).toBeTruthy())
+    await waitFor(() => expect(screen.getByRole('button', { name: 'View Contract' })).toBeTruthy())
+
+    await userEvent.click(screen.getByRole('button', { name: 'View Contract' }))
+
+    await waitFor(() => {
+      expect(legacyDownloadSpy).toHaveBeenCalledTimes(1)
+      expect(legacyDownloadSpy).toHaveBeenCalledWith('contract-1', { documentId: undefined })
+      expect(mergedDownloadSpy).not.toHaveBeenCalled()
+    })
   })
 })
