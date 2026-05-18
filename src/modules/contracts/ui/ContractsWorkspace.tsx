@@ -921,9 +921,36 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     setIsDownloadingMergedArtifact(false)
   }
 
+  const hasCompletedSigningFlow =
+    signatories.length > 0 && signatories.every((signatory) => signatory.status === 'SIGNED')
+
   const handleViewDocument = useCallback(
     async (document?: ContractDocument) => {
       if (!selectedContractId) {
+        return
+      }
+
+      if (
+        !document &&
+        selectedContract?.status === contractStatuses.executed &&
+        canViewSignedDocsTab &&
+        hasCompletedSigningFlow
+      ) {
+        const response = await contractsClient.downloadFinalSigningArtifact(selectedContractId, 'merged_pdf')
+        if (!response.ok || !response.data) {
+          toast.error(response.error?.message ?? 'Failed to generate document view link')
+          return
+        }
+        const viewUrl = response.data.signedUrl ?? (response.data.blob ? URL.createObjectURL(response.data.blob) : null)
+        if (!viewUrl) {
+          toast.error('Failed to generate document view link')
+          return
+        }
+        setViewerUrl(viewUrl)
+        setViewerExternalUrl(response.data.signedUrl ?? viewUrl)
+        setViewerMimeType('application/pdf')
+        setViewerFileName(response.data.fileName)
+        setIsViewerOpen(true)
         return
       }
 
@@ -979,7 +1006,13 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       setViewerFileName(resolvedFileName)
       setIsViewerOpen(true)
     },
-    [selectedContract?.fileName, selectedContractId]
+    [
+      canViewSignedDocsTab,
+      hasCompletedSigningFlow,
+      selectedContract?.fileName,
+      selectedContract?.status,
+      selectedContractId,
+    ]
   )
 
   const closeViewer = useCallback(() => {
@@ -2470,8 +2503,14 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                             ) : null}
                             <div className={styles.timeline}>
                               {signatories.map((signatory) => {
-                                const generatedSigningLink =
-                                  generatedSigningLinksByEmail[signatory.signatoryEmail.trim().toLowerCase()]
+                                const normalizedSignatoryEmail = signatory.signatoryEmail.trim().toLowerCase()
+                                const isSignatorySigned = signatory.status === 'SIGNED'
+                                const isGeneratingSignatoryLink =
+                                  isGeneratingLinkFor?.trim().toLowerCase() === normalizedSignatoryEmail
+                                const isSigningLinkCopied = copiedSigningLinkFor === normalizedSignatoryEmail
+                                const generatedSigningLink = isSignatorySigned
+                                  ? undefined
+                                  : generatedSigningLinksByEmail[normalizedSignatoryEmail]
 
                                 return (
                                   <div key={signatory.id} className={styles.event}>
@@ -2491,12 +2530,16 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                                         {signatory.status}
                                       </span>
                                     </div>
-                                    {signatory.recipientType === 'INTERNAL' ? (
+                                    {isSignatorySigned ? (
+                                      <div className={styles.signatoryActionHint}>
+                                        This signer has completed signing.
+                                      </div>
+                                    ) : signatory.recipientType === 'INTERNAL' ? (
                                       <div className={styles.signatoryActionRow}>
                                         <button
                                           type="button"
                                           className={`${styles.button} ${styles.buttonGhost} ${styles.signatoryLinkButton}`}
-                                          disabled={isMutating || isGeneratingLinkFor === signatory.signatoryEmail}
+                                          disabled={isMutating || isGeneratingSignatoryLink}
                                           onClick={() =>
                                             void handleGenerateSigningLink(
                                               signatory.signatoryEmail,
@@ -2504,16 +2547,14 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                                             )
                                           }
                                         >
-                                          {isGeneratingLinkFor === signatory.signatoryEmail
+                                          {isGeneratingSignatoryLink
                                             ? 'Generating link...'
-                                            : copiedSigningLinkFor === signatory.signatoryEmail.trim().toLowerCase()
+                                            : isSigningLinkCopied
                                               ? 'Copied'
                                               : 'Copy Signing Link'}
                                         </button>
                                         <span className={styles.signatoryActionHint}>
-                                          {copiedSigningLinkFor === signatory.signatoryEmail.trim().toLowerCase()
-                                            ? 'Copied to clipboard'
-                                            : 'Generates fresh secure link'}
+                                          {isSigningLinkCopied ? 'Copied to clipboard' : 'Generates fresh secure link'}
                                         </span>
                                         {generatedSigningLink ? (
                                           <a

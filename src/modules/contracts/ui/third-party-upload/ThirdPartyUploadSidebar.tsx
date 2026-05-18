@@ -93,6 +93,7 @@ export default function ThirdPartyUploadSidebar({
   const [uploadIdempotencyKey, setUploadIdempotencyKey] = useState<string | null>(null)
   const [bypassHodApproval, setBypassHodApproval] = useState(false)
   const [bypassReason, setBypassReason] = useState('')
+  const [naAdditionalFiles, setNaAdditionalFiles] = useState<File[]>([])
   const [uploadProgress, setUploadProgress] = useState<number | null>(null)
   const uploadAbortRef = useRef<AbortController | null>(null)
 
@@ -150,6 +151,7 @@ export default function ThirdPartyUploadSidebar({
     setUploadIdempotencyKey(null)
     setBypassHodApproval(false)
     setBypassReason('')
+    setNaAdditionalFiles([])
     setUploadProgress(null)
     if (uploadAbortRef.current) {
       uploadAbortRef.current.abort()
@@ -322,6 +324,10 @@ export default function ThirdPartyUploadSidebar({
       .filter((entry) => entry.counterpartyName.length > 0)
 
     const effectiveCounterparties = normalizedCounterparties
+    const isAllNaCounterparties =
+      effectiveCounterparties.length === 1 &&
+      effectiveCounterparties[0]?.counterpartyName.toUpperCase() === contractCounterpartyValues.notApplicable
+
     const primarySignatoryName =
       effectiveCounterparties[0]?.signatories[0]?.name?.trim() ||
       effectiveCounterparties[0]?.counterpartyName ||
@@ -358,7 +364,7 @@ export default function ThirdPartyUploadSidebar({
         backgroundOfRequest: backgroundOfRequest.trim(),
         budgetApproved,
         file: mainFile,
-        supportingFiles: budgetApproved ? budgetSupportingFiles : [],
+        supportingFiles: isAllNaCounterparties ? naAdditionalFiles : budgetApproved ? budgetSupportingFiles : [],
         idempotencyKey,
         onProgress: (percent) => setUploadProgress(percent),
         signal: abortController.signal,
@@ -611,6 +617,13 @@ export default function ThirdPartyUploadSidebar({
           onBudgetSupportingFileRemoved={(fileIndex) =>
             setBudgetSupportingFiles((current) => current.filter((_, index) => index !== fileIndex))
           }
+          naAdditionalFiles={naAdditionalFiles}
+          onNaAdditionalFilesSelected={(files) => {
+            setNaAdditionalFiles((current) => [...current, ...files])
+          }}
+          onNaAdditionalFileRemoved={(fileIndex) =>
+            setNaAdditionalFiles((current) => current.filter((_, index) => index !== fileIndex))
+          }
         />
       )
     }
@@ -636,6 +649,7 @@ export default function ThirdPartyUploadSidebar({
           backgroundOfRequest={backgroundOfRequest.trim()}
           budgetApproved={budgetApproved}
           budgetSupportingFileNames={budgetSupportingFiles.map((file) => file.name)}
+          naAdditionalFileNames={naAdditionalFiles.map((file) => file.name)}
           departmentName={selectedDepartmentName}
           bypassHodApproval={false}
           bypassReason={undefined}
