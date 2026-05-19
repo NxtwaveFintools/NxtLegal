@@ -10,8 +10,10 @@
       "Bash(Select-String -Pattern \"Tests:|Test Suites:|PASS|FAIL|ERROR|passed|failed|error\" --SimpleMatch)",
       "Bash(Get-Content \"C:\\\\Users\\\\Nxtwave\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Nxtwave-Documents-NxtLegal\\\\e76134ac-c56f-4c4c-88d3-d53e87a76ebb\\\\tasks\\\\b6y2k7w3r.output\")",
       "Bash(npx jest *)",
-      "mcp__supabase__list_tables"
-    ]
+      "mcp__supabase__list_tables",
+      "Bash(mkdir -p \"c:\\\\Users\\\\Nxtwave\\\\Documents\\\\NxtLegal\\\\docs\\\\superpowers\\\\specs\")"
+    ],
+    "additionalDirectories": ["c:\\Users\\Nxtwave\\Documents\\NxtLegal\\docs\\superpowers"]
   },
   "enabledMcpjsonServers": ["supabase"]
 }

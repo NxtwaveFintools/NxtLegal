@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { withAuth } from '@/core/http/with-auth'
+import { privateCacheControl } from '@/core/constants/cache'
 import { errorResponse, okResponse } from '@/core/http/response'
 import { isAppError } from '@/core/http/errors'
 import { createServiceSupabase } from '@/lib/supabase/service'
@@ -80,7 +81,12 @@ const GETHandler = withAuth(async (_request: NextRequest, { session }) => {
           name: item.name,
           ...(latestMetadataByCounterpartyName.get(item.name.trim()) ?? {}),
         })),
-      })
+      }),
+      {
+        headers: {
+          'Cache-Control': privateCacheControl.medium,
+        },
+      }
     )
   } catch (error) {
     const status = isAppError(error) ? error.statusCode : 500

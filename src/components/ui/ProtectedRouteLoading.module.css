@@ -1,0 +1,575 @@
+.page {
+  display: grid;
+  grid-template-columns: 76px minmax(0, 1fr);
+  min-height: 100vh;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--color-surface-muted) 72%, transparent) 0, transparent 360px),
+    var(--color-background);
+  color: var(--color-text);
+}
+
+.sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+  padding: 18px 0;
+  border-right: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-sidebar) 94%, transparent);
+}
+
+.content {
+  min-width: 0;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 28px;
+  border-bottom: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-surface) 88%, transparent);
+  backdrop-filter: blur(18px);
+}
+
+.topbarSpacer {
+  flex: 1;
+}
+
+.topbarCluster,
+.navStack,
+.navBottom,
+.cardGrid,
+.filterGrid,
+.panelHeader,
+.tabs,
+.row,
+.rowActions {
+  display: flex;
+  align-items: center;
+}
+
+.topbarCluster {
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.navStack {
+  flex-direction: column;
+  gap: 12px;
+}
+
+.navBottom {
+  flex-direction: column;
+  gap: 12px;
+  margin-top: auto;
+}
+
+.main {
+  width: 100%;
+  max-width: 1680px;
+  margin: 0 auto;
+  padding: 32px 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+}
+
+.hero {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  animation: routeFadeIn 0.24s ease both;
+}
+
+.titleBlock {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.kicker {
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--color-text-muted);
+}
+
+.cardGrid {
+  gap: 14px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(180px, 1fr));
+}
+
+.filterGrid {
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.contractHero {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.panel {
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
+  animation: routeFadeIn 0.24s ease 0.05s both;
+}
+
+.contractWorkbench {
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
+  animation: routeFadeIn 0.24s ease 0.05s both;
+  display: grid;
+  grid-template-columns: 288px minmax(0, 1fr);
+  min-height: 640px;
+}
+
+.contractRail {
+  border-right: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-surface-muted) 64%, var(--color-surface));
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px;
+}
+
+.contractRailHeader {
+  width: 132px;
+  height: 14px;
+  border-radius: var(--radius-sm);
+}
+
+.contractRailList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.contractRailCard {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.contractRailCardTitle {
+  width: 88%;
+  height: 13px;
+  border-radius: var(--radius-sm);
+}
+
+.contractRailCardMeta {
+  width: 56%;
+  height: 10px;
+  border-radius: var(--radius-sm);
+}
+
+.contractPane {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.contractPaneHeader {
+  min-height: 58px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.contractPaneTitle {
+  width: min(380px, 62%);
+  height: 18px;
+  border-radius: var(--radius-sm);
+}
+
+.contractPaneActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.contractPaneTabs {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  padding: 0 18px 10px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.contractPaneBody {
+  display: grid;
+  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+  min-height: 0;
+  flex: 1;
+}
+
+.contractSummaryColumn {
+  border-right: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-surface-muted) 64%, var(--color-surface));
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.contractSummaryRow {
+  width: 100%;
+  height: 12px;
+  border-radius: var(--radius-sm);
+}
+
+.contractDetailColumn {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.contractDetailCard {
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-surface-muted) 54%, var(--color-surface));
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.panelHeader {
+  min-height: 58px;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px;
+}
+
+.tabs {
+  gap: 24px;
+  padding: 0 20px 10px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.rows {
+  display: flex;
+  flex-direction: column;
+}
+
+.row {
+  min-height: 92px;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 20px;
+  border-top: 1px solid var(--color-border);
+}
+
+.rowMain {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.rowActions {
+  gap: 8px;
+}
+
+.logoPulse,
+.navDot,
+.avatarDot,
+.circle,
+.pillWide,
+.pillMedium,
+.titleLine,
+.subtitleLine,
+.card,
+.cardTopLine,
+.cardBottomLine,
+.filterPill,
+.filterPillShort,
+.panelTitle,
+.panelAction,
+.tab,
+.tabActive,
+.tabShort,
+.rowTitle,
+.rowMeta,
+.statusPill,
+.buttonGhost,
+.contractRailHeader,
+.contractRailCardTitle,
+.contractRailCardMeta,
+.contractPaneTitle,
+.contractSummaryRow {
+  background: linear-gradient(
+    90deg,
+    var(--color-surface-muted) 25%,
+    var(--color-border) 37%,
+    var(--color-surface-muted) 63%
+  );
+  background-size: 800px 100%;
+  animation: loadingShimmer 1.6s ease-in-out infinite;
+}
+
+.logoPulse {
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-md);
+}
+
+.navDot {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+}
+
+.navDotActive {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 28%, transparent);
+}
+
+.avatarDot,
+.circle {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-pill);
+}
+
+.pillWide {
+  width: 290px;
+  height: 32px;
+  border-radius: var(--radius-pill);
+}
+
+.pillMedium {
+  width: 140px;
+  height: 32px;
+  border-radius: var(--radius-pill);
+}
+
+.titleLine {
+  width: 280px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+}
+
+.subtitleLine {
+  width: 340px;
+  max-width: 80%;
+  height: 16px;
+  border-radius: var(--radius-sm);
+}
+
+.card {
+  min-height: 124px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background-color: var(--color-surface);
+  padding: 20px;
+}
+
+.cardTopLine,
+.cardBottomLine {
+  height: 14px;
+  border-radius: var(--radius-sm);
+}
+
+.cardTopLine {
+  width: 70%;
+}
+
+.cardBottomLine {
+  width: 52%;
+  margin-top: 42px;
+}
+
+.filterPill,
+.filterPillShort {
+  height: 38px;
+  border-radius: var(--radius-sm);
+}
+
+.filterPill {
+  width: 220px;
+}
+
+.filterPillShort {
+  width: 140px;
+}
+
+.panelTitle {
+  width: 160px;
+  height: 20px;
+  border-radius: var(--radius-sm);
+}
+
+.panelAction {
+  width: 280px;
+  height: 14px;
+  border-radius: var(--radius-sm);
+}
+
+.tab,
+.tabActive,
+.tabShort {
+  height: 14px;
+  border-radius: var(--radius-sm);
+}
+
+.tab,
+.tabActive {
+  width: 120px;
+}
+
+.tabShort {
+  width: 80px;
+}
+
+.tabActive {
+  background: color-mix(in srgb, var(--color-accent) 34%, var(--color-surface-muted));
+}
+
+.rowTitle {
+  width: min(440px, 72%);
+  height: 16px;
+  border-radius: var(--radius-sm);
+}
+
+.rowMeta {
+  width: min(320px, 58%);
+  height: 12px;
+  border-radius: var(--radius-sm);
+}
+
+.statusPill {
+  width: 160px;
+  height: 24px;
+  border-radius: var(--radius-pill);
+}
+
+.buttonGhost {
+  width: 72px;
+  height: 34px;
+  border-radius: var(--radius-sm);
+}
+
+@media (max-width: 1024px) {
+  .cardGrid {
+    grid-template-columns: repeat(2, minmax(180px, 1fr));
+  }
+
+  .contractWorkbench {
+    grid-template-columns: 240px minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 768px) {
+  .page {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    height: auto;
+    flex-direction: row;
+    justify-content: space-between;
+    padding: 10px 16px;
+    border-right: 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .navStack,
+  .navBottom {
+    flex-direction: row;
+    margin-top: 0;
+  }
+
+  .topbar {
+    position: static;
+    min-height: auto;
+    padding: 14px 16px;
+  }
+
+  .pillWide {
+    display: none;
+  }
+
+  .main {
+    padding: 24px 16px 32px;
+  }
+
+  .cardGrid {
+    grid-template-columns: 1fr;
+  }
+
+  .contractWorkbench {
+    grid-template-columns: 1fr;
+    min-height: auto;
+  }
+
+  .contractRail {
+    border-right: 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .contractPaneBody {
+    grid-template-columns: 1fr;
+  }
+
+  .contractSummaryColumn {
+    border-right: 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .rowActions {
+    width: 100%;
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+}
+
+@keyframes routeFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes loadingShimmer {
+  0% {
+    background-position: -400px 0;
+  }
+
+  100% {
+    background-position: 400px 0;
+  }
+}

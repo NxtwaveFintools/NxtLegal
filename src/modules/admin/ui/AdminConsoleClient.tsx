@@ -1,6 +1,7 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import dynamic from 'next/dynamic'
+import { type ComponentProps, useCallback, useEffect, useMemo, useState } from 'react'
 import { toast } from 'sonner'
 import {
   type AdminAuditLogItem,
@@ -11,13 +12,69 @@ import {
 import { contractUploadModes, contractWorkflowIdentities } from '@/core/constants/contracts'
 import ProtectedAppShell from '@/modules/dashboard/ui/ProtectedAppShell'
 import ThirdPartyUploadSidebar from '@/modules/contracts/ui/third-party-upload/ThirdPartyUploadSidebar'
-import AdminPrimaryActionsSection from '@/modules/admin/ui/sections/AdminPrimaryActionsSection'
-import SystemConfigurationSection from '@/modules/admin/ui/sections/SystemConfigurationSection'
-import AuditLogsViewerSection from '@/modules/admin/ui/sections/AuditLogsViewerSection'
-import CreateNewTeamWizardModal from '@/modules/admin/ui/wizards/CreateNewTeamWizardModal'
-import ManageLegalTeamModal from '@/modules/admin/ui/wizards/ManageLegalTeamModal'
-import ReplacePocOrHodWizardModal from '@/modules/admin/ui/wizards/ReplacePocOrHodWizardModal'
 import styles from './admin-console.module.css'
+
+type AdminPrimaryActionsSectionProps = ComponentProps<
+  (typeof import('@/modules/admin/ui/sections/AdminPrimaryActionsSection'))['default']
+>
+type SystemConfigurationSectionProps = ComponentProps<
+  (typeof import('@/modules/admin/ui/sections/SystemConfigurationSection'))['default']
+>
+type AuditLogsViewerSectionProps = ComponentProps<
+  (typeof import('@/modules/admin/ui/sections/AuditLogsViewerSection'))['default']
+>
+type CreateNewTeamWizardModalProps = ComponentProps<
+  (typeof import('@/modules/admin/ui/wizards/CreateNewTeamWizardModal'))['default']
+>
+type ManageLegalTeamModalProps = ComponentProps<
+  (typeof import('@/modules/admin/ui/wizards/ManageLegalTeamModal'))['default']
+>
+type ReplacePocOrHodWizardModalProps = ComponentProps<
+  (typeof import('@/modules/admin/ui/wizards/ReplacePocOrHodWizardModal'))['default']
+>
+
+const AdminPrimaryActionsSection = dynamic<AdminPrimaryActionsSectionProps>(
+  () => import('@/modules/admin/ui/sections/AdminPrimaryActionsSection'),
+  {
+    ssr: false,
+    loading: () => <div className={styles.preview}>Loading admin tools...</div>,
+  }
+)
+const SystemConfigurationSection = dynamic<SystemConfigurationSectionProps>(
+  () => import('@/modules/admin/ui/sections/SystemConfigurationSection'),
+  {
+    ssr: false,
+    loading: () => <div className={styles.preview}>Loading system configuration...</div>,
+  }
+)
+const AuditLogsViewerSection = dynamic<AuditLogsViewerSectionProps>(
+  () => import('@/modules/admin/ui/sections/AuditLogsViewerSection'),
+  {
+    ssr: false,
+    loading: () => <div className={styles.preview}>Loading audit logs...</div>,
+  }
+)
+const CreateNewTeamWizardModal = dynamic<CreateNewTeamWizardModalProps>(
+  () => import('@/modules/admin/ui/wizards/CreateNewTeamWizardModal'),
+  {
+    ssr: false,
+    loading: () => null,
+  }
+)
+const ManageLegalTeamModal = dynamic<ManageLegalTeamModalProps>(
+  () => import('@/modules/admin/ui/wizards/ManageLegalTeamModal'),
+  {
+    ssr: false,
+    loading: () => null,
+  }
+)
+const ReplacePocOrHodWizardModal = dynamic<ReplacePocOrHodWizardModalProps>(
+  () => import('@/modules/admin/ui/wizards/ReplacePocOrHodWizardModal'),
+  {
+    ssr: false,
+    loading: () => null,
+  }
+)
 
 type AdminConsoleClientProps = {
   activeSection?: string
@@ -602,73 +659,79 @@ export default function AdminConsoleClient({ session }: AdminConsoleClientProps)
           {isLoading ? <div className={styles.preview}>Loading teams...</div> : null}
         </section>
 
-        <CreateNewTeamWizardModal
-          isOpen={isCreateTeamWizardOpen}
-          teamName={teamName}
-          pocEmail={pocEmail}
-          pocName={pocName}
-          hodEmail={hodEmail}
-          hodName={hodName}
-          isSubmitting={isSubmittingCreate}
-          arePrimaryEmailsDifferent={arePrimaryEmailsDifferent}
-          onClose={closeCreateTeamWizard}
-          onTeamNameChange={setTeamName}
-          onPocEmailChange={setPocEmail}
-          onPocNameChange={setPocName}
-          onHodEmailChange={setHodEmail}
-          onHodNameChange={setHodName}
-          onSubmit={() => {
-            void handleCreateTeam()
-          }}
-        />
+        {isCreateTeamWizardOpen ? (
+          <CreateNewTeamWizardModal
+            isOpen={isCreateTeamWizardOpen}
+            teamName={teamName}
+            pocEmail={pocEmail}
+            pocName={pocName}
+            hodEmail={hodEmail}
+            hodName={hodName}
+            isSubmitting={isSubmittingCreate}
+            arePrimaryEmailsDifferent={arePrimaryEmailsDifferent}
+            onClose={closeCreateTeamWizard}
+            onTeamNameChange={setTeamName}
+            onPocEmailChange={setPocEmail}
+            onPocNameChange={setPocName}
+            onHodEmailChange={setHodEmail}
+            onHodNameChange={setHodName}
+            onSubmit={() => {
+              void handleCreateTeam()
+            }}
+          />
+        ) : null}
 
-        <ReplacePocOrHodWizardModal
-          isOpen={isReplaceRoleWizardOpen}
-          departments={departments}
-          selectedTeamId={selectedTeamId}
-          replaceRoleType={replaceRoleType}
-          currentRoleEmail={selectedCurrentRoleEmail}
-          newRoleEmail={newRoleEmail}
-          newRoleName={newRoleName}
-          isReplacementDifferentFromOtherRole={isReplacementDifferentFromOtherRole}
-          isRevokeConfirmed={isReplaceRevokeConfirmed}
-          isSubmitting={isSubmittingReplace}
-          onClose={closeReplaceRoleWizard}
-          onSelectedTeamChange={(value) => {
-            setSelectedTeamId(value)
-            setIsReplaceRevokeConfirmed(false)
-          }}
-          onReplaceRoleTypeChange={(value) => {
-            setReplaceRoleType(value)
-            setIsReplaceRevokeConfirmed(false)
-          }}
-          onNewRoleEmailChange={setNewRoleEmail}
-          onNewRoleNameChange={setNewRoleName}
-          onRevokeAccess={() => setIsReplaceRevokeConfirmed(true)}
-          onSubmit={() => {
-            void handleReplaceRole()
-          }}
-        />
+        {isReplaceRoleWizardOpen ? (
+          <ReplacePocOrHodWizardModal
+            isOpen={isReplaceRoleWizardOpen}
+            departments={departments}
+            selectedTeamId={selectedTeamId}
+            replaceRoleType={replaceRoleType}
+            currentRoleEmail={selectedCurrentRoleEmail}
+            newRoleEmail={newRoleEmail}
+            newRoleName={newRoleName}
+            isReplacementDifferentFromOtherRole={isReplacementDifferentFromOtherRole}
+            isRevokeConfirmed={isReplaceRevokeConfirmed}
+            isSubmitting={isSubmittingReplace}
+            onClose={closeReplaceRoleWizard}
+            onSelectedTeamChange={(value) => {
+              setSelectedTeamId(value)
+              setIsReplaceRevokeConfirmed(false)
+            }}
+            onReplaceRoleTypeChange={(value) => {
+              setReplaceRoleType(value)
+              setIsReplaceRevokeConfirmed(false)
+            }}
+            onNewRoleEmailChange={setNewRoleEmail}
+            onNewRoleNameChange={setNewRoleName}
+            onRevokeAccess={() => setIsReplaceRevokeConfirmed(true)}
+            onSubmit={() => {
+              void handleReplaceRole()
+            }}
+          />
+        ) : null}
 
-        <ManageLegalTeamModal
-          isOpen={isManageLegalTeamModalOpen}
-          legalDepartmentName={contractWorkflowIdentities.legalDepartmentName}
-          legalAssignments={legalDepartment?.legalAssignments ?? []}
-          isLegalDepartmentConfigured={Boolean(legalDepartment)}
-          newUserFullName={newLegalUserFullName}
-          newUserEmail={newLegalUserEmail}
-          isSubmitting={isSubmittingLegalMatrix}
-          revokingUserId={revokingLegalUserId}
-          onClose={closeManageLegalTeamModal}
-          onNewUserFullNameChange={setNewLegalUserFullName}
-          onNewUserEmailChange={setNewLegalUserEmail}
-          onAddUser={() => {
-            void handleAddUserToLegalTeam()
-          }}
-          onRevokeUser={(userId) => {
-            void handleRevokeLegalUser(userId)
-          }}
-        />
+        {isManageLegalTeamModalOpen ? (
+          <ManageLegalTeamModal
+            isOpen={isManageLegalTeamModalOpen}
+            legalDepartmentName={contractWorkflowIdentities.legalDepartmentName}
+            legalAssignments={legalDepartment?.legalAssignments ?? []}
+            isLegalDepartmentConfigured={Boolean(legalDepartment)}
+            newUserFullName={newLegalUserFullName}
+            newUserEmail={newLegalUserEmail}
+            isSubmitting={isSubmittingLegalMatrix}
+            revokingUserId={revokingLegalUserId}
+            onClose={closeManageLegalTeamModal}
+            onNewUserFullNameChange={setNewLegalUserFullName}
+            onNewUserEmailChange={setNewLegalUserEmail}
+            onAddUser={() => {
+              void handleAddUserToLegalTeam()
+            }}
+            onRevokeUser={(userId) => {
+              void handleRevokeLegalUser(userId)
+            }}
+          />
+        ) : null}
 
         {isSystemConfigurationModalOpen ? (
           <div className={styles.modalOverlay} role="dialog" aria-modal="true" aria-label="System Configuration">

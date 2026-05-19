@@ -32,7 +32,25 @@ export default function RootLayout({
     <html lang="en">
       <body className={`${appSans.variable} ${appMono.variable} antialiased`}>
         {children}
-        <Toaster position="bottom-center" richColors />
+        <Toaster
+          position="bottom-center"
+          closeButton
+          toastOptions={{
+            classNames: {
+              toast: 'appToast',
+              title: 'appToastTitle',
+              description: 'appToastDescription',
+              actionButton: 'appToastAction',
+              cancelButton: 'appToastCancel',
+              closeButton: 'appToastClose',
+              success: 'appToastSuccess',
+              error: 'appToastError',
+              warning: 'appToastWarning',
+              info: 'appToastInfo',
+              loading: 'appToastLoading',
+            },
+          }}
+        />
       </body>
     </html>
   )

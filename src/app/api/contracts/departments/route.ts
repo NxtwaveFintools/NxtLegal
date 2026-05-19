@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { withAuth } from '@/core/http/with-auth'
+import { privateCacheControl } from '@/core/constants/cache'
 import { errorResponse, okResponse } from '@/core/http/response'
 import { isAppError } from '@/core/http/errors'
 import { adminGovernance } from '@/core/constants/admin-governance'
@@ -90,7 +91,11 @@ const GETHandler = withAuth(async (_request: NextRequest, { session }) => {
     }
 
     if (Array.isArray(scopedTeamIds) && scopedTeamIds.length === 0) {
-      return NextResponse.json(okResponse({ departments: [] }))
+      return NextResponse.json(okResponse({ departments: [] }), {
+        headers: {
+          'Cache-Control': privateCacheControl.medium,
+        },
+      })
     }
 
     let teamsQuery = supabase
@@ -171,7 +176,12 @@ const GETHandler = withAuth(async (_request: NextRequest, { session }) => {
             hodEmail: hod?.hodEmail ?? null,
           }
         }),
-      })
+      }),
+      {
+        headers: {
+          'Cache-Control': privateCacheControl.medium,
+        },
+      }
     )
   } catch (error) {
     const status = isAppError(error) ? error.statusCode : 500

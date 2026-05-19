@@ -257,7 +257,11 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   const lastVisibilityRefreshAtRef = useRef(0)
   const knownContractStatusesRef = useRef<Map<string, ContractRecord['status']>>(new Map())
   const executedCelebratedContractIdsRef = useRef<Set<string>>(new Set())
+  const lastScrollIntentRef = useRef<'up' | 'down' | null>(null)
+  const lastScrollIntentAtRef = useRef(0)
+  const lastIntroCollapseAtRef = useRef(0)
 
+  const [isDashboardIntroCollapsed, setIsDashboardIntroCollapsed] = useState(false)
   const [isUploadOpen, setIsUploadOpen] = useState(false)
   const [uploadMode, setUploadMode] = useState<ContractUploadMode>(contractUploadModes.default)
   const [contracts, setContracts] = useState<ContractRecord[]>([])
@@ -294,6 +298,100 @@ export default function DashboardClient({ session }: DashboardClientProps) {
     ContractRecord[]
   >([])
   const [isPending, startTransition] = useTransition()
+
+  useEffect(() => {
+    let animationFrameId: number | null = null
+    let lastTouchY = 0
+
+    const setScrollIntent = (intent: 'up' | 'down') => {
+      lastScrollIntentRef.current = intent
+      lastScrollIntentAtRef.current = performance.now()
+    }
+
+    const updateIntroState = () => {
+      animationFrameId = null
+
+      const collapseEnterThreshold = 96
+      const collapseExitTopThreshold = 4
+      const collapseCooldownMs = 850
+      const now = performance.now()
+      const hasRecentDownIntent =
+        lastScrollIntentRef.current === 'down' && now - lastScrollIntentAtRef.current < collapseCooldownMs
+
+      setIsDashboardIntroCollapsed((current) => {
+        if (!current) {
+          if (window.scrollY > collapseEnterThreshold) {
+            lastIntroCollapseAtRef.current = now
+            return true
+          }
+
+          return false
+        }
+
+        const isCollapseCooldownComplete = now - lastIntroCollapseAtRef.current > collapseCooldownMs
+        if (window.scrollY <= collapseExitTopThreshold && isCollapseCooldownComplete && !hasRecentDownIntent) {
+          return false
+        }
+
+        return true
+      })
+    }
+
+    const scheduleIntroUpdate = () => {
+      if (animationFrameId !== null) {
+        return
+      }
+
+      animationFrameId = window.requestAnimationFrame(updateIntroState)
+    }
+
+    const handleWheel = (event: WheelEvent) => {
+      if (event.deltaY === 0) {
+        return
+      }
+
+      setScrollIntent(event.deltaY > 0 ? 'down' : 'up')
+      scheduleIntroUpdate()
+    }
+
+    const handleTouchStart = (event: TouchEvent) => {
+      lastTouchY = event.touches[0]?.clientY ?? lastTouchY
+    }
+
+    const handleTouchMove = (event: TouchEvent) => {
+      const currentTouchY = event.touches[0]?.clientY
+      if (typeof currentTouchY !== 'number') {
+        return
+      }
+
+      const delta = lastTouchY - currentTouchY
+      if (Math.abs(delta) >= 2) {
+        setScrollIntent(delta > 0 ? 'down' : 'up')
+      }
+
+      lastTouchY = currentTouchY
+      scheduleIntroUpdate()
+    }
+
+    updateIntroState()
+    window.addEventListener('wheel', handleWheel, { passive: true })
+    window.addEventListener('touchstart', handleTouchStart, { passive: true })
+    window.addEventListener('touchmove', handleTouchMove, { passive: true })
+    window.addEventListener('scroll', scheduleIntroUpdate, { passive: true })
+    window.addEventListener('resize', scheduleIntroUpdate)
+
+    return () => {
+      if (animationFrameId !== null) {
+        window.cancelAnimationFrame(animationFrameId)
+      }
+
+      window.removeEventListener('wheel', handleWheel)
+      window.removeEventListener('touchstart', handleTouchStart)
+      window.removeEventListener('touchmove', handleTouchMove)
+      window.removeEventListener('scroll', scheduleIntroUpdate)
+      window.removeEventListener('resize', scheduleIntroUpdate)
+    }
+  }, [])
 
   useEffect(() => {
     setOptimisticContracts(contracts)
@@ -830,74 +928,80 @@ export default function DashboardClient({ session }: DashboardClientProps) {
       }
     >
       <main className={styles.main}>
-        <section className={styles.greeting}>
-          <div>
-            <div className={styles.greetingTitle}>
-              {session.fullName ? `Welcome, ${session.fullName.split(' ')[0]}` : 'Dashboard'}
+        <div
+          className={`${styles.dashboardIntro} ${isDashboardIntroCollapsed ? styles.dashboardIntroCollapsed : ''}`}
+          aria-hidden={isDashboardIntroCollapsed}
+          inert={isDashboardIntroCollapsed ? true : undefined}
+        >
+          <section className={styles.greeting}>
+            <div>
+              <div className={styles.greetingTitle}>
+                {session.fullName ? `Welcome, ${session.fullName.split(' ')[0]}` : 'Dashboard'}
+              </div>
+              <div className={styles.greetingSubtitle}>Here&apos;s what needs your attention today</div>
             </div>
-            <div className={styles.greetingSubtitle}>Here&apos;s what needs your attention today</div>
-          </div>
-        </section>
+          </section>
 
-        <section className={styles.tasksRow}>
-          <div className={styles.tasksCardGroup}>
-            <div className={styles.tasksHeader}>Tasks pending on you</div>
-            <div className={styles.taskCards}>
-              {session.role !== contractWorkflowRoles.hod ? (
+          <section className={styles.tasksRow}>
+            <div className={styles.tasksCardGroup}>
+              <div className={styles.tasksHeader}>Tasks pending on you</div>
+              <div className={styles.taskCards}>
+                {session.role !== contractWorkflowRoles.hod ? (
+                  <DashboardActionCard
+                    title="Upload Third-Party Contract"
+                    description="Upload third-party contracts for review"
+                    icon={uploadIcon}
+                    onClick={() => {
+                      setUploadMode(contractUploadModes.default)
+                      setIsUploadOpen(true)
+                    }}
+                  />
+                ) : null}
+                {session.role === contractWorkflowRoles.legalTeam || session.role === contractWorkflowRoles.admin ? (
+                  <DashboardActionCard
+                    title="Send for Signing"
+                    description="Initiate signing workflow"
+                    onClick={() => {
+                      setUploadMode(contractUploadModes.legalSendForSigning)
+                      setIsUploadOpen(true)
+                    }}
+                  />
+                ) : null}
+                {session.role === contractWorkflowRoles.legalTeam ? (
+                  <DashboardActionCard
+                    title="Assigned To Me"
+                    count={filterCounts.ASSIGNED_TO_ME ?? 0}
+                    description="Contracts assigned to your queue"
+                    onClick={() => {
+                      applyFilter('ASSIGNED_TO_ME')
+                      contractsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                    }}
+                  />
+                ) : null}
+                {session.role === contractWorkflowRoles.hod ? (
+                  <DashboardActionCard
+                    title="HOD Pending"
+                    count={filterCounts.HOD_PENDING ?? 0}
+                    description="Contracts waiting for your approval"
+                    onClick={() => {
+                      applyFilter('HOD_PENDING')
+                      contractsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                    }}
+                  />
+                ) : null}
                 <DashboardActionCard
-                  title="Upload Third-Party Contract"
-                  description="Upload third-party contracts for review"
-                  icon={uploadIcon}
+                  title="Review"
+                  count={filterCounts.UNDER_REVIEW ?? 0}
+                  description="Documents awaiting review"
                   onClick={() => {
-                    setUploadMode(contractUploadModes.default)
-                    setIsUploadOpen(true)
-                  }}
-                />
-              ) : null}
-              {session.role === contractWorkflowRoles.legalTeam || session.role === contractWorkflowRoles.admin ? (
-                <DashboardActionCard
-                  title="Send for Signing"
-                  description="Initiate legal signing workflow"
-                  onClick={() => {
-                    setUploadMode(contractUploadModes.legalSendForSigning)
-                    setIsUploadOpen(true)
-                  }}
-                />
-              ) : null}
-              {session.role === contractWorkflowRoles.legalTeam ? (
-                <DashboardActionCard
-                  title="Assigned To Me"
-                  count={filterCounts.ASSIGNED_TO_ME ?? 0}
-                  description="Contracts assigned to your queue"
-                  onClick={() => {
-                    applyFilter('ASSIGNED_TO_ME')
+                    applyFilter('UNDER_REVIEW')
                     contractsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
                   }}
                 />
-              ) : null}
-              {session.role === contractWorkflowRoles.hod ? (
-                <DashboardActionCard
-                  title="HOD Pending"
-                  count={filterCounts.HOD_PENDING ?? 0}
-                  description="Contracts waiting for your approval"
-                  onClick={() => {
-                    applyFilter('HOD_PENDING')
-                    contractsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                  }}
-                />
-              ) : null}
-              <DashboardActionCard
-                title="Review"
-                count={filterCounts.UNDER_REVIEW ?? 0}
-                description="Documents awaiting review"
-                onClick={() => {
-                  applyFilter('UNDER_REVIEW')
-                  contractsSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                }}
-              />
+              </div>
             </div>
-          </div>
-        </section>
+          </section>
+        </div>
 
         {optimisticActionableAdditionalApprovals.length > 0 && (
           <section className={styles.approverInsightSection}>
@@ -1154,7 +1258,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                           />
                         </div>
                       ) : null}
-                      <div>
+                      <div className={styles.contractContent}>
                         <div className={styles.contractTitleRow}>
                           <div className={styles.contractTitle}>{contract.title}</div>
                           {contract.hasUnreadActivity ? (

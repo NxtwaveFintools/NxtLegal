@@ -25,6 +25,27 @@ type ProtectedAppShellProps = {
   children: ReactNode
 }
 
+const topbarCopy = {
+  home: {
+    title: 'Dashboard',
+    description: 'Track reviews, signatures, and contract handoffs from one place.',
+  },
+  repository: {
+    title: 'Repository',
+    description: 'Search agreements, inspect files, and export completed records quickly.',
+  },
+  admin: {
+    title: 'Admin Console',
+    description: 'Manage access, templates, and operating controls for the workspace.',
+  },
+  'approver-history': {
+    title: 'Approver History',
+    description: 'Audit additional approver decisions and follow-ups across contracts.',
+  },
+} satisfies Record<ProtectedAppShellProps['activeNav'], { title: string; description: string }>
+
+const organizationName = 'NxtWave Disruptive Technologies Private Limited'
+
 export default function ProtectedAppShell({
   session,
   activeNav,
@@ -34,21 +55,18 @@ export default function ProtectedAppShell({
 }: ProtectedAppShellProps) {
   const canAccessAdminConsole = ['ADMIN', 'LEGAL_ADMIN', 'SUPER_ADMIN'].includes((session.role ?? '').toUpperCase())
 
-  const displayName = useMemo(() => {
-    if (!session.fullName) {
-      return 'there'
-    }
+  const activePage = topbarCopy[activeNav]
 
-    return session.fullName.split(' ')[0] || session.fullName
-  }, [session.fullName])
+  const accountName = useMemo(() => {
+    return session.fullName?.trim() || session.team?.trim() || ''
+  }, [session.fullName, session.team])
 
-  const displayRole = useMemo(() => {
-    if (!session.role) {
-      return 'USER'
-    }
+  const profileInitial = useMemo(() => {
+    const seed = accountName || session.email || 'L'
+    return seed.slice(0, 1).toUpperCase()
+  }, [accountName, session.email])
 
-    return session.role.toUpperCase()
-  }, [session.role])
+  const helpTooltip = 'Contact shivam.kansagara@nxtwave.co.in or arjun.chander@nxtwave.co.in for issues'
 
   return (
     <div className={styles.page}>
@@ -76,6 +94,7 @@ export default function ProtectedAppShell({
               type="button"
               className={`${styles.navItem} ${quickAction.isActive ? styles.navItemActive : ''}`}
               aria-label={quickAction.ariaLabel}
+              data-nav-label={quickAction.ariaLabel}
               onClick={quickAction.onClick}
             >
               <span className={styles.navIcon}>
@@ -94,6 +113,7 @@ export default function ProtectedAppShell({
           <Link
             className={`${styles.navItem} ${activeNav === 'home' ? styles.navItemActive : ''}`}
             aria-label="Home"
+            data-nav-label="Dashboard"
             href={routeRegistry.protected.dashboard}
             prefetch
           >
@@ -106,6 +126,7 @@ export default function ProtectedAppShell({
           <Link
             className={`${styles.navItem} ${activeNav === 'repository' ? styles.navItemActive : ''}`}
             aria-label="Repository"
+            data-nav-label="Repository"
             href={routeRegistry.protected.repository}
             prefetch
           >
@@ -120,6 +141,7 @@ export default function ProtectedAppShell({
             <Link
               className={`${styles.navItem} ${activeNav === 'approver-history' ? styles.navItemActive : ''}`}
               aria-label="Additional Approver History"
+              data-nav-label="Approver History"
               href={routeRegistry.protected.additionalApproverHistory}
               prefetch
             >
@@ -148,6 +170,7 @@ export default function ProtectedAppShell({
             <Link
               className={`${styles.navItem} ${activeNav === 'admin' ? styles.navItemActive : ''}`}
               aria-label="Admin Console"
+              data-nav-label="Admin Console"
               href={routeRegistry.protected.adminConsole}
               prefetch
             >
@@ -161,7 +184,7 @@ export default function ProtectedAppShell({
               </span>
             </Link>
           ) : null}
-          <button type="button" className={styles.navItem} aria-label="Analytics">
+          <button type="button" className={styles.navItem} aria-label="Analytics" data-nav-label="Analytics">
             <span className={styles.navIcon}>
               <svg viewBox="0 0 20 20" className={styles.navIconSvg} aria-hidden="true" focusable="false">
                 <path d="M4 15.5h12" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
@@ -173,7 +196,7 @@ export default function ProtectedAppShell({
           </button>
         </div>
         <div className={styles.bottomNav}>
-          <button type="button" className={styles.navItem} aria-label="Settings">
+          <button type="button" className={styles.navItem} aria-label="Settings" data-nav-label="Settings">
             <span className={styles.navIcon}>
               <svg viewBox="0 0 20 20" className={styles.navIconSvg} aria-hidden="true" focusable="false">
                 <path
@@ -186,7 +209,7 @@ export default function ProtectedAppShell({
               </svg>
             </span>
           </button>
-          <button type="button" className={styles.navItem} aria-label="Chat">
+          <button type="button" className={styles.navItem} aria-label="Chat" data-nav-label="Chat">
             <span className={styles.navIcon}>
               <svg viewBox="0 0 20 20" className={styles.navIconSvg} aria-hidden="true" focusable="false">
                 <path
@@ -205,23 +228,30 @@ export default function ProtectedAppShell({
       <div className={styles.content}>
         <header className={styles.topbar}>
           <div className={styles.topbarLeft}>
-            <div className={styles.searchBar}>
-              <span>
-                Contact <a>shivam.kansagara@nxtwave.co.in</a> or <a>arjun.chander@nxtwave.co.in</a> in case you face any
-                issues.
-              </span>
-            </div>
+            <span className={styles.topbarTitle}>{activePage.title}</span>
           </div>
           <div className={styles.topbarRight}>
-            <ThemeToggle />
-            <span className={styles.companyBadge}>NxtWave Disruptive Technologies Private Limited</span>
-            <div className={styles.userIdentity}>
-              <span className={styles.userEmail}>{session.email ?? 'unknown@user'}</span>
-              <span className={styles.userRole}>{displayRole}</span>
-              {session.team ? <span className={styles.userTeam}>{session.team}</span> : null}
+            <div className={styles.topbarTools}>
+              <div className={styles.helpIcon} data-tooltip={helpTooltip}>
+                <button type="button" className={styles.helpIconButton} aria-label="Support contacts">
+                  ?
+                </button>
+              </div>
+              <ThemeToggle />
             </div>
-            <div className={styles.profileBadge}>{displayName.slice(0, 1).toUpperCase()}</div>
-            <LogoutButton />
+            <div className={styles.topbarPanels}>
+              <div className={styles.companyBadge}>
+                <span className={styles.companyBadgeValue}>{organizationName}</span>
+              </div>
+              <div className={styles.userPanel}>
+                <div className={styles.profileBadge}>{profileInitial}</div>
+                <div className={styles.userIdentity}>
+                  {accountName ? <span className={styles.userName}>{accountName}</span> : null}
+                  <span className={styles.userEmail}>{session.email ?? 'unknown@user'}</span>
+                </div>
+              </div>
+              <LogoutButton />
+            </div>
           </div>
         </header>
 

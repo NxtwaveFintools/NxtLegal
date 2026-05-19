@@ -49,6 +49,29 @@ export default function AdditionalApproverHistoryWorkspace({ session }: Addition
 
   const isAdminRole = useMemo(() => adminHistoryRoles.has((session.role ?? '').toUpperCase()), [session.role])
   const activeCursor = cursorHistory[cursorHistory.length - 1]
+  const approvedCountOnPage = useMemo(
+    () => historyItems.filter((item) => item.decision === 'APPROVED').length,
+    [historyItems]
+  )
+  const rejectedCountOnPage = useMemo(
+    () => historyItems.filter((item) => item.decision === 'REJECTED').length,
+    [historyItems]
+  )
+  const lastDecisionLabel = useMemo(() => {
+    const decidedAt = historyItems[0]?.decidedAt
+    if (!decidedAt) {
+      return null
+    }
+
+    return timestampFormatter.format(new Date(decidedAt))
+  }, [historyItems])
+  const selectedDepartmentName = useMemo(() => {
+    if (!selectedDepartmentId) {
+      return 'All departments'
+    }
+
+    return departments.find((department) => department.id === selectedDepartmentId)?.name ?? 'All departments'
+  }, [departments, selectedDepartmentId])
 
   const loadHistory = useCallback(async () => {
     setIsLoading(true)
@@ -118,34 +141,72 @@ export default function AdditionalApproverHistoryWorkspace({ session }: Addition
       }
     >
       <main className={styles.main}>
-        <section className={styles.header}>
-          <div>
+        <section className={styles.hero}>
+          <div className={styles.heroContent}>
+            <p className={styles.heroEyebrow}>Decision Audit Trail</p>
             <h1 className={styles.title}>Additional Approver History</h1>
-            <p className={styles.subtitle}>Logs-only view. Latest decisions are shown first.</p>
+            <p className={styles.subtitle}>Decision logs with latest activity first and quick contract drill-down.</p>
+            <div className={styles.heroMetaRow}>
+              <span className={styles.heroMetaChip}>{`Total records: ${total}`}</span>
+              <span className={styles.heroMetaChip}>{`Scope: ${selectedDepartmentName}`}</span>
+              {lastDecisionLabel ? (
+                <span className={styles.heroMetaChip}>{`Latest decision: ${lastDecisionLabel}`}</span>
+              ) : null}
+            </div>
           </div>
+
           {isAdminRole ? (
-            <select
-              className={styles.departmentSelect}
-              value={selectedDepartmentId}
-              onChange={(event) => {
-                setSelectedDepartmentId(event.target.value)
-                setCursorHistory([undefined])
-              }}
-            >
-              <option value="">All departments</option>
-              {departments.map((department) => (
-                <option key={department.id} value={department.id}>
-                  {department.name}
-                </option>
-              ))}
-            </select>
+            <div className={styles.departmentSelectWrap}>
+              <label htmlFor="history-department-filter" className={styles.departmentSelectLabel}>
+                Department
+              </label>
+              <select
+                id="history-department-filter"
+                className={styles.departmentSelect}
+                value={selectedDepartmentId}
+                onChange={(event) => {
+                  setSelectedDepartmentId(event.target.value)
+                  setCursorHistory([undefined])
+                }}
+              >
+                <option value="">All departments</option>
+                {departments.map((department) => (
+                  <option key={department.id} value={department.id}>
+                    {department.name}
+                  </option>
+                ))}
+              </select>
+            </div>
           ) : null}
         </section>
 
+        <section className={styles.metricsGrid}>
+          <article className={styles.metricCard}>
+            <div className={styles.metricLabel}>Approved on this page</div>
+            <div className={styles.metricValue}>{approvedCountOnPage}</div>
+            <div className={styles.metricHint}>Decisions with approved outcome</div>
+          </article>
+          <article className={styles.metricCard}>
+            <div className={styles.metricLabel}>Rejected on this page</div>
+            <div className={styles.metricValue}>{rejectedCountOnPage}</div>
+            <div className={styles.metricHint}>Decisions with rejected outcome</div>
+          </article>
+          <article className={styles.metricCard}>
+            <div className={styles.metricLabel}>Page size</div>
+            <div className={styles.metricValue}>{limits.dashboardContractsPageSize}</div>
+            <div className={styles.metricHint}>Records fetched per request</div>
+          </article>
+        </section>
+
         <section className={styles.historySection}>
+          <div className={styles.historyHeader}>
+            <h2 className={styles.historyTitle}>Decision Timeline</h2>
+            <span className={styles.historyCount}>{`${historyItems.length} shown`}</span>
+          </div>
+
           {isLoading ? (
             <div className={styles.loadingSkeleton} aria-label="Loading approver history">
-              {Array.from({ length: 4 }).map((_, index) => (
+              {Array.from({ length: 5 }).map((_, index) => (
                 <article key={`history-skeleton-${index}`} className={styles.skeletonItem} aria-hidden="true">
                   <div className={styles.skeletonMain}>
                     <div className={styles.shimmerLine} style={{ width: `${58 + (index % 2) * 14}%` }} />
@@ -167,26 +228,27 @@ export default function AdditionalApproverHistoryWorkspace({ session }: Addition
               {historyItems.map((item) => (
                 <article key={`${item.contractId}-${item.decidedAt}`} className={styles.item}>
                   <div className={styles.itemMain}>
-                    <div className={styles.contractTitle}>{item.contractTitle}</div>
+                    <div className={styles.itemTopRow}>
+                      <div className={styles.contractTitle}>{item.contractTitle}</div>
+                      <span className={styles.departmentChip}>{item.departmentName ?? 'Unknown department'}</span>
+                    </div>
                     <div className={styles.metaRow}>
-                      <span>{item.departmentName ?? '—'}</span>
-                      <span>•</span>
-                      <span>{item.actorEmail ?? 'Unknown Actor'}</span>
-                      <span>•</span>
+                      <span>{`Actor: ${item.actorEmail ?? 'Unknown actor'}`}</span>
+                      <span className={styles.metaSeparator}>|</span>
                       <span>{timestampFormatter.format(new Date(item.decidedAt))}</span>
                     </div>
                     {item.reason ? <div className={styles.reason}>Reason: {item.reason}</div> : null}
                   </div>
                   <div className={styles.itemRight}>
                     <span className={item.decision === 'REJECTED' ? styles.badgeRejected : styles.badgeApproved}>
-                      {item.decision}
+                      {item.decision === 'REJECTED' ? 'Rejected' : 'Approved'}
                     </span>
                     <span className={styles.statusLabel}>{item.contractDisplayStatusLabel}</span>
                     <Link
                       href={contractsClient.resolveProtectedContractPath(item.contractId)}
                       className={styles.openButton}
                     >
-                      Open
+                      Open Contract
                     </Link>
                   </div>
                 </article>
@@ -196,7 +258,10 @@ export default function AdditionalApproverHistoryWorkspace({ session }: Addition
         </section>
 
         <section className={styles.pagination}>
-          <span className={styles.totalLabel}>Total: {total}</span>
+          <div className={styles.paginationMeta}>
+            <span className={styles.totalLabel}>{`Total records: ${total}`}</span>
+            <span className={styles.totalHint}>Use filters to narrow history by department.</span>
+          </div>
           <div className={styles.paginationActions}>
             <button
               type="button"
@@ -204,7 +269,7 @@ export default function AdditionalApproverHistoryWorkspace({ session }: Addition
               disabled={cursorHistory.length <= 1 || isLoading}
               onClick={() => setCursorHistory((previous) => previous.slice(0, previous.length - 1))}
             >
-              Previous
+              Previous Page
             </button>
             <button
               type="button"
@@ -218,7 +283,7 @@ export default function AdditionalApproverHistoryWorkspace({ session }: Addition
                 setCursorHistory((previous) => [...previous, nextCursor])
               }}
             >
-              Next
+              Next Page
             </button>
           </div>
         </section>

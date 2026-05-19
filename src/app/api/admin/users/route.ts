@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { ZodError } from 'zod'
 import { withAuth } from '@/core/http/with-auth'
+import { privateCacheControl } from '@/core/constants/cache'
 import { adminErrorResponse, adminOkResponse } from '@/core/http/admin-response'
 import { isAppError } from '@/core/http/errors'
 import { appConfig } from '@/core/config/app-config'
@@ -23,13 +24,22 @@ const GETHandler = withAuth<unknown>(async (request: NextRequest, { session }) =
     if (query.groupBy === 'department') {
       const departments = await adminQueryService.listUsersGroupedByDepartment(session)
       return NextResponse.json(
-        adminOkResponse({ departments }, { cursor: null, limit: departments.length, total: departments.length })
+        adminOkResponse({ departments }, { cursor: null, limit: departments.length, total: departments.length }),
+        {
+          headers: {
+            'Cache-Control': privateCacheControl.medium,
+          },
+        }
       )
     }
 
     const users = await adminQueryService.listUsers(session)
 
-    return NextResponse.json(adminOkResponse({ users }, { cursor: null, limit: users.length, total: users.length }))
+    return NextResponse.json(adminOkResponse({ users }, { cursor: null, limit: users.length, total: users.length }), {
+      headers: {
+        'Cache-Control': privateCacheControl.medium,
+      },
+    })
   } catch (error) {
     if (error instanceof ZodError) {
       return NextResponse.json(adminErrorResponse('VALIDATION_ERROR', 'Invalid users query parameters'), {
