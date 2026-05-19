@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { ZodError } from 'zod'
 import { withAuth } from '@/core/http/with-auth'
+import { privateCacheControl } from '@/core/constants/cache'
 import { appConfig } from '@/core/config/app-config'
 import { adminErrorResponse, adminOkResponse } from '@/core/http/admin-response'
 import { isAppError } from '@/core/http/errors'
@@ -51,7 +52,12 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
           limit: result.limit,
           total: result.total,
         }
-      )
+      ),
+      {
+        headers: {
+          'Cache-Control': privateCacheControl.short,
+        },
+      }
     )
   } catch (error) {
     if (error instanceof ZodError) {

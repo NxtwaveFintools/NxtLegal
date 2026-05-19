@@ -522,7 +522,13 @@ function formatRemark(remark: string | null, canonicalType: CanonicalContractLog
     return null
   }
 
-  if (canonicalType === 'NOTE_ADDED') {
+  if (
+    canonicalType === 'NOTE_ADDED' ||
+    canonicalType === 'ADDITIONAL_APPROVER_ADDED' ||
+    canonicalType === 'ADDITIONAL_APPROVED' ||
+    canonicalType === 'ADDITIONAL_REJECTED' ||
+    canonicalType === 'ADDITIONAL_BYPASSED'
+  ) {
     return `Note: ${remark}`
   }
 

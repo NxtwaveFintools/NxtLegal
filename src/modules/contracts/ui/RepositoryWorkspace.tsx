@@ -1,8 +1,9 @@
 'use client'
 
+import dynamic from 'next/dynamic'
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { useRouter } from 'next/navigation'
-import { type ColumnDef, type SortingState, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table'
+import { type ColumnDef, type SortingState } from '@tanstack/react-table'
 import { useDebouncedValue } from '@/lib/hooks/use-debounced-value'
 import { toast } from 'sonner'
 import ContractStatusBadge from '@/modules/contracts/ui/ContractStatusBadge'
@@ -25,7 +26,24 @@ import {
   type RepositorySortBy,
 } from '@/core/client/contracts-client'
 import ErrorBoundary from '@/components/ui/ErrorBoundary'
+import type { RepositoryWorkspaceTableProps } from './RepositoryWorkspaceTable'
 import styles from './RepositoryWorkspace.module.css'
+
+const RepositoryWorkspaceTable = dynamic<RepositoryWorkspaceTableProps>(() => import('./RepositoryWorkspaceTable'), {
+  ssr: false,
+  loading: () => (
+    <div>
+      {[1, 2, 3, 4, 5].map((item) => (
+        <div key={item} className={styles.shimmerTableRow}>
+          <div className={styles.shimmerCell} style={{ width: `${50 + item * 8}%` }} />
+          <div className={styles.shimmerCell} style={{ width: '70%' }} />
+          <div className={styles.shimmerCell} style={{ width: '65%' }} />
+          <div className={styles.shimmerCell} style={{ width: '50%' }} />
+        </div>
+      ))}
+    </div>
+  ),
+})
 
 type RepositoryWorkspaceProps = {
   session: {
@@ -413,21 +431,21 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     setCursorHistory([undefined])
   }, [customFromDate, customToDate, dateBasis, datePreset, debouncedSearch, statusFilter, sortBy, sortDirection])
 
-  const handleStatusFilterChange = (value: RepositoryStatusFilter | '') => {
+  const handleStatusFilterChange = useCallback((value: RepositoryStatusFilter | '') => {
     setStatusFilter(value)
-  }
+  }, [])
 
-  const handleDateBasisChange = (value: RepositoryDateBasis) => {
+  const handleDateBasisChange = useCallback((value: RepositoryDateBasis) => {
     setDateBasis(value)
-  }
+  }, [])
 
-  const handleDatePresetChange = (value: RepositoryDatePreset | '') => {
+  const handleDatePresetChange = useCallback((value: RepositoryDatePreset | '') => {
     setDatePreset(value)
     if (value !== 'custom') {
       setCustomFromDate('')
       setCustomToDate('')
     }
-  }
+  }, [])
 
   const closePreview = useCallback(() => {
     setActivePreview(null)
@@ -869,7 +887,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     ]
   )
 
-  const toggleExportColumn = (column: RepositoryExportColumn) => {
+  const toggleExportColumn = useCallback((column: RepositoryExportColumn) => {
     setSelectedExportColumns((previous) => {
       if (previous.includes(column)) {
         return previous.filter((entry) => entry !== column)
@@ -877,35 +895,57 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
 
       return [...previous, column]
     })
-  }
+  }, [])
 
-  const downloadExport = (format: 'csv' | 'excel' | 'pdf') => {
-    const exportUrl = contractsClient.repositoryExportUrl({
-      search: debouncedSearch,
-      repositoryStatus: statusFilter || undefined,
-      dateBasis,
-      datePreset: datePreset || undefined,
-      fromDate: datePreset === 'custom' && customFromDate ? customFromDate : undefined,
-      toDate: datePreset === 'custom' && customToDate ? customToDate : undefined,
-      format,
-      columns: selectedExportColumns,
-    })
+  const downloadExport = useCallback(
+    (format: 'csv' | 'excel' | 'pdf') => {
+      const exportUrl = contractsClient.repositoryExportUrl({
+        search: debouncedSearch,
+        repositoryStatus: statusFilter || undefined,
+        dateBasis,
+        datePreset: datePreset || undefined,
+        fromDate: datePreset === 'custom' && customFromDate ? customFromDate : undefined,
+        toDate: datePreset === 'custom' && customToDate ? customToDate : undefined,
+        format,
+        columns: selectedExportColumns,
+      })
 
-    window.open(exportUrl, '_blank', 'noopener,noreferrer')
-    setActiveExportFormat(null)
-  }
+      window.open(exportUrl, '_blank', 'noopener,noreferrer')
+      setActiveExportFormat(null)
+    },
+    [customFromDate, customToDate, dateBasis, datePreset, debouncedSearch, selectedExportColumns, statusFilter]
+  )
 
-  const table = useReactTable({
-    data: contracts,
-    columns,
-    state: { sorting },
-    onSortingChange: (updater) => {
+  const handleSortingChange = useCallback(
+    (updater: SortingState | ((current: SortingState) => SortingState)) => {
       const next = typeof updater === 'function' ? updater(sorting) : updater
       setSorting(next)
     },
-    manualSorting: true,
-    getCoreRowModel: getCoreRowModel(),
-  })
+    [sorting]
+  )
+
+  const handleOpenContract = useCallback(
+    (contractId: string) => {
+      router.push(
+        contractsClient.resolveProtectedContractPath(contractId, {
+          from: 'repository',
+        })
+      )
+    },
+    [router]
+  )
+
+  const handlePreviousPage = useCallback(() => {
+    setCursorHistory((previous) => previous.slice(0, previous.length - 1))
+  }, [])
+
+  const handleNextPage = useCallback(() => {
+    if (!nextCursor) {
+      return
+    }
+
+    setCursorHistory((previous) => [...previous, nextCursor])
+  }, [nextCursor])
 
   return (
     <ProtectedAppShell
@@ -1093,24 +1133,11 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
               type="button"
               className={styles.pageButton}
               disabled={cursorHistory.length <= 1}
-              onClick={() => {
-                setCursorHistory((previous) => previous.slice(0, previous.length - 1))
-              }}
+              onClick={handlePreviousPage}
             >
               Previous
             </button>
-            <button
-              type="button"
-              className={styles.pageButton}
-              disabled={!nextCursor}
-              onClick={() => {
-                if (!nextCursor) {
-                  return
-                }
-
-                setCursorHistory((previous) => [...previous, nextCursor])
-              }}
-            >
+            <button type="button" className={styles.pageButton} disabled={!nextCursor} onClick={handleNextPage}>
               Next
             </button>
           </section>
@@ -1121,75 +1148,14 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
             onMouseMove={handleTableWrapMouseMove}
             onMouseLeave={stopTableAutoScroll}
           >
-            {isLoading ? (
-              <div>
-                {[1, 2, 3, 4, 5].map((i) => (
-                  <div key={i} className={styles.shimmerTableRow}>
-                    <div className={styles.shimmerCell} style={{ width: `${50 + i * 8}%` }} />
-                    <div className={styles.shimmerCell} style={{ width: '70%' }} />
-                    <div className={styles.shimmerCell} style={{ width: '65%' }} />
-                    <div className={styles.shimmerCell} style={{ width: '50%' }} />
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <table className={styles.table}>
-                <thead>
-                  {table.getHeaderGroups().map((headerGroup) => (
-                    <tr key={headerGroup.id}>
-                      {headerGroup.headers.map((header) => {
-                        const canSort = header.column.getCanSort()
-                        const sortedState = header.column.getIsSorted()
-
-                        return (
-                          <th key={header.id}>
-                            {canSort ? (
-                              <button
-                                type="button"
-                                className={styles.sortButton}
-                                onClick={header.column.getToggleSortingHandler()}
-                              >
-                                {flexRender(header.column.columnDef.header, header.getContext())}
-                                {sortedState === 'asc' ? ' ↑' : sortedState === 'desc' ? ' ↓' : ''}
-                              </button>
-                            ) : (
-                              flexRender(header.column.columnDef.header, header.getContext())
-                            )}
-                          </th>
-                        )
-                      })}
-                    </tr>
-                  ))}
-                </thead>
-                <tbody>
-                  {table.getRowModel().rows.length === 0 ? (
-                    <tr>
-                      <td colSpan={columns.length} className={styles.empty}>
-                        No contracts found.
-                      </td>
-                    </tr>
-                  ) : (
-                    table.getRowModel().rows.map((row) => (
-                      <tr
-                        key={row.id}
-                        className={`${styles.row} ${row.original.isTatBreached ? styles.rowBreached : ''}`}
-                        onClick={() =>
-                          router.push(
-                            contractsClient.resolveProtectedContractPath(row.original.id, {
-                              from: 'repository',
-                            })
-                          )
-                        }
-                      >
-                        {row.getVisibleCells().map((cell) => (
-                          <td key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>
-                        ))}
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            )}
+            <RepositoryWorkspaceTable
+              contracts={contracts}
+              columns={columns}
+              sorting={sorting}
+              onSortingChange={handleSortingChange}
+              isLoading={isLoading}
+              onOpenContract={handleOpenContract}
+            />
           </section>
 
           {activePreview ? (

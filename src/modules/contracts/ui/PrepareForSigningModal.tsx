@@ -1,15 +1,14 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { Document, Page, pdfjs } from 'react-pdf'
+import dynamic from 'next/dynamic'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { contractsClient } from '@/core/client/contracts-client'
 import { contractStatuses } from '@/core/constants/contracts'
+import type { PrepareForSigningPdfViewerProps } from './PrepareForSigningPdfViewer'
 import styles from './prepare-for-signing-modal.module.css'
 
-pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString()
-
-type RecipientType = 'INTERNAL' | 'EXTERNAL'
+type RecipientType = 'INTERNAL' | 'EXTERNAL' | 'VIEWER'
 type FieldType = 'SIGNATURE' | 'INITIAL' | 'STAMP' | 'NAME' | 'DATE' | 'TIME' | 'TEXT'
 
 type DraftRecipient = {
@@ -67,7 +66,7 @@ type PrepareForSigningModalProps = {
     recipients: Array<{
       name: string
       email: string
-      recipient_type: 'INTERNAL' | 'EXTERNAL'
+      recipient_type: 'INTERNAL' | 'EXTERNAL' | 'VIEWER'
       routing_order: number
       designation?: string
       counterparty_id?: string
@@ -102,6 +101,14 @@ const sendingStatuses = [
   'Just a minute...',
   'Preparing the signing package...',
 ]
+
+const PrepareForSigningPdfViewer = dynamic<PrepareForSigningPdfViewerProps>(
+  () => import('./PrepareForSigningPdfViewer'),
+  {
+    ssr: false,
+    loading: () => <div className={styles.placeholder}>Loading PDF…</div>,
+  }
+)
 
 const createDraftId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`
 const defaultFieldSizeByType: Record<FieldType, { width: number; height: number }> = {
@@ -319,17 +326,21 @@ export default function PrepareForSigningModal({
       }))
       .filter((recipient) => recipient.email)
 
-    const uniqueRoutingOrders = new Set(normalizedRecipients.map((recipient) => recipient.routingOrder))
+    const uniqueRoutingOrders = new Set(
+      normalizedRecipients.filter((r) => r.recipientType !== 'VIEWER').map((recipient) => recipient.routingOrder)
+    )
+    const signingRecipientCount = normalizedRecipients.filter((r) => r.recipientType !== 'VIEWER').length
     const allRoutingOrdersSame = uniqueRoutingOrders.size === 1
-    const allRoutingOrdersUnique = uniqueRoutingOrders.size === normalizedRecipients.length
+    const allRoutingOrdersUnique = uniqueRoutingOrders.size === signingRecipientCount
     const hasValidRoutingOrder =
-      normalizedRecipients.length > 0 &&
+      signingRecipientCount > 0 &&
       (allRoutingOrdersSame || allRoutingOrdersUnique) &&
-      normalizedRecipients.every((recipient) => recipient.routingOrder >= 1)
+      normalizedRecipients.filter((r) => r.recipientType !== 'VIEWER').every((recipient) => recipient.routingOrder >= 1)
 
     const missingSignatureEmails = normalizedRecipients
       .filter(
         (recipient) =>
+          recipient.recipientType !== 'VIEWER' &&
           !fields.some(
             (field) =>
               field.fieldType === 'SIGNATURE' && field.assignedSignerEmail.trim().toLowerCase() === recipient.email
@@ -396,8 +407,11 @@ export default function PrepareForSigningModal({
 
   const blockingPreflightChecks = preflightChecks.filter((check) => !check.isReady)
 
-  const getPageMetrics = (pageNumber: number) => pageMetricsByNumber[pageNumber]
-  const getPageRenderBox = (pageNumber: number) => pageRenderBoxByNumber[pageNumber]
+  const getPageMetrics = useCallback((pageNumber: number) => pageMetricsByNumber[pageNumber], [pageMetricsByNumber])
+  const getPageRenderBox = useCallback(
+    (pageNumber: number) => pageRenderBoxByNumber[pageNumber],
+    [pageRenderBoxByNumber]
+  )
 
   const measureRenderBox = (pageNumber: number) => {
     const el = pageRenderRef.current
@@ -509,16 +523,21 @@ export default function PrepareForSigningModal({
     const normalizedRecipients = recipients.map((recipient) => ({
       email: recipient.email.trim().toLowerCase(),
       routingOrder: recipient.routingOrder,
+      recipientType: recipient.recipientType,
     }))
-    const uniqueRoutingOrders = new Set(normalizedRecipients.map((recipient) => recipient.routingOrder))
+    const signingRecipients = normalizedRecipients.filter((r) => r.recipientType !== 'VIEWER')
+    const uniqueRoutingOrders = new Set(signingRecipients.map((recipient) => recipient.routingOrder))
     const allRoutingOrdersSame = uniqueRoutingOrders.size === 1
-    const allRoutingOrdersUnique = uniqueRoutingOrders.size === normalizedRecipients.length
+    const allRoutingOrdersUnique = uniqueRoutingOrders.size === signingRecipients.length
 
     if (!allRoutingOrdersSame && !allRoutingOrdersUnique) {
       return 'Use either same routing order for all recipients or unique order for each recipient'
     }
 
     for (const recipient of recipients) {
+      if (recipient.recipientType === 'VIEWER') {
+        continue
+      }
       const hasSignature = fields.some(
         (field) =>
           field.assignedSignerEmail.trim().toLowerCase() === recipient.email.trim().toLowerCase() &&
@@ -804,7 +823,7 @@ export default function PrepareForSigningModal({
       window.removeEventListener('mousemove', onMouseMove)
       window.removeEventListener('mouseup', onMouseUp)
     }
-  }, [activeResizeFieldId, canEdit, pageMetricsByNumber, pageRenderBoxByNumber])
+  }, [activeResizeFieldId, canEdit, getPageMetrics, getPageRenderBox, pageMetricsByNumber, pageRenderBoxByNumber])
 
   const handleResizeStart = (event: React.MouseEvent<HTMLSpanElement>, field: DraftField) => {
     event.stopPropagation()
@@ -973,8 +992,9 @@ export default function PrepareForSigningModal({
           <aside className={styles.leftPanel}>
             <div className={styles.panelTitle}>Recipients</div>
 
-            {(['EXTERNAL', 'INTERNAL'] as const).map((recipientType) => {
-              const groupTitle = recipientType === 'EXTERNAL' ? 'Counter Party' : 'Nxtwave'
+            {(['EXTERNAL', 'INTERNAL', 'VIEWER'] as const).map((recipientType) => {
+              const groupTitle =
+                recipientType === 'EXTERNAL' ? 'Counter Party' : recipientType === 'INTERNAL' ? 'NxtWave' : 'Viewers'
               const groupRecipients = recipients.filter((recipient) => recipient.recipientType === recipientType)
 
               return (
@@ -1011,21 +1031,32 @@ export default function PrepareForSigningModal({
                             disabled={!canEdit}
                             onChange={(event) => handleRecipientChange(recipient.id, { email: event.target.value })}
                           />
-                          <div className={styles.row}>
-                            <input className={styles.input} value={groupTitle} disabled aria-label="Recipient type" />
-                            <input
-                              className={styles.input}
-                              type="number"
-                              min={1}
-                              value={recipient.routingOrder}
-                              disabled={!canEdit}
-                              onChange={(event) =>
-                                handleRecipientChange(recipient.id, {
-                                  routingOrder: Math.max(1, Number(event.target.value) || 1),
-                                })
-                              }
-                            />
-                          </div>
+                          {recipientType !== 'VIEWER' ? (
+                            <div className={styles.row}>
+                              <input className={styles.input} value={groupTitle} disabled aria-label="Recipient type" />
+                              <input
+                                className={styles.input}
+                                type="number"
+                                min={1}
+                                value={recipient.routingOrder}
+                                disabled={!canEdit}
+                                onChange={(event) =>
+                                  handleRecipientChange(recipient.id, {
+                                    routingOrder: Math.max(1, Number(event.target.value) || 1),
+                                  })
+                                }
+                              />
+                            </div>
+                          ) : (
+                            <div className={styles.row}>
+                              <input
+                                className={styles.input}
+                                value="Viewer (read-only)"
+                                disabled
+                                aria-label="Recipient type"
+                              />
+                            </div>
+                          )}
                           <button
                             type="button"
                             className={styles.linkButton}
@@ -1063,11 +1094,13 @@ export default function PrepareForSigningModal({
                 disabled={!canEdit}
               >
                 <option value="">Assign to recipient</option>
-                {recipients.map((recipient) => (
-                  <option key={recipient.id} value={recipient.id}>
-                    {recipient.name || recipient.email || 'Unnamed'}
-                  </option>
-                ))}
+                {recipients
+                  .filter((r) => r.recipientType !== 'VIEWER')
+                  .map((recipient) => (
+                    <option key={recipient.id} value={recipient.id}>
+                      {recipient.name || recipient.email || 'Unnamed'}
+                    </option>
+                  ))}
               </select>
               {selectedFieldType === 'SIGNATURE' ? (
                 <label className={styles.toggleLabel}>
@@ -1109,26 +1142,20 @@ export default function PrepareForSigningModal({
                 <div className={styles.placeholder}>Loading draft…</div>
               ) : (
                 <div ref={pageSurfaceRef} className={styles.pageSurface} onClick={handlePageClick}>
-                  <Document
-                    file={pdfUrl}
-                    loading={<div className={styles.placeholder}>Loading PDF…</div>}
-                    error={<div className={styles.placeholder}>Unable to preview PDF</div>}
-                    onLoadSuccess={(result) => {
+                  <PrepareForSigningPdfViewer
+                    pdfUrl={pdfUrl}
+                    currentPage={currentPage}
+                    pageRenderRef={pageRenderRef}
+                    onDocumentLoadSuccess={(result) => {
                       setNumPages(result.numPages)
                       setCurrentPage((page) => Math.min(page, result.numPages))
 
-                      const resultWithPages = result as {
-                        numPages: number
-                        getPage?: (
-                          pageNumber: number
-                        ) => Promise<{ getViewport: (params: { scale: number }) => { width: number; height: number } }>
-                      }
-                      const getPage = resultWithPages.getPage
+                      const getPage = result.getPage
 
                       if (typeof getPage === 'function') {
                         void (async () => {
                           const nextMetrics: Record<number, { width: number; height: number }> = {}
-                          for (let pageNumber = 1; pageNumber <= resultWithPages.numPages; pageNumber += 1) {
+                          for (let pageNumber = 1; pageNumber <= result.numPages; pageNumber += 1) {
                             try {
                               const page = await getPage(pageNumber)
                               const viewport = page.getViewport({ scale: 1 })
@@ -1137,7 +1164,7 @@ export default function PrepareForSigningModal({
                                 height: viewport.height,
                               }
                             } catch {
-                              // Keep best-effort metrics collection; current page metrics are still captured on <Page /> load.
+                              // Keep best-effort metrics collection; current page metrics are still captured on page load.
                             }
                           }
 
@@ -1150,28 +1177,19 @@ export default function PrepareForSigningModal({
                         })()
                       }
                     }}
-                  >
-                    <div ref={pageRenderRef} className={styles.pageRender}>
-                      <Page
-                        pageNumber={currentPage}
-                        renderTextLayer={false}
-                        renderAnnotationLayer={false}
-                        width={720}
-                        onLoadSuccess={(page) => {
-                          const viewport = page.getViewport({ scale: 1 })
-                          setPageMetricsByNumber((current) => ({
-                            ...current,
-                            [currentPage]: {
-                              width: viewport.width,
-                              height: viewport.height,
-                            },
-                          }))
+                    onPageLoadSuccess={(page) => {
+                      const viewport = page.getViewport({ scale: 1 })
+                      setPageMetricsByNumber((current) => ({
+                        ...current,
+                        [currentPage]: {
+                          width: viewport.width,
+                          height: viewport.height,
+                        },
+                      }))
 
-                          requestAnimationFrame(() => measureRenderBox(currentPage))
-                        }}
-                      />
-                    </div>
-                  </Document>
+                      requestAnimationFrame(() => measureRenderBox(currentPage))
+                    }}
+                  />
 
                   {fieldsForCurrentPage.map((field) => (
                     <button

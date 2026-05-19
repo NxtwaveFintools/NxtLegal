@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import type { FormEvent } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { ArrowLeft, Check, Eye, FileText, Pencil, PanelLeftClose, PanelLeftOpen, X } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   contractsClient,
@@ -13,6 +14,7 @@ import {
   type ContractRecord,
   type ContractSigningPreparationDraft,
   type ContractTimelineEvent,
+  type DepartmentOption,
 } from '@/core/client/contracts-client'
 import { publicConfig } from '@/core/config/public-config'
 import {
@@ -81,6 +83,7 @@ const baseWorkspaceTabs = [
 ] as const
 
 const signedDocsWorkspaceTab = { id: 'signed-docs', label: 'Signed Docs' } as const
+const contractWorkspacePreviewTargetId = '__contract_preview__'
 
 const resolveFileExtension = (fileName: string): string => {
   const normalizedName = fileName.trim().toLowerCase()
@@ -188,6 +191,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const [documents, setDocuments] = useState<ContractDocument[]>([])
   const [noteText, setNoteText] = useState('')
   const [approverEmail, setApproverEmail] = useState('')
+  const [approverNote, setApproverNote] = useState('')
   const [collaboratorEmail, setCollaboratorEmail] = useState('')
   const [activityMessageText, setActivityMessageText] = useState('')
   const [legalEffectiveDate, setLegalEffectiveDate] = useState('')
@@ -206,6 +210,10 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const [isAddingCollaborator, setIsAddingCollaborator] = useState(false)
   const [isMarkingActivitySeen, setIsMarkingActivitySeen] = useState(false)
   const [isSavingLegalMetadata, setIsSavingLegalMetadata] = useState(false)
+  const [isRenaming, setIsRenaming] = useState(false)
+  const [renameDraft, setRenameDraft] = useState('')
+  const [isSavingRename, setIsSavingRename] = useState(false)
+  const [hodSuggestions, setHodSuggestions] = useState<DepartmentOption[]>([])
   const [isIntakeOpen, setIsIntakeOpen] = useState(false)
   const [isPrepareForSigningOpen, setIsPrepareForSigningOpen] = useState(false)
   const [expandedLogIds, setExpandedLogIds] = useState<Set<string>>(new Set())
@@ -216,10 +224,13 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const [isMutating, setIsMutating] = useState(false)
   const [activeAction, setActiveAction] = useState<ContractAllowedAction['action'] | null>(null)
   const [confirmActionItem, setConfirmActionItem] = useState<ContractAllowedAction | null>(null)
+  const [confirmNote, setConfirmNote] = useState('')
   const [remarkActionItem, setRemarkActionItem] = useState<ContractAllowedAction | null>(null)
   const [selectedLegalAction, setSelectedLegalAction] = useState<ContractAllowedAction['action'] | ''>('')
   const [remarkDraft, setRemarkDraft] = useState('')
   const [isViewerOpen, setIsViewerOpen] = useState(false)
+  const [isPreparingViewer, setIsPreparingViewer] = useState(false)
+  const [viewerPreviewTargetId, setViewerPreviewTargetId] = useState<string | null>(null)
   const [viewerUrl, setViewerUrl] = useState<string | null>(null)
   const [viewerExternalUrl, setViewerExternalUrl] = useState<string | null>(null)
   const [viewerMimeType, setViewerMimeType] = useState<string>('')
@@ -240,7 +251,6 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const signingSendPollingIntervalByContractIdRef = useRef<Record<string, number>>({})
   const signingSendPollingInFlightByContractIdRef = useRef<Record<string, boolean>>({})
   const signingSendPollingDeadlineByContractIdRef = useRef<Record<string, number>>({})
-  const [error, setError] = useState<string | null>(null)
   const canViewSignedDocsTab = session.role === 'LEGAL_TEAM' || session.role === 'ADMIN'
   const isHodSession = session.role === contractWorkflowRoles.hod
   const shouldShowRemarkBackgroundContext =
@@ -432,7 +442,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
         setTimeline([])
       }
     },
-    [upsertContractInSidebarList]
+    [applyContractView, upsertContractInSidebarList]
   )
 
   useEffect(() => {
@@ -534,7 +544,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     return () => {
       isCancelled = true
     }
-  }, [selectedContractId, upsertContractInSidebarList])
+  }, [applyContractView, selectedContractId, upsertContractInSidebarList])
 
   const selectContract = (contractId: string) => {
     setIsContractContextLoading(true)
@@ -545,6 +555,8 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     setIsPrepareForSigningOpen(false)
     setExpandedLogIds(new Set())
     setShowAllLogs(false)
+    setIsRenaming(false)
+    setRenameDraft('')
   }
 
   const handleTabChange = useCallback(
@@ -620,7 +632,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
         setActiveAction(null)
       }
     },
-    [loadContractContext, loadContracts, router, selectedContractId]
+    [applyContractView, loadContractContext, loadContracts, router, selectedContractId]
   )
 
   const executeAction = async (actionItem: ContractAllowedAction) => {
@@ -648,6 +660,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     }
 
     setConfirmActionItem(null)
+    setConfirmNote('')
   }, [activeAction])
 
   const submitConfirmDialog = useCallback(async () => {
@@ -662,11 +675,12 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       return
     }
 
-    const didApply = await applyAction(confirmActionItem)
+    const didApply = await applyAction(confirmActionItem, confirmNote.trim() || undefined)
     if (didApply) {
       setConfirmActionItem(null)
+      setConfirmNote('')
     }
-  }, [applyAction, confirmActionItem])
+  }, [applyAction, confirmActionItem, confirmNote])
 
   const closeRemarkDialog = useCallback(() => {
     if (activeAction) {
@@ -918,65 +932,108 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     setIsDownloadingMergedArtifact(false)
   }
 
+  const hasCompletedSigningFlow =
+    signatories.length > 0 && signatories.every((signatory) => signatory.status === 'SIGNED')
+
   const handleViewDocument = useCallback(
     async (document?: ContractDocument) => {
       if (!selectedContractId) {
         return
       }
 
-      const response = await contractsClient.download(selectedContractId, {
-        documentId: document?.id,
-      })
+      const previewTargetId = document?.id ?? contractWorkspacePreviewTargetId
+      setViewerPreviewTargetId(previewTargetId)
+      setIsPreparingViewer(true)
 
-      if (!response.ok || !response.data?.signedUrl) {
-        toast.error(response.error?.message ?? 'Failed to generate document view link')
-        return
+      try {
+        if (
+          !document &&
+          selectedContract?.status === contractStatuses.executed &&
+          canViewSignedDocsTab &&
+          hasCompletedSigningFlow
+        ) {
+          const response = await contractsClient.downloadFinalSigningArtifact(selectedContractId, 'merged_pdf')
+          if (!response.ok || !response.data) {
+            toast.error(response.error?.message ?? 'Failed to generate document view link')
+            return
+          }
+          const viewUrl =
+            response.data.signedUrl ?? (response.data.blob ? URL.createObjectURL(response.data.blob) : null)
+          if (!viewUrl) {
+            toast.error('Failed to generate document view link')
+            return
+          }
+          setViewerUrl(viewUrl)
+          setViewerExternalUrl(response.data.signedUrl ?? viewUrl)
+          setViewerMimeType('application/pdf')
+          setViewerFileName(response.data.fileName)
+          setIsViewerOpen(true)
+          return
+        }
+
+        const response = await contractsClient.download(selectedContractId, {
+          documentId: document?.id,
+        })
+
+        if (!response.ok || !response.data?.signedUrl) {
+          toast.error(response.error?.message ?? 'Failed to generate document view link')
+          return
+        }
+
+        const resolvedFileName =
+          response.data.fileName ?? document?.displayName ?? selectedContract?.fileName ?? 'Contract document'
+        const resolvedMimeType = (document?.fileMimeType ?? '').trim().toLowerCase()
+        const resolvedExtension = resolveFileExtension(resolvedFileName)
+        const isDocx =
+          resolvedMimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+          resolvedExtension === 'docx'
+        const isSpreadsheet =
+          resolvedExtension === 'xls' ||
+          resolvedExtension === 'xlsx' ||
+          resolvedMimeType.includes('spreadsheetml') ||
+          resolvedMimeType.includes('ms-excel')
+        const isTextPreview =
+          resolvedExtension === 'csv' ||
+          resolvedExtension === 'tsv' ||
+          resolvedExtension === 'txt' ||
+          resolvedMimeType.startsWith('text/') ||
+          resolvedMimeType.includes('csv')
+        const isPresentation =
+          resolvedExtension === 'ppt' ||
+          resolvedExtension === 'pptx' ||
+          resolvedMimeType.includes('ms-powerpoint') ||
+          resolvedMimeType.includes('presentationml')
+        const isLegacyDoc = resolvedExtension === 'doc' || resolvedMimeType.includes('application/msword')
+        const renderAsHtml =
+          isDocx ||
+          isLegacyDoc ||
+          isPresentation ||
+          isSpreadsheet ||
+          isTextPreview ||
+          htmlPreviewExtensions.has(resolvedExtension)
+
+        const previewUrl = contractsClient.previewUrl(selectedContractId, {
+          documentId: document?.id,
+          renderAs: renderAsHtml ? 'html' : 'binary',
+        })
+
+        setViewerUrl(previewUrl)
+        setViewerExternalUrl(response.data.signedUrl)
+        setViewerMimeType(resolvedMimeType)
+        setViewerFileName(resolvedFileName)
+        setIsViewerOpen(true)
+      } finally {
+        setIsPreparingViewer(false)
+        setViewerPreviewTargetId(null)
       }
-
-      const resolvedFileName =
-        response.data.fileName ?? document?.displayName ?? selectedContract?.fileName ?? 'Contract document'
-      const resolvedMimeType = (document?.fileMimeType ?? '').trim().toLowerCase()
-      const resolvedExtension = resolveFileExtension(resolvedFileName)
-      const isDocx =
-        resolvedMimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
-        resolvedExtension === 'docx'
-      const isSpreadsheet =
-        resolvedExtension === 'xls' ||
-        resolvedExtension === 'xlsx' ||
-        resolvedMimeType.includes('spreadsheetml') ||
-        resolvedMimeType.includes('ms-excel')
-      const isTextPreview =
-        resolvedExtension === 'csv' ||
-        resolvedExtension === 'tsv' ||
-        resolvedExtension === 'txt' ||
-        resolvedMimeType.startsWith('text/') ||
-        resolvedMimeType.includes('csv')
-      const isPresentation =
-        resolvedExtension === 'ppt' ||
-        resolvedExtension === 'pptx' ||
-        resolvedMimeType.includes('ms-powerpoint') ||
-        resolvedMimeType.includes('presentationml')
-      const isLegacyDoc = resolvedExtension === 'doc' || resolvedMimeType.includes('application/msword')
-      const renderAsHtml =
-        isDocx ||
-        isLegacyDoc ||
-        isPresentation ||
-        isSpreadsheet ||
-        isTextPreview ||
-        htmlPreviewExtensions.has(resolvedExtension)
-
-      const previewUrl = contractsClient.previewUrl(selectedContractId, {
-        documentId: document?.id,
-        renderAs: renderAsHtml ? 'html' : 'binary',
-      })
-
-      setViewerUrl(previewUrl)
-      setViewerExternalUrl(response.data.signedUrl)
-      setViewerMimeType(resolvedMimeType)
-      setViewerFileName(resolvedFileName)
-      setIsViewerOpen(true)
     },
-    [selectedContract?.fileName, selectedContractId]
+    [
+      canViewSignedDocsTab,
+      hasCompletedSigningFlow,
+      selectedContract?.fileName,
+      selectedContract?.status,
+      selectedContractId,
+    ]
   )
 
   const closeViewer = useCallback(() => {
@@ -1052,6 +1109,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     setIsMutating(true)
     const response = await contractsClient.addApprover(selectedContractId, {
       approverEmail: approverEmail.trim().toLowerCase(),
+      noteText: approverNote.trim() || undefined,
     })
     setIsMutating(false)
 
@@ -1060,8 +1118,9 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     }
 
     setApproverEmail('')
+    setApproverNote('')
     applyContractView(response.data)
-  }, [approverEmail, selectedContractId])
+  }, [applyContractView, approverEmail, approverNote, selectedContractId])
 
   const handleGenerateSigningLink = async (recipientEmail: string, recipientType: string) => {
     if (!selectedContractId) {
@@ -1069,7 +1128,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     }
 
     if (recipientType !== 'INTERNAL') {
-      setError('Signing link can only be generated for Nxtwave recipients')
+      toast.error('Signing link can only be generated for NxtWave recipients')
       return
     }
     setIsGeneratingLinkFor(recipientEmail)
@@ -1088,8 +1147,6 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
         ...current,
         [normalizedRecipientEmail]: signingUrl,
       }))
-      setError(null)
-
       const copied = await copyTextToClipboard(signingUrl)
       if (copied) {
         setCopiedSigningLinkFor(normalizedRecipientEmail)
@@ -1101,10 +1158,10 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
         }, 2000)
       } else {
         setCopiedSigningLinkFor(null)
-        setError('Signing link generated. Clipboard copy failed, copy the link shown below.')
+        toast.error('Signing link generated. Clipboard copy failed, copy the link shown below.')
       }
     } catch (error) {
-      setError(error instanceof Error ? error.message : 'Failed to generate signing link')
+      toast.error(error instanceof Error ? error.message : 'Failed to generate signing link')
     } finally {
       setIsGeneratingLinkFor(null)
     }
@@ -1167,7 +1224,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       await loadContractContext(selectedContractId)
       await loadContracts()
     },
-    [loadContractContext, loadContracts, selectedContractId]
+    [applyContractView, loadContractContext, loadContracts, selectedContractId]
   )
   const handleAddCollaborator = async () => {
     if (!selectedContractId || !collaboratorEmail.trim() || isAddingCollaborator) {
@@ -1236,6 +1293,68 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     await loadContracts()
     syncContractReadState(selectedContractId, false)
   }
+
+  const handleStartRename = () => {
+    if (!selectedContract) return
+    setRenameDraft(selectedContract.title)
+    setIsRenaming(true)
+  }
+
+  const handleCancelRename = useCallback(() => {
+    setIsRenaming(false)
+    setRenameDraft('')
+  }, [])
+
+  const handleCommitRename = useCallback(async () => {
+    if (!selectedContractId || !selectedContract) return
+
+    const trimmed = renameDraft.trim()
+    if (!trimmed) {
+      toast.error('Contract name cannot be empty')
+      return
+    }
+
+    if (trimmed === selectedContract.title) {
+      handleCancelRename()
+      return
+    }
+
+    setIsSavingRename(true)
+    const response = await contractsClient.renameTitle(selectedContractId, { title: trimmed })
+    setIsSavingRename(false)
+
+    if (!response.ok || !response.data) {
+      toast.error(response.error?.message ?? 'Failed to rename contract')
+      return
+    }
+
+    applyContractView(response.data)
+    upsertContractInSidebarList(response.data.contract)
+    setIsRenaming(false)
+    setRenameDraft('')
+    toast.success('Contract renamed successfully')
+  }, [
+    applyContractView,
+    handleCancelRename,
+    renameDraft,
+    selectedContract,
+    selectedContractId,
+    upsertContractInSidebarList,
+  ])
+
+  const handleRenameKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === 'Enter') {
+        event.preventDefault()
+        void handleCommitRename()
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        handleCancelRename()
+      }
+    },
+    [handleCancelRename, handleCommitRename]
+  )
 
   const handleSaveLegalMetadata = async () => {
     if (
@@ -1370,8 +1489,8 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   }, [signatories])
 
   const handleDocumentPanelPreview = useCallback(
-    (document: ContractDocument) => {
-      void handleViewDocument(document)
+    async (document: ContractDocument) => {
+      await handleViewDocument(document)
     },
     [handleViewDocument]
   )
@@ -1679,6 +1798,33 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     () => contracts.find((contract) => contract.id === selectedContractId) ?? null,
     [contracts, selectedContractId]
   )
+  const selectedContractCreatedAtLabel = useMemo(() => {
+    const createdAt = selectedContract?.requestCreatedAt ?? selectedContract?.createdAt
+
+    if (!createdAt) {
+      return null
+    }
+
+    return new Date(createdAt).toLocaleDateString()
+  }, [selectedContract?.createdAt, selectedContract?.requestCreatedAt])
+  const selectedContractCreatedAtDateTimeLabel = useMemo(() => {
+    const createdAt = selectedContract?.requestCreatedAt ?? selectedContract?.createdAt
+
+    if (!createdAt) {
+      return '—'
+    }
+
+    return new Date(createdAt).toLocaleString()
+  }, [selectedContract?.createdAt, selectedContract?.requestCreatedAt])
+  const headerPrimaryMetaLabel = useMemo(() => {
+    const departmentName = selectedContract?.departmentName?.trim()
+
+    if (departmentName) {
+      return `${departmentName} Department`
+    }
+
+    return 'Contract Workspace'
+  }, [selectedContract?.departmentName])
   const hasUnreadActivity = Boolean(selectedContractListRow?.hasUnreadActivity)
   const shouldShowDetailShimmer = Boolean(selectedContractId) && (isLoading || isContractContextLoading)
 
@@ -1929,6 +2075,10 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
   const isSigningSendProcessing = Boolean(selectedContractId && isSigningSendProcessingByContractId[selectedContractId])
   const backgroundOfRequest = selectedContract?.backgroundOfRequest?.trim() || 'Not provided'
+  const intakeBackgroundText = intakeCounterparties[0]?.backgroundOfRequest?.trim() || backgroundOfRequest
+  const intakeBudgetApprovedValue =
+    intakeCounterparties[0]?.budgetApproved ??
+    (typeof selectedContract?.budgetApproved === 'boolean' ? selectedContract.budgetApproved : null)
 
   return (
     <div className={`${styles.layout} ${!isSidebarOpen ? styles.layoutCollapsed : ''}`}>
@@ -1936,10 +2086,10 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       <aside className={`${styles.sidebar} ${!isSidebarOpen ? styles.sidebarCollapsed : ''}`}>
         <div className={styles.sidebarHeader}>
           <div className={styles.sidebarHeaderRow}>
-            <div>
+            <div className={styles.sidebarMeta}>
               <span className={styles.sidebarTitle}>Contracts</span>
               {!isLoading && (
-                <span className={styles.sidebarCount}>
+                <span className={styles.sidebarCountBadge}>
                   {contracts.length}
                   {totalContracts > 0 ? ` / ${totalContracts}` : ''}
                 </span>
@@ -1952,7 +2102,11 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
               aria-expanded={isSidebarOpen}
               onClick={() => setIsSidebarOpen((current) => !current)}
             >
-              ☰
+              {isSidebarOpen ? (
+                <PanelLeftClose size={16} aria-hidden="true" />
+              ) : (
+                <PanelLeftOpen size={16} aria-hidden="true" />
+              )}
             </button>
           </div>
         </div>
@@ -2002,9 +2156,68 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
         <ErrorBoundary sectionLabel="contract details" resetKey={selectedContractId}>
           <div className={styles.headerRow}>
             <button type="button" className={styles.backButton} onClick={handleBackNavigation}>
-              ← Back
+              <ArrowLeft size={14} aria-hidden="true" />
+              <span>Back</span>
             </button>
-            <div className={styles.title}>{selectedContract?.title ?? 'Contract Details'}</div>
+            <div className={styles.titleStack}>
+              {canManageLegalMetadata && selectedContract && isRenaming ? (
+                <div className={styles.headerRenameRow}>
+                  <input
+                    className={styles.headerRenameInput}
+                    value={renameDraft}
+                    autoFocus
+                    maxLength={500}
+                    disabled={isSavingRename}
+                    onChange={(e) => setRenameDraft(e.target.value)}
+                    onKeyDown={handleRenameKeyDown}
+                    aria-label="Contract name"
+                  />
+                  <button
+                    type="button"
+                    className={`${styles.renameActionButton} ${styles.renameConfirmButton}`}
+                    onClick={() => void handleCommitRename()}
+                    disabled={isSavingRename}
+                    aria-label="Confirm rename"
+                    title="Save name"
+                  >
+                    <Check size={13} aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    className={`${styles.renameActionButton} ${styles.renameCancelButton}`}
+                    onClick={handleCancelRename}
+                    disabled={isSavingRename}
+                    aria-label="Cancel rename"
+                    title="Cancel"
+                  >
+                    <X size={13} aria-hidden="true" />
+                  </button>
+                </div>
+              ) : (
+                <div className={styles.headerTitleRow}>
+                  <div className={styles.title}>{selectedContract?.title ?? 'Contract Details'}</div>
+                  {canManageLegalMetadata && selectedContract ? (
+                    <button
+                      type="button"
+                      className={styles.headerRenameButton}
+                      onClick={handleStartRename}
+                      aria-label="Rename contract"
+                      title="Rename contract"
+                    >
+                      <Pencil size={12} aria-hidden="true" />
+                    </button>
+                  ) : null}
+                </div>
+              )}
+              {selectedContract && !isRenaming ? (
+                <div className={styles.titleMetaRow}>
+                  <span className={styles.titleMetaPill}>{headerPrimaryMetaLabel}</span>
+                  {selectedContractCreatedAtLabel ? (
+                    <span className={styles.titleMetaPill}>Created {selectedContractCreatedAtLabel}</span>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
             <div className={styles.headerActions}>
               {selectedContract ? (
                 <ContractStatusBadge
@@ -2069,21 +2282,31 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                 <div className={styles.shimmerLine} style={{ width: '28%' }} />
                 <div className={styles.shimmerLine} style={{ width: '92%' }} />
                 <div className={styles.shimmerLine} style={{ width: '84%' }} />
+                <div className={styles.shimmerLine} style={{ width: '74%' }} />
               </div>
               <div className={styles.shimmerBlock}>
                 <div className={styles.shimmerLine} style={{ width: '20%' }} />
                 <div className={styles.shimmerLine} style={{ width: '96%' }} />
                 <div className={styles.shimmerLine} style={{ width: '88%' }} />
                 <div className={styles.shimmerLine} style={{ width: '80%' }} />
+                <div className={styles.shimmerLine} style={{ width: '62%' }} />
               </div>
               <div className={styles.shimmerBlock}>
                 <div className={styles.shimmerLine} style={{ width: '24%' }} />
                 <div className={styles.shimmerLine} style={{ width: '90%' }} />
+                <div className={styles.shimmerLine} style={{ width: '72%' }} />
+              </div>
+              <div className={styles.shimmerBlock}>
+                <div className={styles.shimmerLine} style={{ width: '18%' }} />
+                <div className={styles.shimmerLine} style={{ width: '95%' }} />
+                <div className={styles.shimmerLine} style={{ width: '86%' }} />
               </div>
             </div>
           ) : !selectedContract ? (
             <div className={styles.emptyState}>
-              <div className={styles.emptyStateIcon}>📄</div>
+              <div className={styles.emptyStateIcon}>
+                <FileText size={20} aria-hidden="true" />
+              </div>
               <div style={{ fontWeight: 600 }}>Select a contract</div>
               <div className={styles.itemMeta}>Choose a contract from the sidebar to view details</div>
             </div>
@@ -2091,19 +2314,25 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
             <div className={styles.detailsShell}>
               {/* ── Summary Column (flat sections) ── */}
               <aside className={styles.summaryColumn}>
-                <div className={styles.sectionBlock}>
-                  <div className={styles.sectionLabel}>Contract Summary</div>
-                  <div className={styles.row}>
-                    <span>Title</span>
-                    <span className={styles.rowValue}>{selectedContract.title}</span>
+                <div className={styles.summaryHero}>
+                  <div className={styles.summaryHeroLabel}>Contract Summary</div>
+                  <h2 className={styles.summaryHeroTitle}>{selectedContract.title}</h2>
+                  <div className={styles.summaryHeroMeta}>
+                    <span className={styles.summaryHeroPill}>
+                      {selectedContract.contractTypeName ?? 'Contract Type Not Set'}
+                    </span>
+                    <span className={styles.summaryHeroPill}>{headerPrimaryMetaLabel}</span>
                   </div>
-                  <div className={styles.row}>
-                    <span>Contract Type</span>
-                    <span>{selectedContract.contractTypeName ?? '—'}</span>
+                </div>
+
+                <div className={styles.summaryMetricGrid}>
+                  <div className={styles.summaryMetricCard}>
+                    <span className={styles.summaryMetricLabel}>Current Owner</span>
+                    <span className={styles.summaryMetricValue}>{selectedContract.currentAssigneeEmail ?? '—'}</span>
                   </div>
-                  <div className={styles.row}>
-                    <span>File</span>
-                    <span className={styles.rowValue}>{selectedContract.fileName}</span>
+                  <div className={styles.summaryMetricCard}>
+                    <span className={styles.summaryMetricLabel}>Created On</span>
+                    <span className={styles.summaryMetricValue}>{selectedContractCreatedAtDateTimeLabel}</span>
                   </div>
                 </div>
 
@@ -2131,7 +2360,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                   </div>
                   <div className={styles.row}>
                     <span>Current Owner</span>
-                    <span>{selectedContract.currentAssigneeEmail}</span>
+                    <span>{selectedContract.currentAssigneeEmail ?? '—'}</span>
                   </div>
                   <div className={styles.row}>
                     <span>Uploaded By</span>
@@ -2248,9 +2477,20 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                       type="button"
                       className={`${styles.button} ${styles.buttonPrimary}`}
                       onClick={() => void handleViewDocument()}
-                      disabled={!selectedContractId}
+                      disabled={!selectedContractId || isPreparingViewer}
                     >
-                      View Contract
+                      {isPreparingViewer && viewerPreviewTargetId === contractWorkspacePreviewTargetId ? (
+                        <span className={styles.buttonContent}>
+                          <Eye size={15} aria-hidden="true" />
+                          <Spinner size={14} />
+                          Opening...
+                        </span>
+                      ) : (
+                        <span className={styles.buttonContent}>
+                          <Eye size={15} aria-hidden="true" />
+                          View Contract
+                        </span>
+                      )}
                     </button>
                   </div>
                 </div>
@@ -2307,87 +2547,118 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                         </button>
                         {isIntakeOpen ? (
                           <div id="intake-details-panel" className={styles.accordionBody}>
-                            {intakeCounterparties.length === 0 ? (
-                              <div className={styles.row}>
-                                <span>Counterparties</span>
-                                <span>—</span>
-                              </div>
-                            ) : (
-                              <>
-                                <div className={styles.row}>
-                                  <span>Background of Request</span>
-                                  <span className={styles.multilineValue}>
-                                    {intakeCounterparties[0]?.backgroundOfRequest || '—'}
-                                  </span>
+                            <div className={styles.intakeLayout}>
+                              <div className={styles.intakeSnapshotGrid}>
+                                <div className={`${styles.intakePanel} ${styles.intakePanelWide}`}>
+                                  <div className={styles.intakePanelLabel}>Background of Request</div>
+                                  <p className={styles.intakeBackgroundText}>{intakeBackgroundText}</p>
                                 </div>
-                                <div className={styles.row}>
-                                  <span>Budget Approved</span>
-                                  <span>
-                                    {intakeCounterparties[0]?.budgetApproved === null
-                                      ? '—'
-                                      : intakeCounterparties[0]?.budgetApproved
-                                        ? 'Yes'
-                                        : 'No'}
-                                  </span>
-                                </div>
-                                <div className={styles.row}>
-                                  <span>Budget Approval Supporting Docs</span>
-                                  <span>
-                                    {budgetSupportingDocumentNames.length > 0
-                                      ? budgetSupportingDocumentNames.join(', ')
-                                      : 'Not provided'}
-                                  </span>
-                                </div>
-                                {intakeCounterparties.map((counterparty, counterpartyIndex) => (
-                                  <div key={`${counterparty.counterpartyName}-${counterpartyIndex}`}>
-                                    <div className={styles.row}>
-                                      <span>Counterparty {counterpartyIndex + 1}</span>
-                                      <span>{counterparty.counterpartyName}</span>
-                                    </div>
-                                    <div className={styles.row}>
-                                      <span>Counterparty {counterpartyIndex + 1} Supporting Docs</span>
-                                      <span>
-                                        {counterparty.supportingCount > 0
-                                          ? counterparty.supportingFileNames.join(', ')
-                                          : 'Not provided'}
-                                      </span>
-                                    </div>
-                                    {counterparty.signatories.length === 0 ? (
-                                      <div className={styles.row}>
-                                        <span>Signatories</span>
-                                        <span>—</span>
+                                <div className={styles.intakePanel}>
+                                  <div className={styles.intakePanelLabel}>Request Snapshot</div>
+                                  <div className={styles.intakeFactRow}>
+                                    <span>Budget Approved</span>
+                                    <strong>
+                                      {intakeBudgetApprovedValue === null
+                                        ? 'Not provided'
+                                        : intakeBudgetApprovedValue
+                                          ? 'Yes'
+                                          : 'No'}
+                                    </strong>
+                                  </div>
+                                  <div className={styles.intakeFactBlock}>
+                                    <span>Budget Supporting Docs</span>
+                                    {budgetSupportingDocumentNames.length > 0 ? (
+                                      <div className={styles.intakeTagList}>
+                                        {budgetSupportingDocumentNames.map((fileName, fileIndex) => (
+                                          <span
+                                            key={`${fileName}-budget-supporting-${fileIndex}`}
+                                            className={styles.intakeTag}
+                                          >
+                                            {fileName}
+                                          </span>
+                                        ))}
                                       </div>
                                     ) : (
-                                      counterparty.signatories.map((signatory, signatoryIndex) => (
-                                        <div
-                                          key={`${counterparty.counterpartyName}-${counterpartyIndex}-signatory-${signatoryIndex}`}
-                                        >
-                                          <div className={styles.row}>
-                                            <span>
-                                              Counterparty {counterpartyIndex + 1} Signatory {signatoryIndex + 1} Name
-                                            </span>
-                                            <span>{signatory.name || '—'}</span>
-                                          </div>
-                                          <div className={styles.row}>
-                                            <span>
-                                              Counterparty {counterpartyIndex + 1} Signatory {signatoryIndex + 1}{' '}
-                                              Designation
-                                            </span>
-                                            <span>{signatory.designation || '—'}</span>
-                                          </div>
-                                          <div className={styles.row}>
-                                            <span>
-                                              Counterparty {counterpartyIndex + 1} Signatory {signatoryIndex + 1} Email
-                                            </span>
-                                            <span>{signatory.email || '—'}</span>
-                                          </div>
-                                        </div>
-                                      ))
+                                      <div className={styles.eventMeta}>Not provided</div>
                                     )}
                                   </div>
-                                ))}
-                              </>
-                            )}
+                                </div>
+                              </div>
+
+                              {intakeCounterparties.length === 0 ? (
+                                <div className={styles.intakeEmpty}>
+                                  No counterparty details captured in intake yet.
+                                </div>
+                              ) : (
+                                <div className={styles.intakeCounterpartyStack}>
+                                  {intakeCounterparties.map((counterparty, counterpartyIndex) => (
+                                    <section
+                                      key={`${counterparty.counterpartyName}-${counterpartyIndex}`}
+                                      className={styles.intakeCounterpartyCard}
+                                    >
+                                      <div className={styles.intakeCounterpartyHeader}>
+                                        <span className={styles.intakeCounterpartyIndex}>
+                                          Counterparty {counterpartyIndex + 1}
+                                        </span>
+                                        <h4 className={styles.intakeCounterpartyName}>
+                                          {counterparty.counterpartyName}
+                                        </h4>
+                                      </div>
+
+                                      <div className={styles.intakeCounterpartySection}>
+                                        <div className={styles.intakeSectionLabel}>Supporting Documents</div>
+                                        {counterparty.supportingCount > 0 ? (
+                                          <div className={styles.intakeTagList}>
+                                            {counterparty.supportingFileNames.map((fileName, fileIndex) => (
+                                              <span
+                                                key={`${fileName}-counterparty-${counterpartyIndex}-${fileIndex}`}
+                                                className={styles.intakeTag}
+                                              >
+                                                {fileName}
+                                              </span>
+                                            ))}
+                                          </div>
+                                        ) : (
+                                          <div className={styles.eventMeta}>Not provided</div>
+                                        )}
+                                      </div>
+
+                                      <div className={styles.intakeCounterpartySection}>
+                                        <div className={styles.intakeSectionLabel}>Signatories</div>
+                                        {counterparty.signatories.length === 0 ? (
+                                          <div className={styles.eventMeta}>No signatories added.</div>
+                                        ) : (
+                                          <div className={styles.intakeSignatoryGrid}>
+                                            {counterparty.signatories.map((signatory, signatoryIndex) => (
+                                              <div
+                                                key={`${counterparty.counterpartyName}-${counterpartyIndex}-signatory-${signatoryIndex}`}
+                                                className={styles.intakeSignatoryCard}
+                                              >
+                                                <div className={styles.intakeSignatoryTitle}>
+                                                  Signatory {signatoryIndex + 1}
+                                                </div>
+                                                <div className={styles.intakeSignatoryRow}>
+                                                  <span>Name</span>
+                                                  <span>{signatory.name || '—'}</span>
+                                                </div>
+                                                <div className={styles.intakeSignatoryRow}>
+                                                  <span>Designation</span>
+                                                  <span>{signatory.designation || '—'}</span>
+                                                </div>
+                                                <div className={styles.intakeSignatoryRow}>
+                                                  <span>Email</span>
+                                                  <span>{signatory.email || '—'}</span>
+                                                </div>
+                                              </div>
+                                            ))}
+                                          </div>
+                                        )}
+                                      </div>
+                                    </section>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
                           </div>
                         ) : null}
                       </div>
@@ -2467,8 +2738,14 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                             ) : null}
                             <div className={styles.timeline}>
                               {signatories.map((signatory) => {
-                                const generatedSigningLink =
-                                  generatedSigningLinksByEmail[signatory.signatoryEmail.trim().toLowerCase()]
+                                const normalizedSignatoryEmail = signatory.signatoryEmail.trim().toLowerCase()
+                                const isSignatorySigned = signatory.status === 'SIGNED'
+                                const isGeneratingSignatoryLink =
+                                  isGeneratingLinkFor?.trim().toLowerCase() === normalizedSignatoryEmail
+                                const isSigningLinkCopied = copiedSigningLinkFor === normalizedSignatoryEmail
+                                const generatedSigningLink = isSignatorySigned
+                                  ? undefined
+                                  : generatedSigningLinksByEmail[normalizedSignatoryEmail]
 
                                 return (
                                   <div key={signatory.id} className={styles.event}>
@@ -2488,12 +2765,16 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                                         {signatory.status}
                                       </span>
                                     </div>
-                                    {signatory.recipientType === 'INTERNAL' ? (
+                                    {isSignatorySigned ? (
+                                      <div className={styles.signatoryActionHint}>
+                                        This signer has completed signing.
+                                      </div>
+                                    ) : signatory.recipientType === 'INTERNAL' ? (
                                       <div className={styles.signatoryActionRow}>
                                         <button
                                           type="button"
                                           className={`${styles.button} ${styles.buttonGhost} ${styles.signatoryLinkButton}`}
-                                          disabled={isMutating || isGeneratingLinkFor === signatory.signatoryEmail}
+                                          disabled={isMutating || isGeneratingSignatoryLink}
                                           onClick={() =>
                                             void handleGenerateSigningLink(
                                               signatory.signatoryEmail,
@@ -2501,16 +2782,14 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                                             )
                                           }
                                         >
-                                          {isGeneratingLinkFor === signatory.signatoryEmail
+                                          {isGeneratingSignatoryLink
                                             ? 'Generating link...'
-                                            : copiedSigningLinkFor === signatory.signatoryEmail.trim().toLowerCase()
+                                            : isSigningLinkCopied
                                               ? 'Copied'
                                               : 'Copy Signing Link'}
                                         </button>
                                         <span className={styles.signatoryActionHint}>
-                                          {copiedSigningLinkFor === signatory.signatoryEmail.trim().toLowerCase()
-                                            ? 'Copied to clipboard'
-                                            : 'Generates fresh secure link'}
+                                          {isSigningLinkCopied ? 'Copied to clipboard' : 'Generates fresh secure link'}
                                         </span>
                                         {generatedSigningLink ? (
                                           <a
@@ -2526,7 +2805,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                                       </div>
                                     ) : (
                                       <div className={styles.signatoryActionHint}>
-                                        Signing link available for Nxtwave users.
+                                        Signing link available for NxtWave users.
                                       </div>
                                     )}
                                   </div>
@@ -2649,15 +2928,19 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                     <div className={styles.tabSection}>
                       <div className={styles.card}>
                         <div className={styles.sectionTitle}>Notes</div>
-                        <form className={styles.inlineForm} onSubmit={handleAddNoteSubmit}>
-                          <input
-                            type="text"
-                            className={styles.input}
+                        <form className={styles.noteForm} onSubmit={handleAddNoteSubmit}>
+                          <textarea
+                            className={styles.textarea}
                             placeholder="Add note"
                             value={noteText}
+                            rows={3}
                             onChange={(event) => setNoteText(event.target.value)}
                           />
-                          <button type="submit" className={styles.button} disabled={isMutating}>
+                          <button
+                            type="submit"
+                            className={`${styles.button} ${styles.noteSubmitButton}`}
+                            disabled={isMutating}
+                          >
                             Add Note
                           </button>
                         </form>
@@ -2665,7 +2948,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                           {noteEvents.map((event) => (
                             <div key={event.id} className={styles.event}>
                               <div className={styles.eventActor}>{event.actorEmail ?? 'System'}</div>
-                              <div>{event.noteText}</div>
+                              <div className={styles.noteText}>{event.noteText}</div>
                               <div className={styles.eventMeta}>{new Date(event.createdAt).toLocaleString()}</div>
                             </div>
                           ))}
@@ -2687,6 +2970,8 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                       onPreviewDocument={handleDocumentPanelPreview}
                       onDownloadDocument={handleDocumentPanelDownload}
                       onRefreshDocuments={handleDocumentPanelRefresh}
+                      isPreparingPreview={isPreparingViewer}
+                      previewingDocumentId={viewerPreviewTargetId}
                     />
                   )}
 
@@ -2699,10 +2984,20 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                       canSkipApprovals={canManageApprovals}
                       approverEmail={approverEmail}
                       onApproverEmailChange={setApproverEmail}
+                      approverNote={approverNote}
+                      onApproverNoteChange={setApproverNote}
                       onAddApprover={handleAddApprover}
                       onRemindApprover={handleRemindApprover}
                       onSkipApprover={handleSkipApprover}
                       onSkipRefresh={handleApprovalsSkipRefresh}
+                      hodSuggestions={hodSuggestions}
+                      onLoadHodSuggestions={async () => {
+                        if (hodSuggestions.length > 0) return
+                        const res = await contractsClient.departments()
+                        if (res.data?.departments) {
+                          setHodSuggestions(res.data.departments.filter((d) => Boolean(d.hodEmail)))
+                        }
+                      }}
                     />
                   )}
 
@@ -2919,6 +3214,13 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                 <div>{backgroundOfRequest}</div>
               </div>
             ) : null}
+            <textarea
+              className={styles.textarea}
+              value={confirmNote}
+              onChange={(event) => setConfirmNote(event.target.value)}
+              rows={3}
+              placeholder="Add a note (optional)"
+            />
             <div className={styles.actionRemarkActions}>
               <button
                 type="button"

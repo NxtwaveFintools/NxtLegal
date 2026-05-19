@@ -10,7 +10,7 @@
  * useful for setting up authenticated state without navigating the UI.
  */
 
-import { type Page, expect } from '@playwright/test'
+import { type APIResponse, type Page, expect } from '@playwright/test'
 import { TEST_USERS, type TestUserKey, ROUTES, API, COOKIE_NAMES } from './constants'
 
 // ─── UI-Based Login ──────────────────────────────────────────────────────────
@@ -20,6 +20,10 @@ import { TEST_USERS, type TestUserKey, ROUTES, API, COOKIE_NAMES } from './const
  * Waits for redirect to /dashboard after successful login.
  */
 export async function loginViaUI(page: Page, userKey: TestUserKey): Promise<void> {
+  if (page.url().includes('/dashboard')) {
+    return
+  }
+
   const user = TEST_USERS[userKey]
 
   await page.goto(ROUTES.login)
@@ -58,15 +62,37 @@ export async function loginViaAPI(page: Page, userKey: TestUserKey): Promise<voi
   const baseURL =
     (page.context() as unknown as { _options?: { baseURL?: string } })._options?.baseURL || 'http://localhost:3000'
 
-  const response = await page.context().request.post(`${baseURL}${API.login}`, {
-    data: {
-      email: user.email,
-      password: user.password,
-    },
-    headers: {
-      'Content-Type': 'application/json',
-    },
-  })
+  const maxAttempts = 12
+  let response: APIResponse | null = null
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    response = await page.context().request.post(`${baseURL}${API.login}`, {
+      data: {
+        email: user.email,
+        password: user.password,
+      },
+      headers: {
+        'Content-Type': 'application/json',
+      },
+    })
+
+    if (response.ok()) {
+      break
+    }
+
+    if (response.status() !== 429 || attempt === maxAttempts) {
+      break
+    }
+
+    const retryAfterHeader = response.headers()['retry-after']
+    const retryAfterSeconds = retryAfterHeader ? Number.parseInt(retryAfterHeader, 10) : Number.NaN
+    const backoffMs = Number.isFinite(retryAfterSeconds) && retryAfterSeconds > 0 ? retryAfterSeconds * 1000 : 15000
+    await new Promise((resolve) => setTimeout(resolve, backoffMs))
+  }
+
+  if (!response) {
+    throw new Error(`API login failed for ${user.email}: no response`)
+  }
 
   expect(response.ok(), `API login for ${user.email} should succeed (status ${response.status()})`).toBeTruthy()
 

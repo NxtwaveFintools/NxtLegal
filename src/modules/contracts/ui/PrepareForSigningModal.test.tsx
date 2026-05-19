@@ -20,6 +20,7 @@ jest.mock('react-pdf', () => {
     }) => {
       React.useEffect(() => {
         onLoadSuccess?.({ numPages: 3 })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
       }, [])
 
       return <div data-testid="pdf-document">{children}</div>
@@ -38,6 +39,7 @@ jest.mock('react-pdf', () => {
             height: 792 * scale,
           }),
         })
+        // eslint-disable-next-line react-hooks/exhaustive-deps
       }, [])
 
       return <div data-testid="pdf-page">PDF Page</div>

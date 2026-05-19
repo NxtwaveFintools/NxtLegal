@@ -1,19 +1,30 @@
 .page {
+  --dashboard-topbar-height: 72px;
+  --contracts-header-height: 58px;
+  --contracts-tabs-height: 43px;
+
   display: grid;
-  grid-template-columns: 80px 1fr;
+  grid-template-columns: 76px minmax(0, 1fr);
   min-height: 100vh;
-  background: var(--color-background);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--color-surface-muted) 72%, transparent) 0, transparent 360px),
+    var(--color-background);
   color: var(--color-text);
 }
 
 .sidebar {
-  background: var(--color-sidebar);
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  background: color-mix(in srgb, var(--color-sidebar) 94%, transparent);
   border-right: 1px solid var(--color-border);
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 20px 0;
-  gap: 18px;
+  padding: 18px 0;
+  gap: 16px;
+  backdrop-filter: blur(18px);
+  z-index: 40;
 }
 
 .sidebarBrand {
@@ -21,12 +32,21 @@
   flex-direction: column;
   align-items: center;
   gap: 4px;
+  border-radius: 14px;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.sidebarBrand:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--color-accent) 70%, transparent);
+  outline-offset: 4px;
 }
 
 .sidebarLogo {
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
+  width: 38px;
+  height: 38px;
+  border-radius: var(--radius-md);
   background: var(--color-accent);
   color: var(--color-accent-contrast);
   display: flex;
@@ -38,9 +58,10 @@
     box-shadow 0.2s ease;
 }
 
-.sidebarLogo:hover {
-  transform: scale(1.08);
-  box-shadow: 0 2px 12px color-mix(in srgb, var(--color-accent) 28%, transparent);
+.sidebarBrand:hover .sidebarLogo,
+.sidebarBrand:focus-visible .sidebarLogo {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--color-accent) 22%, transparent);
 }
 
 .sidebarLogoSvg {
@@ -51,7 +72,7 @@
 .sidebarBrandText {
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
   color: var(--color-text-muted);
   line-height: 1;
 }
@@ -59,14 +80,15 @@
 .navList {
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: 10px;
   margin-top: 8px;
 }
 
 .navItem {
-  width: 38px;
-  height: 38px;
-  border-radius: 12px;
+  position: relative;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
   border: 1px solid transparent;
   background: transparent;
   display: flex;
@@ -74,6 +96,7 @@
   justify-content: center;
   color: var(--color-text-muted);
   cursor: pointer;
+  text-decoration: none;
   transition:
     background 0.2s ease,
     border-color 0.2s ease,
@@ -85,15 +108,47 @@
 .navItem:hover {
   background: var(--color-surface-muted);
   color: var(--color-text);
-  transform: scale(1.1);
+  transform: translateY(-1px);
   box-shadow: var(--color-shadow-sm);
 }
 
+.navItem::after {
+  content: attr(data-nav-label);
+  position: absolute;
+  top: 50%;
+  left: calc(100% + 12px);
+  transform: translateY(-50%) translateX(-4px);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--color-surface) 96%, transparent);
+  color: var(--color-text);
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  opacity: 0;
+  pointer-events: none;
+  box-shadow: var(--color-shadow-sm);
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
+  z-index: 50;
+}
+
+.navItem:hover::after,
+.navItem:focus-visible::after {
+  opacity: 1;
+  transform: translateY(-50%) translateX(0);
+}
+
 .navItemActive {
-  background: var(--color-accent-soft);
-  border-color: var(--color-accent);
+  background: var(--color-surface);
+  border-color: color-mix(in srgb, var(--color-accent) 44%, var(--color-border));
   color: var(--color-accent);
-  animation: pulseGlow 2.5s ease-in-out infinite;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--color-accent) 18%, transparent),
+    var(--color-shadow-sm);
 }
 
 .navIcon {
@@ -113,7 +168,7 @@
   margin-top: auto;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 10px;
 }
 
 .content {
@@ -123,103 +178,116 @@
 }
 
 .topbar {
+  position: sticky;
+  top: 0;
+  z-index: 30;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 18px 28px;
+  gap: 24px;
+  min-height: var(--dashboard-topbar-height);
+  padding: 10px 28px;
   border-bottom: 1px solid var(--color-border);
-  background: var(--color-surface);
+  background: color-mix(in srgb, var(--color-surface) 97%, transparent);
+  backdrop-filter: blur(18px);
   animation: fadeIn 0.4s ease;
 }
 
 .topbarLeft {
   display: flex;
   align-items: center;
-  gap: 16px;
+  gap: 18px;
+  flex: 1 1 420px;
   min-width: 0;
-}
-
-.searchBar {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  background: var(--color-surface-muted);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-pill);
-  padding: 6px 14px;
-  color: var(--color-text-muted);
-  font-size: 13px;
-  transition:
-    border-color 0.25s ease,
-    box-shadow 0.25s ease,
-    width 0.3s ease;
-}
-
-.searchBar:focus-within {
-  border-color: var(--color-accent);
-  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 24%, transparent);
-}
-
-.searchInput {
-  border: none;
-  background: transparent;
-  outline: none;
-  color: var(--color-text);
-  width: 180px;
-  font-size: 13px;
-  transition: width 0.3s ease;
-}
-
-.searchInput:focus {
-  width: 240px;
 }
 
 .topbarRight {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 12px;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+
+.topbarTitle {
+  color: var(--color-text);
+  font-size: 22px;
+  font-weight: 760;
+  line-height: 1.1;
+  white-space: nowrap;
+}
+
+.topbarTools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.topbarPanels {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.userPanel {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  max-width: 360px;
+  padding: 6px 10px 6px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 16px;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-surface) 98%, transparent) 0%,
+    color-mix(in srgb, var(--color-accent) 8%, var(--color-surface)) 100%
+  );
 }
 
 .userIdentity {
   display: inline-flex;
   flex-direction: column;
-  align-items: flex-end;
+  align-items: flex-start;
   min-width: 0;
 }
 
-.userEmail {
-  font-size: 12px;
-  color: var(--color-text-muted);
-  max-width: 240px;
+.userName {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-text);
+  max-width: 220px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.userRole {
-  font-size: 11px;
-  font-weight: 600;
-  color: var(--color-accent);
-  letter-spacing: 0.02em;
-}
-
-.userTeam {
-  font-size: 10px;
-  font-weight: 500;
+.userEmail {
+  font-size: 12px;
   color: var(--color-text-muted);
-  letter-spacing: 0.01em;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .companyBadge {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
+  min-width: 0;
+  padding: 8px 14px;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-pill);
-  font-size: 12px;
-  color: var(--color-text-muted);
-  background: var(--color-surface);
+  border-radius: 16px;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-surface) 96%, transparent) 0%,
+    color-mix(in srgb, var(--color-accent) 5%, var(--color-surface)) 100%
+  );
+  max-width: 320px;
   transition: border-color 0.2s ease;
 }
 
@@ -227,17 +295,32 @@
   border-color: var(--color-accent);
 }
 
+.companyBadgeValue {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text);
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .profileBadge {
-  width: 32px;
-  height: 32px;
-  border-radius: var(--radius-md);
-  background: var(--color-surface-muted);
-  border: 1px solid var(--color-border);
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  border-radius: 12px;
+  background: linear-gradient(
+    135deg,
+    color-mix(in srgb, var(--color-accent) 88%, white) 0%,
+    color-mix(in srgb, var(--color-accent) 66%, var(--color-success)) 100%
+  );
+  border: 1px solid color-mix(in srgb, var(--color-accent) 40%, var(--color-border));
   display: flex;
   align-items: center;
   justify-content: center;
-  font-weight: 600;
-  color: var(--color-text);
+  font-weight: 800;
+  color: var(--color-accent-contrast);
   transition:
     transform 0.2s ease,
     box-shadow 0.2s ease,
@@ -247,14 +330,42 @@
 .profileBadge:hover {
   transform: translateY(-1px);
   box-shadow: var(--color-shadow-sm);
-  border-color: var(--color-accent);
+  border-color: color-mix(in srgb, var(--color-accent) 62%, var(--color-border));
 }
 
 .main {
-  padding: 28px;
+  width: 100%;
+  max-width: 1680px;
+  margin: 0 auto;
+  padding: 32px 40px;
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 30px;
+}
+
+.dashboardIntro {
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+  max-height: 390px;
+  opacity: 1;
+  overflow: hidden;
+  transform: translateY(0);
+  will-change: max-height, opacity, transform, margin-bottom;
+  transform-origin: top center;
+  transition:
+    max-height 0.56s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.36s ease,
+    transform 0.56s cubic-bezier(0.22, 1, 0.36, 1),
+    margin-bottom 0.56s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.dashboardIntroCollapsed {
+  max-height: 0;
+  margin-bottom: -18px;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-18px);
 }
 
 .greeting {
@@ -262,18 +373,22 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  padding-top: 2px;
   animation: fadeInUp 0.5s ease both;
 }
 
 .greetingTitle {
-  font-size: 24px;
-  font-weight: 700;
+  font-size: 30px;
+  font-weight: 750;
+  line-height: 1.12;
+  letter-spacing: 0;
 }
 
 .greetingSubtitle {
-  font-size: 13px;
+  font-size: 14px;
   color: var(--color-text-muted);
-  margin-top: 4px;
+  margin-top: 8px;
+  line-height: 1.5;
 }
 
 .tasksRow {
@@ -284,37 +399,41 @@
 }
 
 .tasksCardGroup {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-xl);
-  padding: 18px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  box-shadow: var(--shadow-card);
+  gap: 12px;
+  box-shadow: none;
 }
 
 .tasksHeader {
   font-size: 13px;
   color: var(--color-text-muted);
-  font-weight: 600;
+  font-weight: 700;
+  line-height: 1.3;
 }
 
 .taskCards {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
 }
 
 .actionCard {
-  border-radius: var(--radius-xl);
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
   background: var(--color-surface);
-  padding: 18px;
+  padding: 20px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  min-height: 110px;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 124px;
   text-align: left;
   cursor: pointer;
   animation: fadeInUp 0.45s ease both;
@@ -338,42 +457,50 @@
 }
 
 .actionCard:hover {
-  border-color: var(--color-accent);
-  box-shadow: 0 6px 20px color-mix(in srgb, var(--color-accent) 20%, transparent);
-  transform: translateY(-2px);
-  background: var(--color-accent-soft);
+  border-color: color-mix(in srgb, var(--color-accent) 46%, var(--color-border));
+  box-shadow: 0 12px 28px color-mix(in srgb, var(--color-accent) 12%, transparent);
+  transform: translateY(-1px);
+  background: var(--color-surface);
 }
 
 .actionCardTop {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
+  gap: 14px;
 }
 
 .actionCardTitle {
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 650;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  min-width: 0;
+  line-height: 1.35;
 }
 
 .actionCardIcon {
-  width: 22px;
-  height: 22px;
-  border-radius: 8px;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  background: var(--color-accent-soft);
+  background: color-mix(in srgb, var(--color-accent) 10%, var(--color-surface));
   color: var(--color-accent);
   font-size: 10px;
   font-weight: 700;
-  transition: transform 0.2s ease;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 18%, transparent);
+  flex-shrink: 0;
+  transition:
+    background 0.2s ease,
+    transform 0.2s ease;
 }
 
 .actionCard:hover .actionCardIcon {
-  transform: scale(1.15);
+  background: var(--color-accent-soft);
+  transform: translateY(-1px);
 }
 
 .actionCardIcon svg {
@@ -382,45 +509,59 @@
 }
 
 .actionCardCount {
-  font-size: 22px;
-  font-weight: 700;
+  font-size: 28px;
+  font-weight: 760;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
   color: var(--color-accent);
   transition: transform 0.2s ease;
 }
 
 .actionCard:hover .actionCardCount {
-  transform: scale(1.1);
+  transform: translateY(-1px);
 }
 
 .actionCardMeta {
   font-size: 12px;
+  line-height: 1.45;
   color: var(--color-text-muted);
 }
 
 .contractsSection {
-  border-radius: var(--radius-xl);
+  position: relative;
+  overflow: visible;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--color-border);
   background: var(--color-surface);
-  padding: 20px;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 0;
   animation: fadeInUp 0.5s ease 0.2s both;
-  box-shadow: var(--shadow-card);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
 }
 
 .contractsHeader {
+  position: sticky;
+  top: var(--dashboard-topbar-height);
+  z-index: 24;
+  min-height: var(--contracts-header-height);
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  padding: 20px 20px 14px;
   font-size: 13px;
   color: var(--color-text-muted);
+  border-top-left-radius: var(--radius-lg);
+  border-top-right-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--color-surface) 98%, transparent);
 }
 
 .contractsHeaderTitle {
-  font-weight: 700;
-  font-size: 16px;
+  font-weight: 750;
+  font-size: 17px;
+  line-height: 1.3;
   color: var(--color-text);
 }
 
@@ -430,9 +571,12 @@
   cursor: pointer;
   border: none;
   background: none;
-  font-weight: 600;
+  font-weight: 650;
   padding: 0;
-  transition: opacity 0.2s ease;
+  text-decoration: none;
+  transition:
+    color 0.2s ease,
+    opacity 0.2s ease;
 }
 
 .repositoryLink:hover {
@@ -440,43 +584,55 @@
 }
 
 .contractsTabs {
+  position: sticky;
+  top: calc(var(--dashboard-topbar-height) + var(--contracts-header-height));
+  z-index: 23;
   display: flex;
   align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
+  gap: 24px;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  padding: 0 20px;
+  border-bottom: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-surface) 98%, transparent);
+  scrollbar-width: none;
+}
+
+.contractsTabs::-webkit-scrollbar {
+  display: none;
 }
 
 .tab {
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--color-border);
-  padding: 7px 14px;
-  font-size: 12px;
-  font-weight: 600;
+  border-radius: 0;
+  border: none;
+  border-bottom: 2px solid transparent;
+  padding: 10px 0;
+  font-size: 13px;
+  font-weight: 500;
   color: var(--color-text-muted);
   cursor: pointer;
-  background: var(--color-surface);
+  background: transparent;
+  margin-bottom: -1px;
+  white-space: nowrap;
   transition:
-    border-color 0.2s ease,
     color 0.2s ease,
-    background 0.2s ease,
-    transform 0.2s ease;
+    border-bottom-color 0.2s ease;
 }
 
 .tab:hover {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
-  transform: translateY(-1px);
+  color: var(--color-text);
+  border-bottom-color: var(--color-border-strong);
 }
 
 .tabActive {
-  border-color: var(--color-accent);
   color: var(--color-accent);
-  background: var(--color-accent-soft);
+  border-bottom-color: var(--color-accent);
+  font-weight: 750;
+  background: transparent;
 }
 
 .contractsBody {
   min-height: 200px;
-  border-radius: var(--radius-lg);
   padding: 0;
 }
 
@@ -487,16 +643,17 @@
   justify-content: center;
   text-align: center;
   min-height: 260px;
-  border-radius: var(--radius-lg);
+  margin: 20px;
+  border-radius: var(--radius-sm);
   border: 1px dashed var(--color-border);
-  background: var(--color-surface-muted);
+  background: color-mix(in srgb, var(--color-surface-muted) 74%, var(--color-surface));
   padding: 24px;
   animation: fadeIn 0.3s ease;
 }
 
 .emptyTitle {
   font-size: 18px;
-  font-weight: 700;
+  font-weight: 750;
 }
 
 .emptySubtitle {
@@ -511,7 +668,7 @@
   align-items: center;
   gap: 8px;
   padding: 8px 16px;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   border: 1px solid var(--color-accent);
   color: var(--color-accent);
   background: transparent;
@@ -535,14 +692,18 @@
 .contractActionButton {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
-  padding: 8px 16px;
-  border-radius: var(--radius-md);
+  min-height: 34px;
+  padding: 7px 14px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
   color: var(--color-text);
   background: var(--color-surface);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 650;
+  line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
   transition:
     border-color 0.2s ease,
@@ -553,8 +714,8 @@
 }
 
 .contractActionButton:hover {
-  border-color: var(--color-accent);
-  background: var(--color-accent-soft);
+  border-color: color-mix(in srgb, var(--color-accent) 42%, var(--color-border));
+  background: color-mix(in srgb, var(--color-accent) 8%, var(--color-surface));
   color: var(--color-accent);
   transform: translateY(-1px);
 }
@@ -590,9 +751,10 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 6px 12px;
+  min-height: 34px;
+  padding: 6px 10px;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 650;
   color: var(--color-text-muted);
 }
 
@@ -600,7 +762,7 @@
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 0;
 }
 
 .contractItem {
@@ -609,10 +771,12 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 14px 18px;
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
+  padding: 16px 20px 16px 17px;
+  border: 0;
+  border-top: 1px solid var(--color-border);
+  border-left: 3px solid transparent;
+  border-radius: 0;
+  background: transparent;
   animation: fadeIn 0.3s ease both;
   text-align: left;
   transition:
@@ -623,36 +787,50 @@
 }
 
 .contractItem:hover {
-  border-color: var(--color-accent);
-  box-shadow: 0 2px 10px color-mix(in srgb, var(--color-accent) 16%, transparent);
-  transform: translateX(2px);
-  background: var(--color-surface-muted);
+  border-left-color: var(--color-accent);
+  box-shadow: none;
+  transform: none;
+  background: color-mix(in srgb, var(--color-accent) 4%, var(--color-surface-muted));
+}
+
+.contractContent {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .contractTitle {
-  font-size: 14px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 650;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
 }
 
 .contractTitleRow {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
 }
 
 .contractMeta {
   font-size: 12px;
+  line-height: 1.45;
   color: var(--color-text-muted);
 }
 
 .contractAging {
   margin-top: 4px;
   width: fit-content;
-  border-radius: var(--radius-pill);
+  border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
-  padding: 2px 10px;
-  font-size: 11px;
+  padding: 3px 9px;
+  font-size: 10px;
   font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1.45;
 }
 
 .contractAgingNeutral {
@@ -661,27 +839,27 @@
 }
 
 .contractAgingGreen {
-  border-color: var(--color-success);
+  border-color: color-mix(in srgb, var(--color-success) 46%, var(--color-border));
   color: var(--color-success);
-  background: var(--color-success-soft);
+  background: color-mix(in srgb, var(--color-success) 12%, var(--color-surface));
 }
 
 .contractAgingYellow {
-  border-color: var(--color-warning);
+  border-color: color-mix(in srgb, var(--color-warning) 46%, var(--color-border));
   color: var(--color-warning);
-  background: var(--color-warning-soft);
+  background: color-mix(in srgb, var(--color-warning) 12%, var(--color-surface));
 }
 
 .contractAgingRed {
-  border-color: var(--color-danger);
+  border-color: color-mix(in srgb, var(--color-danger) 46%, var(--color-border));
   color: var(--color-danger);
-  background: var(--color-danger-soft);
+  background: color-mix(in srgb, var(--color-danger) 12%, var(--color-surface));
 }
 
 .tatBreachLabel {
   margin-top: 4px;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 750;
   color: var(--color-danger);
 }
 
@@ -697,20 +875,35 @@
   display: flex;
   align-items: center;
   gap: 8px;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
 }
 
 .contractItemBreached {
-  border-color: var(--color-danger);
+  border-left-color: var(--color-danger);
+  background: var(--color-danger-soft);
+}
+
+.contractItemBreached:hover {
+  border-left-color: var(--color-danger);
   background: var(--color-danger-soft);
 }
 
 .paginationRow {
+  position: sticky;
+  top: calc(var(--dashboard-topbar-height) + var(--contracts-header-height) + var(--contracts-tabs-height));
+  z-index: 22;
   width: 100%;
-  margin-top: 8px;
+  margin-top: 0;
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 10px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-surface-muted) 78%, var(--color-surface));
+  flex-wrap: wrap;
 }
 
 .pageSizeLabel {
@@ -718,18 +911,19 @@
   align-items: center;
   gap: 6px;
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 650;
   color: var(--color-text-muted);
 }
 
 .pageSizeSelect {
   min-width: 70px;
-  border-radius: var(--radius-md);
+  min-height: 34px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
   background: var(--color-surface);
   color: var(--color-text);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 650;
   padding: 6px 10px;
   color-scheme: light dark;
 }
@@ -753,13 +947,16 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 8px 16px;
-  border-radius: var(--radius-md);
+  min-height: 34px;
+  padding: 7px 14px;
+  border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
   background: var(--color-surface);
   color: var(--color-text);
   font-size: 12px;
-  font-weight: 600;
+  font-weight: 650;
+  line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
   transition:
     border-color 0.2s ease,
@@ -769,10 +966,10 @@
 }
 
 .paginationButton:hover:not(:disabled) {
-  border-color: var(--color-accent);
-  background: var(--color-accent-soft);
+  border-color: color-mix(in srgb, var(--color-accent) 42%, var(--color-border));
+  background: color-mix(in srgb, var(--color-accent) 8%, var(--color-surface));
   transform: translateY(-1px);
-  box-shadow: 0 2px 8px color-mix(in srgb, var(--color-accent) 22%, transparent);
+  box-shadow: 0 6px 14px color-mix(in srgb, var(--color-accent) 12%, transparent);
 }
 
 .paginationButton:disabled {
@@ -780,7 +977,7 @@
   opacity: 0.55;
 }
 
-/* ── Shimmer Skeleton Loading ── */
+/* Shimmer skeleton loading */
 
 .shimmerLine {
   height: 14px;
@@ -796,7 +993,7 @@
 }
 
 .shimmerCard {
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
   background: var(--color-surface);
   padding: 18px;
@@ -810,16 +1007,17 @@
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 14px 12px;
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
+  padding: 16px 20px;
+  border-radius: 0;
+  border: 0;
+  border-top: 1px solid var(--color-border);
+  background: transparent;
 }
 
 .shimmerAvatar {
   width: 36px;
   height: 36px;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   background: linear-gradient(
     90deg,
     var(--color-surface-muted) 25%,
@@ -845,14 +1043,14 @@
 }
 
 .approverInsightCard {
-  border-radius: var(--radius-xl);
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  padding: 16px;
+  border-radius: var(--radius-lg);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 28%, var(--color-border));
+  background: color-mix(in srgb, var(--color-accent) 5%, var(--color-surface));
+  padding: 18px;
   display: flex;
   flex-direction: column;
   gap: 12px;
-  box-shadow: var(--shadow-card);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
 }
 
 .approverInsightHeader {
@@ -863,14 +1061,23 @@
 
 .approverInsightTitle {
   font-size: 14px;
-  font-weight: 700;
+  font-weight: 750;
   color: var(--color-text);
 }
 
 .approverInsightCount {
+  min-width: 28px;
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-pill);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 30%, transparent);
+  background: var(--color-surface);
   font-size: 12px;
-  color: var(--color-text-muted);
-  font-weight: 600;
+  color: var(--color-accent);
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
 }
 
 .approverHistoryHint {
@@ -886,9 +1093,9 @@
 
 .approverInsightItem {
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-lg);
-  background: var(--color-surface-muted);
-  padding: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  padding: 14px;
   display: flex;
   justify-content: space-between;
   gap: 12px;
@@ -903,7 +1110,7 @@
 
 .approverInsightItemTitle {
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 650;
   color: var(--color-text);
 }
 
@@ -926,43 +1133,49 @@
 }
 
 .approverNeededTag {
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--color-accent);
-  background: var(--color-accent-soft);
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--color-accent) 50%, var(--color-border));
+  background: color-mix(in srgb, var(--color-accent) 11%, var(--color-surface));
   color: var(--color-accent);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
-  padding: 4px 10px;
+  letter-spacing: 0;
+  padding: 4px 9px;
+  white-space: nowrap;
 }
 
 .assignedTag {
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--color-success);
-  background: color-mix(in srgb, var(--color-success) 14%, transparent);
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--color-success) 50%, var(--color-border));
+  background: color-mix(in srgb, var(--color-success) 11%, var(--color-surface));
   color: var(--color-success);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
-  padding: 4px 10px;
+  letter-spacing: 0;
+  padding: 4px 9px;
+  white-space: nowrap;
 }
 
 .approverDecisionApproved {
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--color-success);
-  background: color-mix(in srgb, var(--color-success) 14%, transparent);
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--color-success) 50%, var(--color-border));
+  background: color-mix(in srgb, var(--color-success) 11%, var(--color-surface));
   color: var(--color-success);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
-  padding: 4px 10px;
+  letter-spacing: 0;
+  padding: 4px 9px;
 }
 
 .approverDecisionRejected {
-  border-radius: var(--radius-pill);
-  border: 1px solid var(--color-danger);
-  background: var(--color-danger-soft);
+  border-radius: var(--radius-sm);
+  border: 1px solid color-mix(in srgb, var(--color-danger) 50%, var(--color-border));
+  background: color-mix(in srgb, var(--color-danger) 11%, var(--color-surface));
   color: var(--color-danger);
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
-  padding: 4px 10px;
+  letter-spacing: 0;
+  padding: 4px 9px;
 }
 
 .actionDialogOverlay {
@@ -974,23 +1187,25 @@
   justify-content: center;
   z-index: 70;
   padding: 16px;
+  backdrop-filter: blur(5px);
 }
 
 .actionDialogModal {
   width: min(520px, 100%);
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-xl);
+  border-radius: var(--radius-lg);
   background: var(--color-surface);
   box-shadow: var(--color-shadow-lg);
-  padding: 16px;
+  padding: 24px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 16px;
+  animation: scaleIn 0.16s ease both;
 }
 
 .actionDialogTitle {
-  font-size: 16px;
-  font-weight: 700;
+  font-size: 18px;
+  font-weight: 750;
   color: var(--color-text);
 }
 
@@ -1001,7 +1216,7 @@
 
 .actionDialogContext {
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   background: var(--color-surface-muted);
   color: var(--color-text);
   font-size: 12px;
@@ -1012,9 +1227,9 @@
 
 .actionDialogContextLabel {
   font-size: 11px;
-  font-weight: 700;
+  font-weight: 750;
   text-transform: uppercase;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
   color: var(--color-text-muted);
   margin-bottom: 6px;
 }
@@ -1022,7 +1237,7 @@
 .actionDialogTextarea {
   width: 100%;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-sm);
   background: var(--color-surface);
   color: var(--color-text);
   padding: 10px 12px;
@@ -1042,9 +1257,177 @@
   gap: 8px;
 }
 
+/* Bulk approve controls */
+
+.bulkToolbar {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-accent) 4%, var(--color-surface));
+  flex-wrap: wrap;
+}
+
+.selectAllLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 650;
+  color: var(--color-text-muted);
+  cursor: pointer;
+  user-select: none;
+}
+
+.selectAllLabel:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.bulkCheckbox {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--color-accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.bulkCheckbox:disabled {
+  cursor: not-allowed;
+}
+
+.bulkApproveButton {
+  min-width: 120px;
+}
+
+.contractItemCheckbox {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  padding-right: 4px;
+}
+
+.contractItemSelected {
+  border-color: var(--color-accent) !important;
+  background: var(--color-accent-soft) !important;
+}
+
+/* Help tooltip */
+
+.helpIcon {
+  position: relative;
+  display: inline-flex;
+}
+
+.helpIconButton {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  font-size: 13px;
+  font-weight: 750;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    border-color 0.2s ease,
+    color 0.2s ease,
+    background 0.2s ease,
+    box-shadow 0.2s ease;
+}
+
+.helpIconButton:hover {
+  border-color: color-mix(in srgb, var(--color-accent) 44%, var(--color-border));
+  background: color-mix(in srgb, var(--color-accent) 6%, var(--color-surface));
+  color: var(--color-accent);
+  box-shadow: var(--color-shadow-sm);
+}
+
+.helpIcon::after {
+  content: attr(data-tooltip);
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 320px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  font-size: 12px;
+  color: var(--color-text-muted);
+  box-shadow: var(--color-shadow-lg);
+  line-height: 1.5;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(-4px);
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
+  z-index: 60;
+  white-space: normal;
+}
+
+.helpIcon:hover::after,
+.helpIcon:focus-within::after {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebarLogo,
+  .navItem,
+  .topbar,
+  .greeting,
+  .dashboardIntro,
+  .tasksRow,
+  .actionCard,
+  .contractsSection,
+  .contractItem,
+  .actionDialogModal {
+    animation: none;
+    transition: none;
+  }
+}
+
+.navItem:focus-visible,
+.helpIconButton:focus-visible,
+.actionCard:focus-visible,
+.repositoryLink:focus-visible,
+.tab:focus-visible,
+.emptyAction:focus-visible,
+.contractActionButton:focus-visible,
+.paginationButton:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+@media (max-width: 1180px) {
+  .companyBadge {
+    display: none;
+  }
+}
+
 @media (max-width: 1024px) {
   .page {
     grid-template-columns: 64px 1fr;
+  }
+
+  .topbar {
+    padding: 10px 24px;
+  }
+
+  .userPanel {
+    max-width: 300px;
+  }
+
+  .main {
+    padding: 28px 24px;
   }
 
   .tasksRow {
@@ -1058,32 +1441,190 @@
 
 @media (max-width: 768px) {
   .page {
+    --dashboard-topbar-height: 56px;
+    --contracts-header-height: 82px;
+
     grid-template-columns: 1fr;
   }
 
   .sidebar {
+    position: sticky;
+    top: 0;
+    height: auto;
     flex-direction: row;
     justify-content: space-between;
     padding: 10px 16px;
     border-right: none;
     border-bottom: 1px solid var(--color-border);
+    overflow-x: auto;
   }
 
   .navList {
     flex-direction: row;
+    gap: 8px;
+    margin-top: 0;
   }
 
   .bottomNav {
     flex-direction: row;
+    gap: 8px;
+  }
+
+  .navItem::after {
+    display: none;
   }
 
   .topbar {
+    position: static;
     flex-direction: column;
     align-items: flex-start;
-    gap: 12px;
+    gap: 14px;
+    min-height: auto;
+    padding: 14px 16px 18px;
+  }
+
+  .topbarRight {
+    width: 100%;
+    justify-content: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .topbarTools {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .topbarPanels {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .userPanel {
+    flex: 1 1 240px;
+    max-width: none;
+  }
+
+  .userIdentity {
+    align-items: flex-start;
+    flex: 1 1 180px;
+  }
+
+  .main {
+    padding: 24px 16px 32px;
+    gap: 24px;
+  }
+
+  .dashboardIntro {
+    gap: 24px;
+    max-height: 560px;
+  }
+
+  .dashboardIntroCollapsed {
+    max-height: 0;
+    margin-bottom: -24px;
+  }
+
+  .greetingTitle {
+    font-size: 26px;
   }
 
   .taskCards {
     grid-template-columns: 1fr;
+  }
+
+  .contractsHeader {
+    align-items: flex-start;
+    flex-direction: column;
+    padding: 18px 16px 12px;
+  }
+
+  .contractsTabs {
+    padding: 0 16px;
+    gap: 18px;
+  }
+
+  .paginationRow,
+  .bulkToolbar {
+    justify-content: flex-start;
+    padding: 12px 16px;
+  }
+
+  .pageIndicator {
+    order: -1;
+    width: 100%;
+    justify-content: flex-start;
+    padding-left: 0;
+  }
+
+  .contractItem {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    padding: 16px 16px 16px 13px;
+  }
+
+  .contractContent {
+    flex: 1 1 220px;
+  }
+
+  .contractActions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .approverInsightItem {
+    flex-direction: column;
+  }
+
+  .approverInsightActions {
+    justify-content: flex-start;
+  }
+
+  .helpIcon::after {
+    right: auto;
+    left: 0;
+    max-width: calc(100vw - 32px);
+    width: 300px;
+  }
+}
+
+@media (max-width: 480px) {
+  .sidebarBrandText {
+    display: none;
+  }
+
+  .navItem {
+    width: 34px;
+    height: 34px;
+  }
+
+  .topbarTitle {
+    font-size: 20px;
+  }
+
+  .topbarTools {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .topbarPanels {
+    gap: 10px;
+  }
+
+  .userPanel {
+    width: 100%;
+  }
+
+  .contractActionButton,
+  .paginationButton,
+  .pageSizeSelect {
+    min-height: 36px;
+  }
+
+  .actionDialogActions {
+    flex-direction: column-reverse;
+  }
+
+  .actionDialogActions .contractActionButton {
+    width: 100%;
   }
 }

@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { ZodError } from 'zod'
 import { withAuth } from '@/core/http/with-auth'
+import { privateCacheControl } from '@/core/constants/cache'
 import { errorResponse, okResponse } from '@/core/http/response'
 import { isAppError } from '@/core/http/errors'
 import { getContractQueryService } from '@/core/registry/service-registry'
@@ -39,7 +40,11 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
       toDate,
     })
 
-    return NextResponse.json(okResponse({ report }))
+    return NextResponse.json(okResponse({ report }), {
+      headers: {
+        'Cache-Control': privateCacheControl.short,
+      },
+    })
   } catch (error) {
     if (error instanceof ZodError) {
       return NextResponse.json(errorResponse('VALIDATION_ERROR', 'Invalid repository report query params'), {

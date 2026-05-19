@@ -56,11 +56,11 @@ describe('ContractApprovalNotificationService', () => {
 
   afterEach(() => {
     jest.clearAllMocks()
-    delete process.env.NEXT_PUBLIC_APP_URL
+    delete process.env.NEXT_PUBLIC_SITE_URL
   })
 
-  it('builds contact.LINK from NEXT_PUBLIC_APP_URL for HOD notifications', async () => {
-    process.env.NEXT_PUBLIC_APP_URL = 'https://nxtlegal.example.com'
+  it('builds contract link from NEXT_PUBLIC_SITE_URL for HOD notifications', async () => {
+    process.env.NEXT_PUBLIC_SITE_URL = 'https://nxtlegal.example.com'
 
     const contractQueryService = {
       getContractDetail: jest.fn().mockResolvedValue(createContractView()),
@@ -84,10 +84,7 @@ describe('ContractApprovalNotificationService', () => {
     expect(mailSender.sendTemplateEmail).toHaveBeenCalledWith(
       expect.objectContaining({
         recipientEmail: 'legalhod@nxtwave.co.in',
-        templateParams: expect.objectContaining({
-          'contact.LINK': 'https://nxtlegal.example.com/contracts/contract-1',
-          'contact.CONTRACT_TITLE': 'MSA Contract',
-        }),
+        htmlContent: expect.stringContaining('https://nxtlegal.example.com/contracts/contract-1'),
       })
     )
   })
@@ -120,7 +117,7 @@ describe('ContractApprovalNotificationService', () => {
     )
   })
 
-  it('falls back to localhost for contact.LINK when NEXT_PUBLIC_APP_URL is absent', async () => {
+  it('falls back to nxt-legal.vercel.app for contract link when NEXT_PUBLIC_SITE_URL is absent', async () => {
     const contractQueryService = {
       getContractDetail: jest.fn().mockResolvedValue(createContractView()),
       getLatestNotificationDelivery: jest.fn(),
@@ -143,9 +140,7 @@ describe('ContractApprovalNotificationService', () => {
 
     expect(mailSender.sendTemplateEmail).toHaveBeenCalledWith(
       expect.objectContaining({
-        templateParams: expect.objectContaining({
-          'contact.LINK': 'http://localhost:3000/contracts/contract-1',
-        }),
+        htmlContent: expect.stringContaining('http://nxt-legal.vercel.app/contracts/contract-1'),
       })
     )
   })
@@ -174,7 +169,6 @@ describe('ContractApprovalNotificationService', () => {
     expect(mailSender.sendTemplateEmail).toHaveBeenCalledWith(
       expect.objectContaining({
         recipientEmail: 'legalteam@nxtwave.co.in',
-        templateId: templates.legalInternalAssignmentTemplateId,
       })
     )
   })

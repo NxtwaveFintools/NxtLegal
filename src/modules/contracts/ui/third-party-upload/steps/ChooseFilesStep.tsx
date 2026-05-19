@@ -28,16 +28,22 @@ export default function ChooseFilesStep({
   onDrop,
 }: ChooseFilesStepProps) {
   return (
-    <div>
-      <div className={styles.sectionTitle}>Choose Files</div>
-      <p className={styles.helperText}>Only {acceptedExtensionsLabel} files allowed. One main document only.</p>
+    <div className={styles.chooseFilesStep}>
+      <div className={styles.chooseFilesHero}>
+        <div className={styles.chooseFilesEyebrow}>Primary Document</div>
+        <div className={styles.sectionTitle}>Choose Files</div>
+        <p className={styles.helperText}>Upload your contract draft to start intake and review workflow.</p>
+        <span className={styles.allowedFileChip}>{`${acceptedExtensionsLabel} only - single main file`}</span>
+      </div>
+
       <div
         className={`${styles.dropzone} ${isDragging ? styles.dropzoneActive : ''}`}
         onDragOver={onDragOver}
         onDragLeave={onDragLeave}
         onDrop={onDrop}
       >
-        <span>Drag and drop your contract here</span>
+        <span className={styles.dropzoneTitle}>Drag and drop your contract here</span>
+        <span className={styles.dropzoneHint}>or browse from your device</span>
         <label className={styles.dropzoneButton} htmlFor="main-contract-upload">
           Choose file
         </label>
@@ -58,6 +64,7 @@ export default function ChooseFilesStep({
       {mainFile && (
         <div className={styles.fileCard}>
           <div className={styles.fileMeta}>
+            <span className={styles.fileStatus}>Ready to upload</span>
             <span className={styles.fileName}>{mainFile.name}</span>
             <span className={styles.fileSize}>{formatFileSize(mainFile.size)}</span>
           </div>

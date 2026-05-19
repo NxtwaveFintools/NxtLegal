@@ -350,11 +350,15 @@ describe('ContractSignatoryService', () => {
     const sentEmailPayload = signatoryMailer.sendTemplateEmail.mock.calls[0]?.[0] as
       | {
           recipientEmail?: string
+          subject?: string
           templateParams?: { signing_url?: string }
           htmlContent?: string
         }
       | undefined
     expect(sentEmailPayload?.recipientEmail).toBe('founder@nxtwave.co.in')
+    expect(sentEmailPayload?.subject).toBe(
+      'Signature Requested: Master Service Agreement - NxtWave Disruptive Technologies Private Limited'
+    )
     const signingUrlFromTemplate = sentEmailPayload?.templateParams?.signing_url ?? ''
     const signingUrlFromHtml = sentEmailPayload?.htmlContent ?? ''
     expect(`${signingUrlFromTemplate}\n${signingUrlFromHtml}`).toContain(
@@ -455,9 +459,19 @@ describe('ContractSignatoryService', () => {
       requestorRole: 'LEGAL_TEAM',
       documentId: 'document-primary-1',
     })
-    expect(signatureProvider.createSigningEnvelope).toHaveBeenCalled()
-    expect(signatoryMailer.sendTemplateEmail).not.toHaveBeenCalled()
-    expect(contractQueryService.recordContractNotificationDelivery).not.toHaveBeenCalled()
+    expect(signatureProvider.createSigningEnvelope).toHaveBeenCalledWith(
+      expect.objectContaining({
+        emailSubject: 'Master Service Agreement',
+      })
+    )
+    expect(signatoryMailer.sendTemplateEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recipientEmail: 'signatory@nxtwave.co.in',
+        subject: 'Signature Requested: Master Service Agreement - NxtWave Disruptive Technologies Private Limited',
+        htmlContent: expect.stringContaining('/api/contracts/signatories/zoho-sign/redirect?token='),
+      })
+    )
+    expect(contractQueryService.recordContractNotificationDelivery).toHaveBeenCalled()
     expect(contractQueryService.addSignatory).toHaveBeenCalledWith({
       tenantId: 'tenant-1',
       contractId: 'contract-1',

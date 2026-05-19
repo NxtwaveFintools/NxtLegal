@@ -1,10 +1,11 @@
 /** @jest-environment jsdom */
 
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import DashboardClient from '@/modules/dashboard/ui/DashboardClient'
 import { contractsClient } from '@/core/client/contracts-client'
 import { contractWorkflowRoles } from '@/core/constants/contracts'
+import { toast } from 'sonner'
 
 const mockPush = jest.fn()
 const mockReplace = jest.fn()
@@ -75,7 +76,7 @@ describe('DashboardClient legal upload action cards', () => {
     } as never)
   })
 
-  it('shows Send for Signing card for LEGAL_TEAM users', () => {
+  it('shows Send for Signing card for LEGAL_TEAM users', async () => {
     render(
       <DashboardClient
         session={{
@@ -87,6 +88,7 @@ describe('DashboardClient legal upload action cards', () => {
       />
     )
 
+    expect(await screen.findByText('No contracts found')).toBeTruthy()
     expect(screen.getByRole('button', { name: /Upload Third-Party Contract/i })).toBeTruthy()
     expect(screen.getByRole('button', { name: /Send for Signing/i })).toBeTruthy()
     expect(screen.queryByRole('button', { name: /Approve/i })).toBeNull()
@@ -94,7 +96,7 @@ describe('DashboardClient legal upload action cards', () => {
     expect(screen.queryByText(/Custom Task/i)).toBeNull()
   })
 
-  it('shows Send for Signing card for ADMIN users', () => {
+  it('shows Send for Signing card for ADMIN users', async () => {
     render(
       <DashboardClient
         session={{
@@ -106,12 +108,13 @@ describe('DashboardClient legal upload action cards', () => {
       />
     )
 
+    expect(await screen.findByText('No contracts found')).toBeTruthy()
     expect(screen.getByRole('button', { name: /Upload Third-Party Contract/i })).toBeTruthy()
     expect(screen.getByRole('button', { name: /Send for Signing/i })).toBeTruthy()
     expect(screen.queryByText('Contracts assigned to your queue')).toBeNull()
   })
 
-  it('hides Send for Signing card for non-legal users', () => {
+  it('hides Send for Signing card for non-legal users', async () => {
     render(
       <DashboardClient
         session={{
@@ -123,11 +126,12 @@ describe('DashboardClient legal upload action cards', () => {
       />
     )
 
+    expect(await screen.findByText('No contracts found')).toBeTruthy()
     expect(screen.getByRole('button', { name: /Upload Third-Party Contract/i })).toBeTruthy()
     expect(screen.queryByRole('button', { name: /Send for Signing/i })).toBeNull()
   })
 
-  it('hides numeric count from upload and send-for-signing cards', () => {
+  it('hides numeric count from upload and send-for-signing cards', async () => {
     render(
       <DashboardClient
         session={{
@@ -139,6 +143,7 @@ describe('DashboardClient legal upload action cards', () => {
       />
     )
 
+    expect(await screen.findByText('No contracts found')).toBeTruthy()
     const uploadCard = screen.getByRole('button', { name: /Upload Third-Party Contract/i })
     const sendForSigningCard = screen.getByRole('button', { name: /Send for Signing/i })
 
@@ -178,6 +183,7 @@ describe('DashboardClient legal upload action cards', () => {
       throw new Error('Review action card was not rendered')
     }
     expect(within(reviewCard).getByText('9')).toBeTruthy()
+    expect(await screen.findByText('No contracts found')).toBeTruthy()
 
     const assignedCardMeta = await screen.findByText('Contracts assigned to your queue')
     const assignedCard = assignedCardMeta.closest('button')
@@ -187,7 +193,10 @@ describe('DashboardClient legal upload action cards', () => {
     }
     expect(within(assignedCard).getByText('3')).toBeTruthy()
 
-    fireEvent.click(assignedCard)
+    await act(async () => {
+      fireEvent.click(assignedCard)
+      await Promise.resolve()
+    })
     expect(mockReplace).toHaveBeenCalledWith('/dashboard?filter=ASSIGNED_TO_ME', { scroll: false })
   })
 })
@@ -372,7 +381,7 @@ describe('DashboardClient HOD experience updates', () => {
       />
     )
 
-    expect(await screen.findByText('My Contracts')).toBeTruthy()
+    expect(await screen.findByText('No contracts found')).toBeTruthy()
     expect(screen.queryByRole('button', { name: /Upload Third-Party Contract/i })).toBeNull()
     expect(screen.getByText('Contracts waiting for your approval')).toBeTruthy()
     expect(screen.getByRole('button', { name: /Rejected \(0\)/i })).toBeTruthy()
@@ -497,11 +506,199 @@ describe('DashboardClient admin personal approvals queue', () => {
 
     expect(await screen.findByRole('button', { name: /Assigned To Me \(0\)/i })).toBeTruthy()
     expect(await screen.findByRole('button', { name: /All HOD Pending \(0\)/i })).toBeTruthy()
+    expect(await screen.findByText('No contracts found')).toBeTruthy()
 
     expect(
       dashboardContractsSpy.mock.calls.some(
         ([params]) => params.filter === 'ASSIGNED_TO_ME' && params.scope === 'personal'
       )
     ).toBe(true)
+  })
+})
+
+describe('DashboardClient HOD bulk approve feature', () => {
+  const hodContract = {
+    id: 'contract-bulk-1',
+    title: 'Bulk Test Contract',
+    status: 'HOD_PENDING',
+    uploadedByEmployeeId: 'emp-1',
+    uploadedByEmail: 'poc@nxtwave.co.in',
+    currentAssigneeEmployeeId: 'emp-hod-1',
+    currentAssigneeEmail: 'hod@nxtwave.co.in',
+    canHodApprove: true,
+    canHodReject: true,
+    createdAt: '2026-02-27T08:00:00.000Z',
+    updatedAt: '2026-02-27T09:00:00.000Z',
+  }
+
+  const hodSession = {
+    employeeId: 'employee-hod-1',
+    fullName: 'HOD User',
+    email: 'hod@nxtwave.co.in',
+    role: contractWorkflowRoles.hod,
+  }
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    jest.spyOn(contractsClient, 'dashboardCounts').mockResolvedValue({
+      ok: true,
+      data: {
+        counts: { ALL: 0, HOD_PENDING: 1, UNDER_REVIEW: 0, COMPLETED: 0, ON_HOLD: 0, ASSIGNED_TO_ME: 0 },
+      },
+    } as never)
+    jest.spyOn(contractsClient, 'dashboardContracts').mockResolvedValue({
+      ok: true,
+      data: {
+        contracts: [hodContract],
+        pagination: { cursor: null, limit: 10, total: 1 },
+        filter: 'HOD_PENDING',
+        additionalApproverSections: { actionableContracts: [] },
+      },
+    } as never)
+  })
+
+  afterEach(() => {
+    jest.restoreAllMocks()
+  })
+
+  it('shows select-all checkbox and disabled bulk approve button for HOD on HOD_PENDING', async () => {
+    render(<DashboardClient session={hodSession} />)
+
+    expect(await screen.findByText('Bulk Test Contract')).toBeTruthy()
+
+    const selectAllCheckbox = screen.getByRole('checkbox', { name: /select all visible contracts/i })
+    expect(selectAllCheckbox).toBeTruthy()
+
+    const bulkBtn = screen.getByRole('button', { name: /^bulk approve$/i })
+    expect((bulkBtn as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('hides bulk controls for non-HOD users', async () => {
+    render(
+      <DashboardClient
+        session={{
+          employeeId: 'emp-legal',
+          fullName: 'Legal',
+          email: 'legal@nxtwave.co.in',
+          role: contractWorkflowRoles.legalTeam,
+        }}
+      />
+    )
+    await screen.findByText('Bulk Test Contract')
+    expect(screen.queryByRole('checkbox', { name: /select all visible contracts/i })).toBeNull()
+    expect(screen.queryByRole('button', { name: /bulk approve/i })).toBeNull()
+  })
+
+  it('enables bulk approve button when a row checkbox is selected', async () => {
+    render(<DashboardClient session={hodSession} />)
+
+    expect(await screen.findByText('Bulk Test Contract')).toBeTruthy()
+
+    const rowCheckbox = screen.getByRole('checkbox', { name: /select bulk test contract/i })
+    fireEvent.click(rowCheckbox)
+
+    const bulkBtn = await screen.findByRole('button', { name: /bulk approve \(1\)/i })
+    expect((bulkBtn as HTMLButtonElement).disabled).toBe(false)
+  })
+
+  it('select all selects all selectable rows and enables bulk approve', async () => {
+    render(<DashboardClient session={hodSession} />)
+
+    expect(await screen.findByText('Bulk Test Contract')).toBeTruthy()
+
+    const selectAllCheckbox = screen.getByRole('checkbox', { name: /select all visible contracts/i })
+    fireEvent.click(selectAllCheckbox)
+
+    const bulkBtn = await screen.findByRole('button', { name: /bulk approve \(1\)/i })
+    expect((bulkBtn as HTMLButtonElement).disabled).toBe(false)
+
+    const rowCheckbox = screen.getByRole('checkbox', { name: /select bulk test contract/i })
+    expect((rowCheckbox as HTMLInputElement).checked).toBe(true)
+  })
+
+  it('deselect all via select-all when all are already selected', async () => {
+    render(<DashboardClient session={hodSession} />)
+
+    expect(await screen.findByText('Bulk Test Contract')).toBeTruthy()
+
+    const selectAllCheckbox = screen.getByRole('checkbox', { name: /select all visible contracts/i })
+    // Select all
+    fireEvent.click(selectAllCheckbox)
+    await screen.findByRole('button', { name: /bulk approve \(1\)/i })
+
+    // Deselect all
+    fireEvent.click(selectAllCheckbox)
+    const bulkBtn = await screen.findByRole('button', { name: /^bulk approve$/i })
+    expect((bulkBtn as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it('cancel in bulk approve modal does not call action API', async () => {
+    const actionSpy = jest.spyOn(contractsClient, 'action')
+    render(<DashboardClient session={hodSession} />)
+
+    expect(await screen.findByText('Bulk Test Contract')).toBeTruthy()
+
+    const rowCheckbox = screen.getByRole('checkbox', { name: /select bulk test contract/i })
+    fireEvent.click(rowCheckbox)
+
+    const bulkBtn = await screen.findByRole('button', { name: /bulk approve \(1\)/i })
+    fireEvent.click(bulkBtn)
+
+    expect(await screen.findByText(/are you sure you want to bulk approve 1 selected claim/i)).toBeTruthy()
+
+    const cancelBtn = screen.getByRole('button', { name: /^cancel$/i })
+    fireEvent.click(cancelBtn)
+
+    expect(screen.queryByText(/are you sure you want to bulk approve/i)).toBeNull()
+    expect(actionSpy).not.toHaveBeenCalled()
+  })
+
+  it('confirm in modal calls action for each selected contract and refreshes', async () => {
+    const actionSpy = jest.spyOn(contractsClient, 'action').mockResolvedValue({
+      ok: true,
+      data: {},
+    } as never)
+
+    render(<DashboardClient session={hodSession} />)
+
+    expect(await screen.findByText('Bulk Test Contract')).toBeTruthy()
+
+    const rowCheckbox = screen.getByRole('checkbox', { name: /select bulk test contract/i })
+    fireEvent.click(rowCheckbox)
+
+    const bulkBtn = await screen.findByRole('button', { name: /bulk approve \(1\)/i })
+    fireEvent.click(bulkBtn)
+
+    await screen.findByText(/are you sure you want to bulk approve 1 selected claim/i)
+
+    const confirmBtn = screen.getByRole('button', { name: /confirm approve/i })
+    fireEvent.click(confirmBtn)
+
+    await waitFor(() => {
+      expect(actionSpy).toHaveBeenCalledWith('contract-bulk-1', { action: 'hod.approve' })
+    })
+  })
+
+  it('shows partial success feedback when some approvals fail', async () => {
+    jest.spyOn(contractsClient, 'action').mockRejectedValue(new Error('Server error'))
+
+    render(<DashboardClient session={hodSession} />)
+
+    expect(await screen.findByText('Bulk Test Contract')).toBeTruthy()
+
+    const rowCheckbox = screen.getByRole('checkbox', { name: /select bulk test contract/i })
+    fireEvent.click(rowCheckbox)
+
+    const bulkBtn = await screen.findByRole('button', { name: /bulk approve \(1\)/i })
+    fireEvent.click(bulkBtn)
+
+    await screen.findByText(/are you sure you want to bulk approve 1 selected claim/i)
+
+    const confirmBtn = screen.getByRole('button', { name: /confirm approve/i })
+    fireEvent.click(confirmBtn)
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith(expect.stringMatching(/approval.*failed/i))
+    })
   })
 })
