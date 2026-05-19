@@ -38,7 +38,7 @@ type SignatureProvider = {
     recipients: Array<{
       email: string
       name: string
-      recipientType: 'INTERNAL' | 'EXTERNAL'
+      recipientType: 'INTERNAL' | 'EXTERNAL' | 'VIEWER'
       routingOrder: number
       fields: Array<{
         fieldType: 'SIGNATURE' | 'INITIAL' | 'STAMP' | 'NAME' | 'DATE' | 'TIME' | 'TEXT'
@@ -126,7 +126,7 @@ export class ContractSignatoryService {
     recipients: Array<{
       signatoryEmail: string
       signatoryName?: string
-      recipientType: 'INTERNAL' | 'EXTERNAL'
+      recipientType: 'INTERNAL' | 'EXTERNAL' | 'VIEWER'
       routingOrder: number
       fields: Array<{
         field_type: 'SIGNATURE' | 'INITIAL' | 'STAMP' | 'NAME' | 'DATE' | 'TIME' | 'TEXT'
@@ -362,6 +362,11 @@ export class ContractSignatoryService {
     const signatoryNotificationsStartedAt = Date.now()
     let signatoryNotificationCount = 0
     for (const recipient of normalizedRecipients) {
+      // Viewers receive Zoho Sign's native view email; skip our custom notification.
+      if (recipient.recipientType === 'VIEWER') {
+        continue
+      }
+
       const envelopeRecipient = envelopeRecipientByEmail.get(recipient.signatoryEmail)
       if (!envelopeRecipient) {
         throw new ExternalServiceError('ZOHO_SIGN', `Missing recipient view URL for ${recipient.signatoryEmail}`)
@@ -496,7 +501,9 @@ export class ContractSignatoryService {
       )
 
       this.assertSignatureFieldPerRecipient({
-        recipients: draft.recipients.map((recipient) => recipient.email),
+        recipients: draft.recipients
+          .filter((recipient) => recipient.recipientType !== 'VIEWER')
+          .map((recipient) => recipient.email),
         fields: draft.fields.map((field) => ({
           fieldType: field.fieldType,
           assignedSignerEmail: field.assignedSignerEmail,

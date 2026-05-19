@@ -8,7 +8,7 @@ import { contractStatuses } from '@/core/constants/contracts'
 import type { PrepareForSigningPdfViewerProps } from './PrepareForSigningPdfViewer'
 import styles from './prepare-for-signing-modal.module.css'
 
-type RecipientType = 'INTERNAL' | 'EXTERNAL'
+type RecipientType = 'INTERNAL' | 'EXTERNAL' | 'VIEWER'
 type FieldType = 'SIGNATURE' | 'INITIAL' | 'STAMP' | 'NAME' | 'DATE' | 'TIME' | 'TEXT'
 
 type DraftRecipient = {
@@ -66,7 +66,7 @@ type PrepareForSigningModalProps = {
     recipients: Array<{
       name: string
       email: string
-      recipient_type: 'INTERNAL' | 'EXTERNAL'
+      recipient_type: 'INTERNAL' | 'EXTERNAL' | 'VIEWER'
       routing_order: number
       designation?: string
       counterparty_id?: string
@@ -326,17 +326,21 @@ export default function PrepareForSigningModal({
       }))
       .filter((recipient) => recipient.email)
 
-    const uniqueRoutingOrders = new Set(normalizedRecipients.map((recipient) => recipient.routingOrder))
+    const uniqueRoutingOrders = new Set(
+      normalizedRecipients.filter((r) => r.recipientType !== 'VIEWER').map((recipient) => recipient.routingOrder)
+    )
+    const signingRecipientCount = normalizedRecipients.filter((r) => r.recipientType !== 'VIEWER').length
     const allRoutingOrdersSame = uniqueRoutingOrders.size === 1
-    const allRoutingOrdersUnique = uniqueRoutingOrders.size === normalizedRecipients.length
+    const allRoutingOrdersUnique = uniqueRoutingOrders.size === signingRecipientCount
     const hasValidRoutingOrder =
-      normalizedRecipients.length > 0 &&
+      signingRecipientCount > 0 &&
       (allRoutingOrdersSame || allRoutingOrdersUnique) &&
-      normalizedRecipients.every((recipient) => recipient.routingOrder >= 1)
+      normalizedRecipients.filter((r) => r.recipientType !== 'VIEWER').every((recipient) => recipient.routingOrder >= 1)
 
     const missingSignatureEmails = normalizedRecipients
       .filter(
         (recipient) =>
+          recipient.recipientType !== 'VIEWER' &&
           !fields.some(
             (field) =>
               field.fieldType === 'SIGNATURE' && field.assignedSignerEmail.trim().toLowerCase() === recipient.email
@@ -519,16 +523,21 @@ export default function PrepareForSigningModal({
     const normalizedRecipients = recipients.map((recipient) => ({
       email: recipient.email.trim().toLowerCase(),
       routingOrder: recipient.routingOrder,
+      recipientType: recipient.recipientType,
     }))
-    const uniqueRoutingOrders = new Set(normalizedRecipients.map((recipient) => recipient.routingOrder))
+    const signingRecipients = normalizedRecipients.filter((r) => r.recipientType !== 'VIEWER')
+    const uniqueRoutingOrders = new Set(signingRecipients.map((recipient) => recipient.routingOrder))
     const allRoutingOrdersSame = uniqueRoutingOrders.size === 1
-    const allRoutingOrdersUnique = uniqueRoutingOrders.size === normalizedRecipients.length
+    const allRoutingOrdersUnique = uniqueRoutingOrders.size === signingRecipients.length
 
     if (!allRoutingOrdersSame && !allRoutingOrdersUnique) {
       return 'Use either same routing order for all recipients or unique order for each recipient'
     }
 
     for (const recipient of recipients) {
+      if (recipient.recipientType === 'VIEWER') {
+        continue
+      }
       const hasSignature = fields.some(
         (field) =>
           field.assignedSignerEmail.trim().toLowerCase() === recipient.email.trim().toLowerCase() &&
@@ -983,8 +992,9 @@ export default function PrepareForSigningModal({
           <aside className={styles.leftPanel}>
             <div className={styles.panelTitle}>Recipients</div>
 
-            {(['EXTERNAL', 'INTERNAL'] as const).map((recipientType) => {
-              const groupTitle = recipientType === 'EXTERNAL' ? 'Counter Party' : 'NxtWave'
+            {(['EXTERNAL', 'INTERNAL', 'VIEWER'] as const).map((recipientType) => {
+              const groupTitle =
+                recipientType === 'EXTERNAL' ? 'Counter Party' : recipientType === 'INTERNAL' ? 'NxtWave' : 'Viewers'
               const groupRecipients = recipients.filter((recipient) => recipient.recipientType === recipientType)
 
               return (
@@ -1021,21 +1031,32 @@ export default function PrepareForSigningModal({
                             disabled={!canEdit}
                             onChange={(event) => handleRecipientChange(recipient.id, { email: event.target.value })}
                           />
-                          <div className={styles.row}>
-                            <input className={styles.input} value={groupTitle} disabled aria-label="Recipient type" />
-                            <input
-                              className={styles.input}
-                              type="number"
-                              min={1}
-                              value={recipient.routingOrder}
-                              disabled={!canEdit}
-                              onChange={(event) =>
-                                handleRecipientChange(recipient.id, {
-                                  routingOrder: Math.max(1, Number(event.target.value) || 1),
-                                })
-                              }
-                            />
-                          </div>
+                          {recipientType !== 'VIEWER' ? (
+                            <div className={styles.row}>
+                              <input className={styles.input} value={groupTitle} disabled aria-label="Recipient type" />
+                              <input
+                                className={styles.input}
+                                type="number"
+                                min={1}
+                                value={recipient.routingOrder}
+                                disabled={!canEdit}
+                                onChange={(event) =>
+                                  handleRecipientChange(recipient.id, {
+                                    routingOrder: Math.max(1, Number(event.target.value) || 1),
+                                  })
+                                }
+                              />
+                            </div>
+                          ) : (
+                            <div className={styles.row}>
+                              <input
+                                className={styles.input}
+                                value="Viewer (read-only)"
+                                disabled
+                                aria-label="Recipient type"
+                              />
+                            </div>
+                          )}
                           <button
                             type="button"
                             className={styles.linkButton}
@@ -1073,11 +1094,13 @@ export default function PrepareForSigningModal({
                 disabled={!canEdit}
               >
                 <option value="">Assign to recipient</option>
-                {recipients.map((recipient) => (
-                  <option key={recipient.id} value={recipient.id}>
-                    {recipient.name || recipient.email || 'Unnamed'}
-                  </option>
-                ))}
+                {recipients
+                  .filter((r) => r.recipientType !== 'VIEWER')
+                  .map((recipient) => (
+                    <option key={recipient.id} value={recipient.id}>
+                      {recipient.name || recipient.email || 'Unnamed'}
+                    </option>
+                  ))}
               </select>
               {selectedFieldType === 'SIGNATURE' ? (
                 <label className={styles.toggleLabel}>

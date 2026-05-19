@@ -223,7 +223,7 @@ type ContractLegalCollaborator = {
 type ContractSignatory = {
   id: string
   signatoryEmail: string
-  recipientType: 'INTERNAL' | 'EXTERNAL'
+  recipientType: 'INTERNAL' | 'EXTERNAL' | 'VIEWER'
   routingOrder: number
   fieldConfig: Array<{
     fieldType: 'SIGNATURE' | 'INITIAL' | 'STAMP' | 'NAME' | 'DATE' | 'TIME' | 'TEXT'
@@ -249,7 +249,7 @@ type ContractSigningPreparationDraft = {
   recipients: Array<{
     name: string
     email: string
-    recipientType: 'INTERNAL' | 'EXTERNAL'
+    recipientType: 'INTERNAL' | 'EXTERNAL' | 'VIEWER'
     routingOrder: number
     designation?: string
     counterpartyId?: string
@@ -1255,6 +1255,17 @@ export const contractsClient = {
     )
   },
 
+  async renameTitle(contractId: string, payload: { title: string }) {
+    return safeFetch<ContractDetailResponse>(resolveContractPath(routeRegistry.api.contracts.renameTitle, contractId), {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    })
+  },
+
   async addSignatory(
     contractId: string,
     payload:
@@ -1262,7 +1273,7 @@ export const contractsClient = {
       | {
           recipients: Array<{
             signatoryEmail: string
-            recipientType: 'INTERNAL' | 'EXTERNAL'
+            recipientType: 'INTERNAL' | 'EXTERNAL' | 'VIEWER'
             routingOrder: number
             fields: Array<{
               field_type: 'SIGNATURE' | 'INITIAL' | 'STAMP' | 'NAME' | 'DATE' | 'TIME' | 'TEXT'
@@ -1293,7 +1304,7 @@ export const contractsClient = {
       recipients: Array<{
         name: string
         email: string
-        recipient_type: 'INTERNAL' | 'EXTERNAL'
+        recipient_type: 'INTERNAL' | 'EXTERNAL' | 'VIEWER'
         routing_order: number
         designation?: string
         counterparty_id?: string

@@ -337,6 +337,134 @@
   gap: 6px;
 }
 
+.titleStack {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.headerTitleRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.headerRenameButton {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 0.15s ease,
+    color 0.15s ease,
+    background 0.15s ease;
+}
+
+.headerRow:hover .headerRenameButton {
+  opacity: 1;
+}
+
+.headerRenameButton:hover {
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+
+.headerRenameButton:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.headerRenameRow {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.headerRenameInput {
+  flex: 1;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  padding: 3px 8px;
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 20%, transparent);
+}
+
+.headerRenameInput:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.renameActionGroup {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+.renameActionButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition:
+    background 0.12s ease,
+    border-color 0.12s ease,
+    color 0.12s ease;
+}
+
+.renameActionButton:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.renameConfirmButton {
+  background: color-mix(in srgb, var(--color-success, #22c55e) 12%, transparent);
+  border-color: color-mix(in srgb, var(--color-success, #22c55e) 40%, transparent);
+  color: var(--color-success, #22c55e);
+}
+
+.renameConfirmButton:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-success, #22c55e) 22%, transparent);
+  border-color: var(--color-success, #22c55e);
+}
+
+.renameCancelButton {
+  background: color-mix(in srgb, var(--color-danger, #ef4444) 10%, transparent);
+  border-color: color-mix(in srgb, var(--color-danger, #ef4444) 35%, transparent);
+  color: var(--color-danger, #ef4444);
+}
+
+.renameCancelButton:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-danger, #ef4444) 20%, transparent);
+  border-color: var(--color-danger, #ef4444);
+}
+
+.renameConfirmButton:focus-visible,
+.renameCancelButton:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
 .titleMetaRow {
   display: flex;
   align-items: center;
@@ -484,6 +612,77 @@
   line-height: 1.35;
   color: var(--color-text);
   overflow-wrap: anywhere;
+}
+
+.summaryHeroTitle {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 760;
+  line-height: 1.35;
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+.renameTitleRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.renameTitleButton {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 3px;
+  margin-top: 2px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 0.15s ease,
+    color 0.15s ease,
+    background 0.15s ease;
+}
+
+.summaryHero:hover .renameTitleButton {
+  opacity: 1;
+}
+
+.renameTitleButton:hover {
+  color: var(--color-accent);
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+
+.renameTitleButton:focus-visible {
+  opacity: 1;
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.renameTitleInput {
+  flex: 1;
+  min-width: 0;
+  font-size: 16px;
+  font-weight: 760;
+  line-height: 1.35;
+  color: var(--color-text);
+  background: var(--color-surface);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 20%, transparent);
+  overflow-wrap: anywhere;
+}
+
+.renameTitleInput:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 .summaryHeroMeta {
@@ -1063,6 +1262,42 @@
   display: flex;
   gap: 8px;
   align-items: center;
+}
+
+.noteForm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.noteSubmitButton {
+  align-self: flex-end;
+}
+
+.noteText {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.hodSelect {
+  min-height: 36px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font-size: 12px;
+  padding: 6px 10px;
+  width: 100%;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.hodSelect:focus {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 22%, transparent);
+  outline: none;
 }
 
 .input {

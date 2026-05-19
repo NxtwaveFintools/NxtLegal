@@ -1,5 +1,5 @@
-import { useState, type FormEvent } from 'react'
-import type { ContractDetailResponse } from '@/core/client/contracts-client'
+import { useState, useEffect, type FormEvent } from 'react'
+import type { ContractDetailResponse, DepartmentOption } from '@/core/client/contracts-client'
 import { publicConfig } from '@/core/config/public-config'
 import Spinner from '@/components/ui/Spinner'
 import { toast } from 'sonner'
@@ -19,6 +19,8 @@ type ApprovalsTabProps = {
   onRemindApprover: (email?: string) => Promise<void>
   onSkipApprover: (params: { approverRole: 'HOD' | 'ADDITIONAL'; approverId?: string; reason: string }) => Promise<void>
   onSkipRefresh: () => void | Promise<void>
+  hodSuggestions: DepartmentOption[]
+  onLoadHodSuggestions: () => Promise<void>
 }
 
 type ApprovalStatus = 'PENDING' | 'NOT_SENT' | 'APPROVED' | 'SKIPPED'
@@ -152,9 +154,18 @@ export default function ApprovalsTab({
   onRemindApprover,
   onSkipApprover,
   onSkipRefresh,
+  hodSuggestions,
+  onLoadHodSuggestions,
 }: ApprovalsTabProps) {
   const steps = buildSteps({ contract, approvers })
   const [isSubmittingCurrentReminder, setIsSubmittingCurrentReminder] = useState(false)
+
+  useEffect(() => {
+    if (canManageApprovals) {
+      void onLoadHodSuggestions()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const [isSubmittingAddApprover, setIsSubmittingAddApprover] = useState(false)
   const [remindingStepId, setRemindingStepId] = useState<string | null>(null)
   const [skipStep, setSkipStep] = useState<ApprovalStep | null>(null)
@@ -376,6 +387,23 @@ export default function ApprovalsTab({
         <div className={styles.card}>
           <div className={styles.sectionTitle}>Add Approval</div>
           <form className={styles.addApprovalForm} onSubmit={handleAddApprovalSubmit}>
+            {hodSuggestions.length > 0 ? (
+              <select
+                className={styles.hodSelect}
+                value=""
+                onChange={(e) => {
+                  if (e.target.value) onApproverEmailChange(e.target.value)
+                }}
+                aria-label="Select HOD"
+              >
+                <option value="">Select email</option>
+                {hodSuggestions.map((d) => (
+                  <option key={d.id} value={d.hodEmail ?? ''}>
+                    {d.hodName ? `${d.hodName} — ${d.name}` : `${d.hodEmail} — ${d.name}`}
+                  </option>
+                ))}
+              </select>
+            ) : null}
             <input
               type="email"
               className={styles.input}
