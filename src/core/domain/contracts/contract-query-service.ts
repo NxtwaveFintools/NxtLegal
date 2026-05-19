@@ -629,6 +629,55 @@ export class ContractQueryService {
     })
   }
 
+  async renameTitle(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    actorRole?: string
+    actorEmail: string
+    newTitle: string
+  }): Promise<ContractDetailView> {
+    if (!params.actorRole) {
+      throw new AuthorizationError('CONTRACT_RENAME_FORBIDDEN', 'User role is required to rename a contract')
+    }
+
+    if (params.actorRole !== contractWorkflowRoles.legalTeam && params.actorRole !== contractWorkflowRoles.admin) {
+      throw new AuthorizationError('CONTRACT_RENAME_FORBIDDEN', 'Only LEGAL_TEAM or ADMIN can rename a contract')
+    }
+
+    if (!params.actorEmail) {
+      throw new BusinessRuleError('ACTOR_EMAIL_REQUIRED', 'Actor email is required')
+    }
+
+    const trimmedTitle = params.newTitle.trim()
+    if (!trimmedTitle) {
+      throw new BusinessRuleError('CONTRACT_TITLE_REQUIRED', 'Contract title cannot be empty')
+    }
+
+    await this.contractRepository.updateTitle({
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      actorEmployeeId: params.actorEmployeeId,
+      actorRole: params.actorRole,
+      actorEmail: params.actorEmail,
+      newTitle: trimmedTitle,
+    })
+
+    const contract = await this.contractRepository.getById(params.tenantId, params.contractId)
+
+    if (!contract) {
+      throw new NotFoundError('Contract', params.contractId)
+    }
+
+    return this.getContractDetailAfterMutation({
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      employeeId: params.actorEmployeeId,
+      role: params.actorRole,
+      updatedContract: contract,
+    })
+  }
+
   async addSignatory(params: {
     tenantId: string
     contractId: string

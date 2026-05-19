@@ -485,6 +485,14 @@ export interface ContractQueryRepository {
     actorEmail: string
     metadata: ContractLegalMetadata
   }): Promise<void>
+  updateTitle(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    actorRole: string
+    actorEmail: string
+    newTitle: string
+  }): Promise<void>
   bypassAdditionalApprover(params: {
     tenantId: string
     contractId: string

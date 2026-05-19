@@ -199,7 +199,7 @@ type SignatoryEntity = {
   contract_id?: string
   tenant_id?: string
   signatory_email: string
-  recipient_type: 'INTERNAL' | 'EXTERNAL'
+  recipient_type: 'INTERNAL' | 'EXTERNAL' | 'VIEWER'
   routing_order: number
   field_config: Array<{
     fieldType: 'SIGNATURE' | 'INITIAL' | 'STAMP' | 'NAME' | 'DATE' | 'TIME' | 'TEXT'
@@ -223,7 +223,7 @@ type SigningPreparationDraftEntity = {
   recipients: Array<{
     name: string
     email: string
-    recipientType: 'INTERNAL' | 'EXTERNAL'
+    recipientType: 'INTERNAL' | 'EXTERNAL' | 'VIEWER'
     routingOrder: number
     designation?: string
     counterpartyId?: string
@@ -2285,7 +2285,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     recipients: Array<{
       name: string
       email: string
-      recipientType: 'INTERNAL' | 'EXTERNAL'
+      recipientType: 'INTERNAL' | 'EXTERNAL' | 'VIEWER'
       routingOrder: number
       designation?: string
       counterpartyId?: string
@@ -2308,7 +2308,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     recipients: Array<{
       name: string
       email: string
-      recipientType: 'INTERNAL' | 'EXTERNAL'
+      recipientType: 'INTERNAL' | 'EXTERNAL' | 'VIEWER'
       routingOrder: number
       designation?: string
       counterpartyId?: string
@@ -2410,7 +2410,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     recipients: Array<{
       name: string
       email: string
-      recipientType: 'INTERNAL' | 'EXTERNAL'
+      recipientType: 'INTERNAL' | 'EXTERNAL' | 'VIEWER'
       routingOrder: number
       designation?: string
       counterpartyId?: string
@@ -3504,6 +3504,73 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     }
   }
 
+  async updateTitle(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    actorRole: string
+    actorEmail: string
+    newTitle: string
+  }): Promise<void> {
+    this.assertActorMetadata({
+      actorEmployeeId: params.actorEmployeeId,
+      actorEmail: params.actorEmail,
+      actorRole: params.actorRole,
+    })
+
+    if (params.actorRole !== contractWorkflowRoles.legalTeam && params.actorRole !== contractWorkflowRoles.admin) {
+      throw new AuthorizationError('CONTRACT_RENAME_FORBIDDEN', 'Only LEGAL_TEAM or ADMIN can rename a contract')
+    }
+
+    const contract = await this.getById(params.tenantId, params.contractId)
+    if (!contract) {
+      throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found')
+    }
+
+    const supabase = createServiceSupabase()
+
+    const { error: updateError } = await supabase
+      .from('contracts')
+      .update({
+        title: params.newTitle,
+        updated_at: new Date().toISOString(),
+        row_version: contract.rowVersion + 1,
+      })
+      .eq('id', params.contractId)
+      .eq('tenant_id', params.tenantId)
+      .eq('row_version', contract.rowVersion)
+      .is('deleted_at', null)
+
+    if (updateError) {
+      throw new DatabaseError('Failed to rename contract', new Error(updateError.message), {
+        code: updateError.code,
+      })
+    }
+
+    const { error: auditError } = await supabase.from('audit_logs').insert([
+      {
+        tenant_id: params.tenantId,
+        user_id: params.actorEmployeeId,
+        event_type: 'CONTRACT_TRANSITIONED',
+        action: 'contract.title.updated',
+        actor_email: params.actorEmail,
+        actor_role: params.actorRole,
+        resource_type: 'contract',
+        resource_id: params.contractId,
+        metadata: {
+          previous_title: contract.title,
+          new_title: params.newTitle,
+        },
+      },
+    ])
+
+    if (auditError) {
+      throw new DatabaseError('Failed to write contract rename audit event', new Error(auditError.message), {
+        code: auditError.code,
+      })
+    }
+  }
+
   async addLegalCollaboratorByEmail(params: {
     tenantId: string
     contractId: string
@@ -3702,7 +3769,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     actorRole: string
     actorEmail: string
     signatoryEmail: string
-    recipientType: 'INTERNAL' | 'EXTERNAL'
+    recipientType: 'INTERNAL' | 'EXTERNAL' | 'VIEWER'
     routingOrder: number
     fieldConfig: Array<{
       fieldType: 'SIGNATURE' | 'INITIAL' | 'STAMP' | 'NAME' | 'DATE' | 'TIME' | 'TEXT'
@@ -3804,7 +3871,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     signatoryEmail: string
     signatoryStatus: 'PENDING' | 'SIGNED'
     contractStatus: ContractStatus
-    recipientType: 'INTERNAL' | 'EXTERNAL'
+    recipientType: 'INTERNAL' | 'EXTERNAL' | 'VIEWER'
     routingOrder: number
   } | null> {
     const supabase = createServiceSupabase()
@@ -3824,7 +3891,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       contract_id: string
       signatory_email: string
       status: 'PENDING' | 'SIGNED'
-      recipient_type: 'INTERNAL' | 'EXTERNAL'
+      recipient_type: 'INTERNAL' | 'EXTERNAL' | 'VIEWER'
       routing_order: number
     }>()
 

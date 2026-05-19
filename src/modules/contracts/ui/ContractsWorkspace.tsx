@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import dynamic from 'next/dynamic'
 import type { FormEvent } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { ArrowLeft, Eye, FileText, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { ArrowLeft, Check, Eye, FileText, Pencil, PanelLeftClose, PanelLeftOpen, X } from 'lucide-react'
 import { toast } from 'sonner'
 import {
   contractsClient,
@@ -14,6 +14,7 @@ import {
   type ContractRecord,
   type ContractSigningPreparationDraft,
   type ContractTimelineEvent,
+  type DepartmentOption,
 } from '@/core/client/contracts-client'
 import { publicConfig } from '@/core/config/public-config'
 import {
@@ -209,6 +210,10 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const [isAddingCollaborator, setIsAddingCollaborator] = useState(false)
   const [isMarkingActivitySeen, setIsMarkingActivitySeen] = useState(false)
   const [isSavingLegalMetadata, setIsSavingLegalMetadata] = useState(false)
+  const [isRenaming, setIsRenaming] = useState(false)
+  const [renameDraft, setRenameDraft] = useState('')
+  const [isSavingRename, setIsSavingRename] = useState(false)
+  const [hodSuggestions, setHodSuggestions] = useState<DepartmentOption[]>([])
   const [isIntakeOpen, setIsIntakeOpen] = useState(false)
   const [isPrepareForSigningOpen, setIsPrepareForSigningOpen] = useState(false)
   const [expandedLogIds, setExpandedLogIds] = useState<Set<string>>(new Set())
@@ -550,6 +555,8 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     setIsPrepareForSigningOpen(false)
     setExpandedLogIds(new Set())
     setShowAllLogs(false)
+    setIsRenaming(false)
+    setRenameDraft('')
   }
 
   const handleTabChange = useCallback(
@@ -1286,6 +1293,68 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     await loadContracts()
     syncContractReadState(selectedContractId, false)
   }
+
+  const handleStartRename = () => {
+    if (!selectedContract) return
+    setRenameDraft(selectedContract.title)
+    setIsRenaming(true)
+  }
+
+  const handleCancelRename = useCallback(() => {
+    setIsRenaming(false)
+    setRenameDraft('')
+  }, [])
+
+  const handleCommitRename = useCallback(async () => {
+    if (!selectedContractId || !selectedContract) return
+
+    const trimmed = renameDraft.trim()
+    if (!trimmed) {
+      toast.error('Contract name cannot be empty')
+      return
+    }
+
+    if (trimmed === selectedContract.title) {
+      handleCancelRename()
+      return
+    }
+
+    setIsSavingRename(true)
+    const response = await contractsClient.renameTitle(selectedContractId, { title: trimmed })
+    setIsSavingRename(false)
+
+    if (!response.ok || !response.data) {
+      toast.error(response.error?.message ?? 'Failed to rename contract')
+      return
+    }
+
+    applyContractView(response.data)
+    upsertContractInSidebarList(response.data.contract)
+    setIsRenaming(false)
+    setRenameDraft('')
+    toast.success('Contract renamed successfully')
+  }, [
+    applyContractView,
+    handleCancelRename,
+    renameDraft,
+    selectedContract,
+    selectedContractId,
+    upsertContractInSidebarList,
+  ])
+
+  const handleRenameKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLInputElement>) => {
+      if (event.key === 'Enter') {
+        event.preventDefault()
+        void handleCommitRename()
+      }
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        handleCancelRename()
+      }
+    },
+    [handleCancelRename, handleCommitRename]
+  )
 
   const handleSaveLegalMetadata = async () => {
     if (
@@ -2091,8 +2160,56 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
               <span>Back</span>
             </button>
             <div className={styles.titleStack}>
-              <div className={styles.title}>{selectedContract?.title ?? 'Contract Details'}</div>
-              {selectedContract ? (
+              {canManageLegalMetadata && selectedContract && isRenaming ? (
+                <div className={styles.headerRenameRow}>
+                  <input
+                    className={styles.headerRenameInput}
+                    value={renameDraft}
+                    autoFocus
+                    maxLength={500}
+                    disabled={isSavingRename}
+                    onChange={(e) => setRenameDraft(e.target.value)}
+                    onKeyDown={handleRenameKeyDown}
+                    aria-label="Contract name"
+                  />
+                  <button
+                    type="button"
+                    className={`${styles.renameActionButton} ${styles.renameConfirmButton}`}
+                    onClick={() => void handleCommitRename()}
+                    disabled={isSavingRename}
+                    aria-label="Confirm rename"
+                    title="Save name"
+                  >
+                    <Check size={13} aria-hidden="true" />
+                  </button>
+                  <button
+                    type="button"
+                    className={`${styles.renameActionButton} ${styles.renameCancelButton}`}
+                    onClick={handleCancelRename}
+                    disabled={isSavingRename}
+                    aria-label="Cancel rename"
+                    title="Cancel"
+                  >
+                    <X size={13} aria-hidden="true" />
+                  </button>
+                </div>
+              ) : (
+                <div className={styles.headerTitleRow}>
+                  <div className={styles.title}>{selectedContract?.title ?? 'Contract Details'}</div>
+                  {canManageLegalMetadata && selectedContract ? (
+                    <button
+                      type="button"
+                      className={styles.headerRenameButton}
+                      onClick={handleStartRename}
+                      aria-label="Rename contract"
+                      title="Rename contract"
+                    >
+                      <Pencil size={12} aria-hidden="true" />
+                    </button>
+                  ) : null}
+                </div>
+              )}
+              {selectedContract && !isRenaming ? (
                 <div className={styles.titleMetaRow}>
                   <span className={styles.titleMetaPill}>{headerPrimaryMetaLabel}</span>
                   {selectedContractCreatedAtLabel ? (
@@ -2811,15 +2928,19 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                     <div className={styles.tabSection}>
                       <div className={styles.card}>
                         <div className={styles.sectionTitle}>Notes</div>
-                        <form className={styles.inlineForm} onSubmit={handleAddNoteSubmit}>
-                          <input
-                            type="text"
-                            className={styles.input}
+                        <form className={styles.noteForm} onSubmit={handleAddNoteSubmit}>
+                          <textarea
+                            className={styles.textarea}
                             placeholder="Add note"
                             value={noteText}
+                            rows={3}
                             onChange={(event) => setNoteText(event.target.value)}
                           />
-                          <button type="submit" className={styles.button} disabled={isMutating}>
+                          <button
+                            type="submit"
+                            className={`${styles.button} ${styles.noteSubmitButton}`}
+                            disabled={isMutating}
+                          >
                             Add Note
                           </button>
                         </form>
@@ -2827,7 +2948,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                           {noteEvents.map((event) => (
                             <div key={event.id} className={styles.event}>
                               <div className={styles.eventActor}>{event.actorEmail ?? 'System'}</div>
-                              <div>{event.noteText}</div>
+                              <div className={styles.noteText}>{event.noteText}</div>
                               <div className={styles.eventMeta}>{new Date(event.createdAt).toLocaleString()}</div>
                             </div>
                           ))}
@@ -2869,6 +2990,14 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                       onRemindApprover={handleRemindApprover}
                       onSkipApprover={handleSkipApprover}
                       onSkipRefresh={handleApprovalsSkipRefresh}
+                      hodSuggestions={hodSuggestions}
+                      onLoadHodSuggestions={async () => {
+                        if (hodSuggestions.length > 0) return
+                        const res = await contractsClient.departments()
+                        if (res.data?.departments) {
+                          setHodSuggestions(res.data.departments.filter((d) => Boolean(d.hodEmail)))
+                        }
+                      }}
                     />
                   )}
 

@@ -86,6 +86,10 @@ export const failedContractNotificationsQuerySchema = z.object({
   contractId: z.string().uuid().optional(),
 })
 
+export const contractRenameTitleSchema = z.object({
+  title: z.string().trim().min(1, 'Title is required').max(500, 'Title must be 500 characters or fewer'),
+})
+
 export const repositorySortByValues = ['title', 'created_at', 'hod_approved_at', 'status', 'tat_deadline_at'] as const
 export const repositorySortDirectionValues = ['asc', 'desc'] as const
 export const repositoryDateBasisValues = ['request_created_at', 'hod_approved_at'] as const
@@ -232,7 +236,7 @@ export const contractSignatoryFieldTypeValues = [
   'TIME',
   'TEXT',
 ] as const
-export const contractSignatoryRecipientTypeValues = ['INTERNAL', 'EXTERNAL'] as const
+export const contractSignatoryRecipientTypeValues = ['INTERNAL', 'EXTERNAL', 'VIEWER'] as const
 
 const contractSignatoryFieldSchema = z
   .object({

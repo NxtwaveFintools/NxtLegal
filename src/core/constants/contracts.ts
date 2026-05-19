@@ -152,6 +152,7 @@ export type ContractSignatoryStatus = (typeof contractSignatoryStatuses)[keyof t
 export const contractSignatoryRecipientTypes = {
   internal: 'INTERNAL',
   external: 'EXTERNAL',
+  viewer: 'VIEWER',
 } as const
 
 export type ContractSignatoryRecipientType =
@@ -160,6 +161,7 @@ export type ContractSignatoryRecipientType =
 export const contractSignatoryRecipientTypeLabels: Record<ContractSignatoryRecipientType, string> = {
   INTERNAL: 'NxtWave',
   EXTERNAL: 'Counter Party',
+  VIEWER: 'Viewer',
 }
 
 export const getContractSignatoryRecipientTypeLabel = (recipientType: ContractSignatoryRecipientType): string => {
