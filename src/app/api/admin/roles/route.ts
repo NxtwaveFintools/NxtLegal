@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { withAuth } from '@/core/http/with-auth'
+import { privateCacheControl } from '@/core/constants/cache'
 import { adminErrorResponse, adminOkResponse } from '@/core/http/admin-response'
 import { isAppError } from '@/core/http/errors'
 import { appConfig } from '@/core/config/app-config'
@@ -16,7 +17,11 @@ const GETHandler = withAuth(async (_request: NextRequest, { session }) => {
     const adminQueryService = getAdminQueryService()
     const roles = await adminQueryService.listRoles(session)
 
-    return NextResponse.json(adminOkResponse({ roles }, { cursor: null, limit: roles.length, total: roles.length }))
+    return NextResponse.json(adminOkResponse({ roles }, { cursor: null, limit: roles.length, total: roles.length }), {
+      headers: {
+        'Cache-Control': privateCacheControl.stable,
+      },
+    })
   } catch (error) {
     const status = isAppError(error) ? error.statusCode : 500
     const code = isAppError(error) ? error.code : 'INTERNAL_ERROR'

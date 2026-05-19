@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { ZodError } from 'zod'
 import { withAuth } from '@/core/http/with-auth'
+import { privateCacheControl } from '@/core/constants/cache'
 import { adminErrorResponse, adminOkResponse } from '@/core/http/admin-response'
 import { isAppError } from '@/core/http/errors'
 import { appConfig } from '@/core/config/app-config'
@@ -19,7 +20,12 @@ const GETHandler = withAuth(async (_request: NextRequest, { session }) => {
     const departments = await teamGovernanceService.listDepartments(session)
 
     return NextResponse.json(
-      adminOkResponse({ departments }, { cursor: null, limit: departments.length, total: departments.length })
+      adminOkResponse({ departments }, { cursor: null, limit: departments.length, total: departments.length }),
+      {
+        headers: {
+          'Cache-Control': privateCacheControl.medium,
+        },
+      }
     )
   } catch (error) {
     const status = isAppError(error) ? error.statusCode : 500

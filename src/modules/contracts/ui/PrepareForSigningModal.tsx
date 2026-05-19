@@ -1,13 +1,12 @@
 'use client'
 
+import dynamic from 'next/dynamic'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Document, Page, pdfjs } from 'react-pdf'
 import { toast } from 'sonner'
 import { contractsClient } from '@/core/client/contracts-client'
 import { contractStatuses } from '@/core/constants/contracts'
+import type { PrepareForSigningPdfViewerProps } from './PrepareForSigningPdfViewer'
 import styles from './prepare-for-signing-modal.module.css'
-
-pdfjs.GlobalWorkerOptions.workerSrc = new URL('pdfjs-dist/build/pdf.worker.min.mjs', import.meta.url).toString()
 
 type RecipientType = 'INTERNAL' | 'EXTERNAL'
 type FieldType = 'SIGNATURE' | 'INITIAL' | 'STAMP' | 'NAME' | 'DATE' | 'TIME' | 'TEXT'
@@ -102,6 +101,14 @@ const sendingStatuses = [
   'Just a minute...',
   'Preparing the signing package...',
 ]
+
+const PrepareForSigningPdfViewer = dynamic<PrepareForSigningPdfViewerProps>(
+  () => import('./PrepareForSigningPdfViewer'),
+  {
+    ssr: false,
+    loading: () => <div className={styles.placeholder}>Loading PDF…</div>,
+  }
+)
 
 const createDraftId = () => `${Date.now()}-${Math.random().toString(16).slice(2)}`
 const defaultFieldSizeByType: Record<FieldType, { width: number; height: number }> = {
@@ -1112,26 +1119,20 @@ export default function PrepareForSigningModal({
                 <div className={styles.placeholder}>Loading draft…</div>
               ) : (
                 <div ref={pageSurfaceRef} className={styles.pageSurface} onClick={handlePageClick}>
-                  <Document
-                    file={pdfUrl}
-                    loading={<div className={styles.placeholder}>Loading PDF…</div>}
-                    error={<div className={styles.placeholder}>Unable to preview PDF</div>}
-                    onLoadSuccess={(result) => {
+                  <PrepareForSigningPdfViewer
+                    pdfUrl={pdfUrl}
+                    currentPage={currentPage}
+                    pageRenderRef={pageRenderRef}
+                    onDocumentLoadSuccess={(result) => {
                       setNumPages(result.numPages)
                       setCurrentPage((page) => Math.min(page, result.numPages))
 
-                      const resultWithPages = result as {
-                        numPages: number
-                        getPage?: (
-                          pageNumber: number
-                        ) => Promise<{ getViewport: (params: { scale: number }) => { width: number; height: number } }>
-                      }
-                      const getPage = resultWithPages.getPage
+                      const getPage = result.getPage
 
                       if (typeof getPage === 'function') {
                         void (async () => {
                           const nextMetrics: Record<number, { width: number; height: number }> = {}
-                          for (let pageNumber = 1; pageNumber <= resultWithPages.numPages; pageNumber += 1) {
+                          for (let pageNumber = 1; pageNumber <= result.numPages; pageNumber += 1) {
                             try {
                               const page = await getPage(pageNumber)
                               const viewport = page.getViewport({ scale: 1 })
@@ -1140,7 +1141,7 @@ export default function PrepareForSigningModal({
                                 height: viewport.height,
                               }
                             } catch {
-                              // Keep best-effort metrics collection; current page metrics are still captured on <Page /> load.
+                              // Keep best-effort metrics collection; current page metrics are still captured on page load.
                             }
                           }
 
@@ -1153,28 +1154,19 @@ export default function PrepareForSigningModal({
                         })()
                       }
                     }}
-                  >
-                    <div ref={pageRenderRef} className={styles.pageRender}>
-                      <Page
-                        pageNumber={currentPage}
-                        renderTextLayer={false}
-                        renderAnnotationLayer={false}
-                        width={720}
-                        onLoadSuccess={(page) => {
-                          const viewport = page.getViewport({ scale: 1 })
-                          setPageMetricsByNumber((current) => ({
-                            ...current,
-                            [currentPage]: {
-                              width: viewport.width,
-                              height: viewport.height,
-                            },
-                          }))
+                    onPageLoadSuccess={(page) => {
+                      const viewport = page.getViewport({ scale: 1 })
+                      setPageMetricsByNumber((current) => ({
+                        ...current,
+                        [currentPage]: {
+                          width: viewport.width,
+                          height: viewport.height,
+                        },
+                      }))
 
-                          requestAnimationFrame(() => measureRenderBox(currentPage))
-                        }}
-                      />
-                    </div>
-                  </Document>
+                      requestAnimationFrame(() => measureRenderBox(currentPage))
+                    }}
+                  />
 
                   {fieldsForCurrentPage.map((field) => (
                     <button

@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { ZodError } from 'zod'
 import { withAuth } from '@/core/http/with-auth'
+import { privateCacheControl } from '@/core/constants/cache'
 import { errorResponse, okResponse } from '@/core/http/response'
 import { isAppError } from '@/core/http/errors'
 import { getContractQueryService } from '@/core/registry/service-registry'
@@ -61,7 +62,11 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
       counts[filter] = count
     }
 
-    return NextResponse.json(okResponse({ counts }))
+    return NextResponse.json(okResponse({ counts }), {
+      headers: {
+        'Cache-Control': privateCacheControl.short,
+      },
+    })
   } catch (error) {
     if (error instanceof ZodError) {
       return NextResponse.json(errorResponse('VALIDATION_ERROR', 'Invalid dashboard counts query params'), {

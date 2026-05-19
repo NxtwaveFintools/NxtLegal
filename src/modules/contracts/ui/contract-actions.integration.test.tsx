@@ -398,7 +398,8 @@ describe('Contract action dialogs', () => {
     await waitFor(() => expect(screen.getByLabelText('Legal status actions')).toBeTruthy())
     await userEvent.click(screen.getByRole('button', { name: /Intake Details/i }))
 
-    expect(screen.getByText('Counterparty 2 Signatory 1 Email')).toBeTruthy()
+    // Second counterparty card is rendered (index marker is its own span, not concatenated with signatory/field labels)
+    expect(screen.getByText('Counterparty 2')).toBeTruthy()
     expect(screen.getByText('cp2-a@example.com')).toBeTruthy()
     expect(screen.getAllByText('Budget Approved').length).toBeGreaterThan(0)
   })

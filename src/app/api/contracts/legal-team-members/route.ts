@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from 'next/server'
 import { withAuth } from '@/core/http/with-auth'
+import { privateCacheControl } from '@/core/constants/cache'
 import { errorResponse, okResponse } from '@/core/http/response'
 import { isAppError } from '@/core/http/errors'
 import { getContractQueryService } from '@/core/registry/service-registry'
@@ -25,7 +26,11 @@ const GETHandler = withAuth(async (_request: NextRequest, { session }) => {
       tenantId: session.tenantId,
     })
 
-    return NextResponse.json(okResponse({ members }))
+    return NextResponse.json(okResponse({ members }), {
+      headers: {
+        'Cache-Control': privateCacheControl.medium,
+      },
+    })
   } catch (error) {
     const status = isAppError(error) ? error.statusCode : 500
     const code = isAppError(error) ? error.code : 'INTERNAL_ERROR'

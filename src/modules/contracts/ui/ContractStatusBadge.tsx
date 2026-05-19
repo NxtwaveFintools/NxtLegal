@@ -1,3 +1,4 @@
+import { memo } from 'react'
 import { contractStatusLabels, type ContractStatus } from '@/core/constants/contracts'
 import styles from './ContractStatusBadge.module.css'
 
@@ -22,10 +23,14 @@ const statusClassName: Record<ContractStatus, string> = {
   REJECTED: styles.rejected,
 }
 
-export default function ContractStatusBadge({ status, displayLabel }: ContractStatusBadgeProps) {
+const ContractStatusBadge = memo(function ContractStatusBadge({ status, displayLabel }: ContractStatusBadgeProps) {
   const normalized = status as ContractStatus
   const label = displayLabel ?? contractStatusLabels[normalized] ?? status
   const className = statusClassName[normalized] ?? styles.uploaded
 
   return <span className={`${styles.badge} ${className}`}>{label}</span>
-}
+})
+
+ContractStatusBadge.displayName = 'ContractStatusBadge'
+
+export default ContractStatusBadge
