@@ -14,6 +14,7 @@ import {
   contractAuditEvents,
   contractLegalAssignmentAllowedRoles,
   contractLegalAssignmentEditableStatuses,
+  contractSignatoryRecipientTypes,
   contractSignatoryStatuses,
   contractStatuses,
   contractWorkflowRoles,
@@ -2482,6 +2483,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       .eq('tenant_id', params.tenantId)
       .eq('contract_id', params.contractId)
       .eq('status', contractSignatoryStatuses.pending)
+      .neq('recipient_type', contractSignatoryRecipientTypes.viewer)
       .is('deleted_at', null)
 
     if (error) {
@@ -5066,10 +5068,6 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     }
 
     const hodDepartmentIds = await this.getHodDepartmentIds(params.tenantId, params.actorEmployeeId)
-    if (hodDepartmentIds.length === 0) {
-      return false
-    }
-
     if (hodDepartmentIds.includes(params.contract.departmentId)) {
       return true
     }

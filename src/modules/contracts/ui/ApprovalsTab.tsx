@@ -23,7 +23,7 @@ type ApprovalsTabProps = {
   onLoadHodSuggestions: () => Promise<void>
 }
 
-type ApprovalStatus = 'PENDING' | 'NOT_SENT' | 'APPROVED' | 'SKIPPED'
+type ApprovalStatus = 'PENDING' | 'NOT_SENT' | 'APPROVED' | 'REJECTED' | 'SKIPPED'
 
 type ApprovalStep = {
   id: string
@@ -63,6 +63,10 @@ function resolveStepStatus(input: {
 
   if (input.additionalStatus === 'PENDING') {
     return 'PENDING'
+  }
+
+  if (input.additionalStatus === 'REJECTED') {
+    return 'REJECTED'
   }
 
   if (input.additionalStatus === 'SKIPPED' || input.additionalStatus === 'BYPASSED') {
@@ -135,6 +139,10 @@ function statusClass(status: ApprovalStatus): string {
 
   if (status === 'SKIPPED') {
     return styles.approvalStatusSkipped
+  }
+
+  if (status === 'REJECTED') {
+    return styles.approvalStatusRejected
   }
 
   return styles.approvalStatusNotSent
@@ -322,9 +330,11 @@ export default function ApprovalsTab({
                         ? 'Not Sent'
                         : step.status === 'PENDING'
                           ? 'Pending'
-                          : step.status === 'SKIPPED'
-                            ? 'Skipped'
-                            : 'Approved'}
+                          : step.status === 'REJECTED'
+                            ? 'Rejected'
+                            : step.status === 'SKIPPED'
+                              ? 'Skipped'
+                              : 'Approved'}
                     </span>
                   </div>
 

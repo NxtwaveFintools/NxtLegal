@@ -117,6 +117,38 @@ describe('ContractDocumentsPanel', () => {
     expect(replaceButtons.length).toBe(2)
   })
 
+  it('hides Replace button for rejected additional approver in UNDER_REVIEW status', async () => {
+    render(
+      <ContractDocumentsPanel
+        contractId="contract-1"
+        contractStatus="UNDER_REVIEW"
+        userRole="HOD"
+        actorEmployeeId="hod-2"
+        additionalApprovers={[
+          {
+            id: 'approver-1',
+            approverEmployeeId: 'hod-2',
+            approverEmail: 'hod2@nxtwave.co.in',
+            sequenceOrder: 1,
+            status: 'REJECTED',
+            approvedAt: null,
+            noteText: 'Rejected with comments',
+          },
+        ]}
+        currentDocumentId="doc-1"
+        documents={[makeDoc(), makeSupportingDoc()]}
+        onPreviewDocument={jest.fn()}
+        onDownloadDocument={jest.fn()}
+        onRefreshDocuments={async () => undefined}
+      />
+    )
+
+    expect(screen.queryByRole('button', { name: 'Replace Document' })).toBeNull()
+    expect(
+      screen.getByText('Replacement is available for additional approvers only while their approval is pending.')
+    ).toBeTruthy()
+  })
+
   it('shows Replace button when status is PENDING_WITH_EXTERNAL_STAKEHOLDERS for legal team', async () => {
     render(
       <ContractDocumentsPanel

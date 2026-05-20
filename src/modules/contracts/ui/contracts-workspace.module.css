@@ -1421,6 +1421,12 @@
   color: var(--color-success);
 }
 
+.signatoryStatusViewer {
+  border-color: var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+}
+
 .signatoryActionRow {
   margin-top: 8px;
   display: flex;
@@ -1650,6 +1656,12 @@
   border-color: var(--color-success);
   background: color-mix(in srgb, var(--color-success) 14%, transparent);
   color: var(--color-success);
+}
+
+.approvalStatusRejected {
+  border-color: var(--color-danger);
+  background: var(--color-danger-soft);
+  color: var(--color-danger);
 }
 
 .approvalStatusNotSent {

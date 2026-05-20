@@ -176,6 +176,55 @@ describe('ContractUploadService signing source regression', () => {
     })
   })
 
+  it('allows additional approver participants to read contract downloads', async () => {
+    const contractRepository = {
+      getForAccess: jest.fn().mockResolvedValue({
+        id: 'contract-1',
+        tenantId: 'tenant-1',
+        uploadedByEmployeeId: 'uploader-1',
+        currentAssigneeEmployeeId: 'legal-1',
+        status: 'FINAL_APPROVED',
+        currentDocumentId: 'doc-active-2',
+        filePath: 'legacy/path.docx',
+        fileName: 'legacy.docx',
+      }),
+      getDocumentForAccess: jest.fn().mockResolvedValue({
+        id: 'doc-active-2',
+        tenantId: 'tenant-1',
+        contractId: 'contract-1',
+        versionNumber: 2,
+        filePath: 'tenant-1/contract-1/versions/v2.docx',
+        fileName: 'v2.docx',
+      }),
+      getAdditionalApproverAssignmentState: jest.fn().mockResolvedValue({
+        isAdditionalApprover: true,
+        hasPendingAssignment: false,
+      }),
+      isUploaderInActorTeam: jest.fn().mockResolvedValue(false),
+    }
+
+    const contractStorageRepository = {
+      createSignedDownloadUrl: jest.fn().mockResolvedValue('https://signed.example/v2'),
+    }
+
+    const service = new ContractUploadService(contractRepository as never, contractStorageRepository as never, logger)
+
+    const result = await service.createSignedDownloadUrl({
+      contractId: 'contract-1',
+      tenantId: 'tenant-1',
+      requestorEmployeeId: 'approver-1',
+      requestorRole: 'HOD',
+    })
+
+    expect(contractRepository.getAdditionalApproverAssignmentState).toHaveBeenCalledWith({
+      tenantId: 'tenant-1',
+      contractId: 'contract-1',
+      approverEmployeeId: 'approver-1',
+    })
+    expect(contractStorageRepository.createSignedDownloadUrl).toHaveBeenCalledTimes(1)
+    expect(result.fileName).toBe('v2.docx')
+  })
+
   it('blocks upload when POC is not assigned to selected department', async () => {
     const contractRepository = {
       isPocAssignedToDepartment: jest.fn().mockResolvedValue(false),
@@ -974,6 +1023,80 @@ describe('ContractUploadService replace primary document', () => {
 
     expect(contractRepository.replacePrimaryDocument).toHaveBeenCalledTimes(1)
     expect(contractRepository.updateContractStatus).not.toHaveBeenCalled()
+  })
+
+  it('blocks additional approvers from replacing main document after rejection', async () => {
+    const contractRepository = {
+      getForAccess: jest.fn().mockResolvedValue(
+        buildContractForReplacement({
+          uploadedByEmployeeId: 'poc-1',
+          status: contractStatuses.underReview,
+        })
+      ),
+      getAdditionalApproverAssignmentState: jest.fn().mockResolvedValue({
+        isAdditionalApprover: true,
+        hasPendingAssignment: false,
+      }),
+      replacePrimaryDocument: jest.fn(),
+      updateContractStatus: jest.fn(),
+    }
+
+    const contractStorageRepository = {
+      upload: jest.fn().mockResolvedValue(undefined),
+      remove: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const service = new ContractUploadService(contractRepository as never, contractStorageRepository as never, logger)
+
+    await expect(
+      service.replacePrimaryDocument(
+        buildReplaceInput({
+          uploadedByEmployeeId: 'approver-1',
+          uploadedByRole: 'HOD',
+          uploadedByEmail: 'approver@nxtwave.co.in',
+        }) as never
+      )
+    ).rejects.toMatchObject<Partial<AuthorizationError>>({
+      code: 'CONTRACT_REPLACEMENT_FORBIDDEN',
+    })
+
+    expect(contractStorageRepository.upload).not.toHaveBeenCalled()
+    expect(contractRepository.replacePrimaryDocument).not.toHaveBeenCalled()
+  })
+
+  it('allows additional approvers to replace main document while assignment is pending', async () => {
+    const contractRepository = {
+      getForAccess: jest.fn().mockResolvedValue(
+        buildContractForReplacement({
+          uploadedByEmployeeId: 'poc-1',
+          status: contractStatuses.underReview,
+        })
+      ),
+      getAdditionalApproverAssignmentState: jest.fn().mockResolvedValue({
+        isAdditionalApprover: true,
+        hasPendingAssignment: true,
+      }),
+      replacePrimaryDocument: jest.fn().mockResolvedValue(buildReplacedDocument()),
+      updateContractStatus: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const contractStorageRepository = {
+      upload: jest.fn().mockResolvedValue(undefined),
+      remove: jest.fn().mockResolvedValue(undefined),
+    }
+
+    const service = new ContractUploadService(contractRepository as never, contractStorageRepository as never, logger)
+
+    await service.replacePrimaryDocument(
+      buildReplaceInput({
+        uploadedByEmployeeId: 'approver-1',
+        uploadedByRole: 'HOD',
+        uploadedByEmail: 'approver@nxtwave.co.in',
+      }) as never
+    )
+
+    expect(contractStorageRepository.upload).toHaveBeenCalledTimes(1)
+    expect(contractRepository.replacePrimaryDocument).toHaveBeenCalledTimes(1)
   })
 })
 
