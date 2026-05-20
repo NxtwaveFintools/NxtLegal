@@ -68,4 +68,12 @@ export interface ContractRepository {
     actorEmployeeId: string
     uploaderEmployeeId: string
   }): Promise<boolean>
+  getAdditionalApproverAssignmentState?(params: {
+    tenantId: string
+    contractId: string
+    approverEmployeeId: string
+  }): Promise<{
+    isAdditionalApprover: boolean
+    hasPendingAssignment: boolean
+  }>
 }

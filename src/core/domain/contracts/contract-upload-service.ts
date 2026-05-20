@@ -190,6 +190,48 @@ export class ContractUploadService {
     private readonly logger: Logger
   ) {}
 
+  private async getAdditionalApproverAssignmentState(params: {
+    tenantId: string
+    contractId: string
+    approverEmployeeId: string
+  }): Promise<{
+    isAdditionalApprover: boolean
+    hasPendingAssignment: boolean
+  }> {
+    if (!this.contractRepository.getAdditionalApproverAssignmentState) {
+      return {
+        isAdditionalApprover: false,
+        hasPendingAssignment: false,
+      }
+    }
+
+    return this.contractRepository.getAdditionalApproverAssignmentState(params)
+  }
+
+  private async assertAdditionalApproverCanReplace(params: {
+    tenantId: string
+    contractId: string
+    actorEmployeeId: string
+    actorRole: string
+  }): Promise<void> {
+    if (params.actorRole === 'ADMIN' || params.actorRole === 'LEGAL_TEAM') {
+      return
+    }
+
+    const assignmentState = await this.getAdditionalApproverAssignmentState({
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      approverEmployeeId: params.actorEmployeeId,
+    })
+
+    if (assignmentState.isAdditionalApprover && !assignmentState.hasPendingAssignment) {
+      throw new AuthorizationError(
+        'CONTRACT_REPLACEMENT_FORBIDDEN',
+        'Additional approvers can replace documents only while their approval is pending'
+      )
+    }
+  }
+
   async uploadContract(input: UploadContractInput): Promise<ContractRecord> {
     this.validateUploadInput(input)
 
@@ -639,6 +681,13 @@ export class ContractUploadService {
       throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found for tenant')
     }
 
+    await this.assertAdditionalApproverCanReplace({
+      tenantId: input.tenantId,
+      contractId: input.contractId,
+      actorEmployeeId: input.uploadedByEmployeeId,
+      actorRole: input.uploadedByRole,
+    })
+
     this.assertMainReplacementPermissions(contract, input)
     const safeFileName = this.sanitizeFileName(input.fileName)
     const path = `${input.tenantId}/${input.contractId}/versions/${randomUUID()}-${safeFileName}`
@@ -668,6 +717,13 @@ export class ContractUploadService {
       throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found for tenant')
     }
 
+    await this.assertAdditionalApproverCanReplace({
+      tenantId: input.tenantId,
+      contractId: input.contractId,
+      actorEmployeeId: input.uploadedByEmployeeId,
+      actorRole: input.uploadedByRole,
+    })
+
     this.assertMainReplacementPermissions(contract, input)
 
     const exists = await this.contractStorageRepository.exists(input.path)
@@ -694,6 +750,13 @@ export class ContractUploadService {
     if (!contract) {
       throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found for tenant')
     }
+
+    await this.assertAdditionalApproverCanReplace({
+      tenantId: input.tenantId,
+      contractId: input.contractId,
+      actorEmployeeId: input.uploadedByEmployeeId,
+      actorRole: input.uploadedByRole,
+    })
 
     this.assertSupportingReplacementPermissions(contract, input)
 
@@ -734,6 +797,13 @@ export class ContractUploadService {
       throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found for tenant')
     }
 
+    await this.assertAdditionalApproverCanReplace({
+      tenantId: input.tenantId,
+      contractId: input.contractId,
+      actorEmployeeId: input.uploadedByEmployeeId,
+      actorRole: input.uploadedByRole,
+    })
+
     this.assertSupportingReplacementPermissions(contract, input)
 
     const sourceDocument = await this.contractRepository.getDocumentForAccess({
@@ -767,6 +837,13 @@ export class ContractUploadService {
     if (!contract) {
       throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found for tenant')
     }
+
+    await this.assertAdditionalApproverCanReplace({
+      tenantId: input.tenantId,
+      contractId: input.contractId,
+      actorEmployeeId: input.uploadedByEmployeeId,
+      actorRole: input.uploadedByRole,
+    })
 
     this.assertMainReplacementPermissions(contract, input)
 
@@ -838,6 +915,13 @@ export class ContractUploadService {
     if (!contract) {
       throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found for tenant')
     }
+
+    await this.assertAdditionalApproverCanReplace({
+      tenantId: input.tenantId,
+      contractId: input.contractId,
+      actorEmployeeId: input.uploadedByEmployeeId,
+      actorRole: input.uploadedByRole,
+    })
 
     this.assertSupportingReplacementPermissions(contract, input)
 
@@ -917,10 +1001,17 @@ export class ContractUploadService {
       throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found for tenant')
     }
 
+    const additionalApproverAssignmentState = await this.getAdditionalApproverAssignmentState({
+      tenantId: params.tenantId,
+      contractId: params.contractId,
+      approverEmployeeId: params.requestorEmployeeId,
+    })
+
     const canRead =
       this.privilegedReadRoles.has(params.requestorRole) ||
       contract.uploadedByEmployeeId === params.requestorEmployeeId ||
       contract.currentAssigneeEmployeeId === params.requestorEmployeeId ||
+      additionalApproverAssignmentState.isAdditionalApprover ||
       (params.requestorRole === 'HOD' &&
         (await this.contractRepository.isUploaderInActorTeam({
           tenantId: params.tenantId,

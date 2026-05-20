@@ -933,7 +933,10 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   }
 
   const hasCompletedSigningFlow =
-    signatories.length > 0 && signatories.every((signatory) => signatory.status === 'SIGNED')
+    signatories.filter((signatory) => signatory.recipientType !== 'VIEWER').length > 0 &&
+    signatories
+      .filter((signatory) => signatory.recipientType !== 'VIEWER')
+      .every((signatory) => signatory.status === 'SIGNED')
 
   const handleViewDocument = useCallback(
     async (document?: ContractDocument) => {
@@ -1722,10 +1725,11 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       )
       .map((document) => document.fileName)
   }, [documents])
-  const allSignatoriesSigned = useMemo(
-    () => orderedSignatories.length > 0 && orderedSignatories.every((signatory) => signatory.status === 'SIGNED'),
-    [orderedSignatories]
-  )
+  const allSignatoriesSigned = useMemo(() => {
+    const actionableSignatories = orderedSignatories.filter((signatory) => signatory.recipientType !== 'VIEWER')
+
+    return actionableSignatories.length > 0 && actionableSignatories.every((signatory) => signatory.status === 'SIGNED')
+  }, [orderedSignatories])
   const completionArtifactsByKind = useMemo(() => {
     const executedDocuments = documents
       .filter((document) => document.documentKind === contractDocumentKindExecutedContract)
@@ -2266,12 +2270,6 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
             </div>
           </div>
 
-          {selectedContract?.latestAdditionalApproverRejectionReason ? (
-            <div className={styles.rejectionContextBanner}>
-              Additional approver rejection reason: {selectedContract.latestAdditionalApproverRejectionReason}
-            </div>
-          ) : null}
-
           {selectedContract?.status === contractStatuses.void && selectedContract.voidReason ? (
             <div className={styles.rejectionContextBanner}>Void reason: {selectedContract.voidReason}</div>
           ) : null}
@@ -2740,6 +2738,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                               {signatories.map((signatory) => {
                                 const normalizedSignatoryEmail = signatory.signatoryEmail.trim().toLowerCase()
                                 const isSignatorySigned = signatory.status === 'SIGNED'
+                                const isViewerRecipient = signatory.recipientType === 'VIEWER'
                                 const isGeneratingSignatoryLink =
                                   isGeneratingLinkFor?.trim().toLowerCase() === normalizedSignatoryEmail
                                 const isSigningLinkCopied = copiedSigningLinkFor === normalizedSignatoryEmail
@@ -2755,17 +2754,27 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                                         {getContractSignatoryRecipientTypeLabel(signatory.recipientType)} · Step{' '}
                                         {signatory.routingOrder}
                                       </div>
-                                      <span
-                                        className={`${styles.signatoryStatusBadge} ${
-                                          signatory.status === 'SIGNED'
-                                            ? styles.signatoryStatusSigned
-                                            : styles.signatoryStatusPending
-                                        }`}
-                                      >
-                                        {signatory.status}
-                                      </span>
+                                      {isViewerRecipient ? (
+                                        <span
+                                          className={`${styles.signatoryStatusBadge} ${styles.signatoryStatusViewer}`}
+                                        >
+                                          Viewer Access
+                                        </span>
+                                      ) : (
+                                        <span
+                                          className={`${styles.signatoryStatusBadge} ${
+                                            signatory.status === 'SIGNED'
+                                              ? styles.signatoryStatusSigned
+                                              : styles.signatoryStatusPending
+                                          }`}
+                                        >
+                                          {signatory.status}
+                                        </span>
+                                      )}
                                     </div>
-                                    {isSignatorySigned ? (
+                                    {isViewerRecipient ? (
+                                      <div className={styles.signatoryActionHint}>Can View Document</div>
+                                    ) : isSignatorySigned ? (
                                       <div className={styles.signatoryActionHint}>
                                         This signer has completed signing.
                                       </div>
@@ -2805,7 +2814,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                                       </div>
                                     ) : (
                                       <div className={styles.signatoryActionHint}>
-                                        Signing link available for NxtWave users.
+                                        Signing link is managed by the e-signature workflow.
                                       </div>
                                     )}
                                   </div>
@@ -2963,6 +2972,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                       contractStatus={selectedContract.status}
                       userRole={session.role}
                       actorEmployeeId={session.employeeId}
+                      additionalApprovers={approvers}
                       uploadedByEmployeeId={selectedContract.uploadedByEmployeeId}
                       currentDocumentId={selectedContract.currentDocumentId}
                       documents={documents}
@@ -3066,31 +3076,45 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                           <div className={styles.placeholderRow}>No signatories configured yet.</div>
                         ) : (
                           <div className={styles.timeline}>
-                            {orderedSignatories.map((signatory) => (
-                              <div key={signatory.id} className={styles.event}>
-                                <div className={styles.signatoryHeader}>
-                                  <div>
-                                    {signatory.signatoryEmail} ·{' '}
-                                    {getContractSignatoryRecipientTypeLabel(signatory.recipientType)} · Step{' '}
-                                    {signatory.routingOrder}
+                            {orderedSignatories.map((signatory) => {
+                              const isViewerRecipient = signatory.recipientType === 'VIEWER'
+
+                              return (
+                                <div key={signatory.id} className={styles.event}>
+                                  <div className={styles.signatoryHeader}>
+                                    <div>
+                                      {signatory.signatoryEmail} ·{' '}
+                                      {getContractSignatoryRecipientTypeLabel(signatory.recipientType)} · Step{' '}
+                                      {signatory.routingOrder}
+                                    </div>
+                                    {isViewerRecipient ? (
+                                      <span
+                                        className={`${styles.signatoryStatusBadge} ${styles.signatoryStatusViewer}`}
+                                      >
+                                        Viewer Access
+                                      </span>
+                                    ) : (
+                                      <span
+                                        className={`${styles.signatoryStatusBadge} ${
+                                          signatory.status === 'SIGNED'
+                                            ? styles.signatoryStatusSigned
+                                            : styles.signatoryStatusPending
+                                        }`}
+                                      >
+                                        {signatory.status}
+                                      </span>
+                                    )}
                                   </div>
-                                  <span
-                                    className={`${styles.signatoryStatusBadge} ${
-                                      signatory.status === 'SIGNED'
-                                        ? styles.signatoryStatusSigned
-                                        : styles.signatoryStatusPending
-                                    }`}
-                                  >
-                                    {signatory.status}
-                                  </span>
+                                  <div className={styles.signatoryActionHint}>
+                                    {isViewerRecipient
+                                      ? 'Can View Document'
+                                      : signatory.status === 'SIGNED'
+                                        ? 'This signer has completed signing.'
+                                        : 'Waiting for this signer to complete signing.'}
+                                  </div>
                                 </div>
-                                <div className={styles.signatoryActionHint}>
-                                  {signatory.status === 'SIGNED'
-                                    ? 'This signer has completed signing.'
-                                    : 'Waiting for this signer to complete signing.'}
-                                </div>
-                              </div>
-                            ))}
+                              )
+                            })}
                           </div>
                         )}
 

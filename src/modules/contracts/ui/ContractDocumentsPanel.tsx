@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { contractsClient, type ContractDocument } from '@/core/client/contracts-client'
+import { contractsClient, type ContractAdditionalApprover, type ContractDocument } from '@/core/client/contracts-client'
 import { contractDocumentKinds, contractStatuses } from '@/core/constants/contracts'
 import Spinner from '@/components/ui/Spinner'
 import { toast } from 'sonner'
@@ -12,6 +12,7 @@ type ContractDocumentsPanelProps = {
   contractStatus: string
   userRole?: string
   actorEmployeeId?: string
+  additionalApprovers?: ContractAdditionalApprover[]
   uploadedByEmployeeId?: string
   currentDocumentId?: string | null
   documents: ContractDocument[]
@@ -229,6 +230,8 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
     contractId,
     contractStatus,
     userRole,
+    actorEmployeeId,
+    additionalApprovers = [],
     currentDocumentId,
     documents,
     defaultUploaderEmail,
@@ -323,6 +326,23 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
     return primaryDocuments[0]
   }, [currentDocumentId, primaryDocuments])
 
+  const actorAdditionalApproverAssignments = useMemo(() => {
+    const normalizedActorEmployeeId = actorEmployeeId?.trim()
+    if (!normalizedActorEmployeeId) {
+      return []
+    }
+
+    return additionalApprovers.filter((approver) => approver.approverEmployeeId === normalizedActorEmployeeId)
+  }, [actorEmployeeId, additionalApprovers])
+
+  const isAdditionalApproverParticipant = actorAdditionalApproverAssignments.length > 0
+  const hasPendingAdditionalApproverAssignment = actorAdditionalApproverAssignments.some(
+    (approver) => approver.status === 'PENDING'
+  )
+  const isPrivilegedReplacementRole = userRole === 'LEGAL_TEAM' || userRole === 'ADMIN'
+  const isBlockedAdditionalApproverReplacement =
+    !isPrivilegedReplacementRole && isAdditionalApproverParticipant && !hasPendingAdditionalApproverAssignment
+
   const replacementStatusesForLegal = new Set<string>([
     contractStatuses.pendingInternal,
     contractStatuses.pendingExternal,
@@ -336,20 +356,23 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
     canLegalReplaceInCurrentStatus || adminOnlyReplacementStatuses.has(contractStatus)
   const canMarkFinalExecuted = userRole === 'LEGAL_TEAM' || userRole === 'ADMIN'
   const canReplaceInUnderReview = contractStatus === contractStatuses.underReview
-  const canReplace =
+  const canReplaceByRoleAndStatus =
     canReplaceInUnderReview ||
     (userRole === 'LEGAL_TEAM' && canLegalReplaceInCurrentStatus) ||
     (userRole === 'ADMIN' && canAdminReplaceInCurrentStatus)
+  const canReplace = canReplaceByRoleAndStatus && !isBlockedAdditionalApproverReplacement
   const canReplaceSupporting = canReplace
 
-  const replaceDisabledMessage =
-    contractStatus === contractStatuses.signing
+  const replaceDisabledMessage = isBlockedAdditionalApproverReplacement
+    ? 'Replacement is available for additional approvers only while their approval is pending.'
+    : contractStatus === contractStatuses.signing
       ? 'Replacement is unavailable while contract is in signing.'
       : contractStatus === contractStatuses.rejected || contractStatus === contractStatuses.void
         ? 'Replacement is restricted to Admin for rejected/void contracts.'
         : 'Replacement is unavailable for this contract status.'
-  const supportingReplaceDisabledMessage =
-    contractStatus === contractStatuses.signing
+  const supportingReplaceDisabledMessage = isBlockedAdditionalApproverReplacement
+    ? 'Supporting replacement is available for additional approvers only while their approval is pending.'
+    : contractStatus === contractStatuses.signing
       ? 'Supporting document replacement is unavailable while contract is in signing.'
       : contractStatus === contractStatuses.rejected || contractStatus === contractStatuses.void
         ? 'Supporting document replacement is restricted to Admin for rejected/void contracts.'
