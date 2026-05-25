@@ -397,6 +397,9 @@ export interface ContractQueryRepository {
     datePreset?: RepositoryDatePreset
     fromDate?: string
     toDate?: string
+    departmentId?: string
+    hodApproval?: 'yes' | 'no'
+    assignedToEmail?: string
   }): Promise<{ items: ContractListItem[]; nextCursor?: string; total: number }>
   getRepositoryReport(params: {
     tenantId: string

@@ -118,6 +118,7 @@ export const contractDocumentKindAuditCertificate = contractDocumentKinds.auditC
 
 export const contractDocumentMimeTypes = {
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  doc: 'application/msword',
   pdf: 'application/pdf',
 } as const
 

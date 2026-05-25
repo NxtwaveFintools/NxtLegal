@@ -27,6 +27,9 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
       datePreset,
       fromDate,
       toDate,
+      departmentId,
+      hodApproval,
+      assignedToEmail,
       includeReport,
     } = repositoryContractsQuerySchema.parse(queryParams)
 
@@ -49,6 +52,9 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
           datePreset,
           fromDate,
           toDate,
+          departmentId,
+          hodApproval,
+          assignedToEmail,
         }),
         contractQueryService.getRepositoryReport({
           tenantId: session.tenantId,
@@ -97,6 +103,9 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
       datePreset,
       fromDate,
       toDate,
+      departmentId,
+      hodApproval,
+      assignedToEmail,
     })
 
     return NextResponse.json(

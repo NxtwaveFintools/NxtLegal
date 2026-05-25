@@ -95,6 +95,8 @@ export const repositorySortDirectionValues = ['asc', 'desc'] as const
 export const repositoryDateBasisValues = ['request_created_at', 'hod_approved_at'] as const
 export const repositoryDatePresetValues = ['week', 'month', 'multiple_months', 'quarter', 'year', 'custom'] as const
 
+export const repositoryHodApprovalValues = ['yes', 'no'] as const
+
 export const repositoryContractsQuerySchema = z.object({
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(limits.paginationPageSize).default(20),
@@ -107,6 +109,9 @@ export const repositoryContractsQuerySchema = z.object({
   datePreset: z.enum(repositoryDatePresetValues).optional(),
   fromDate: z.string().date().optional(),
   toDate: z.string().date().optional(),
+  departmentId: z.string().uuid().optional(),
+  hodApproval: z.enum(repositoryHodApprovalValues).optional(),
+  assignedToEmail: z.string().trim().toLowerCase().email().optional(),
   // When true, the response also includes the reporting aggregates (avoids a second round-trip).
   includeReport: z.coerce.boolean().optional().default(false),
 })

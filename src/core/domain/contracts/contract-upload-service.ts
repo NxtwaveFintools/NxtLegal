@@ -295,7 +295,10 @@ export class ContractUploadService {
         throw new BusinessRuleError('CONTRACT_FILE_FORMAT_INVALID', 'Legal send-for-signing upload must be a PDF file')
       }
     } else if (!this.isDocxUpload(input.fileName, input.fileMimeType)) {
-      throw new BusinessRuleError('CONTRACT_FILE_FORMAT_INVALID', 'Initial contract upload must be a DOCX file')
+      throw new BusinessRuleError(
+        'CONTRACT_FILE_FORMAT_INVALID',
+        'Initial contract upload must be a Word (.doc or .docx) file'
+      )
     }
 
     const contractId = randomUUID()
@@ -1179,7 +1182,10 @@ export class ContractUploadService {
     }
 
     if (!this.isDocxUpload(input.fileName, input.fileMimeType)) {
-      throw new BusinessRuleError('CONTRACT_FILE_FORMAT_INVALID', 'Initial contract upload must be a DOCX file')
+      throw new BusinessRuleError(
+        'CONTRACT_FILE_FORMAT_INVALID',
+        'Initial contract upload must be a Word (.doc or .docx) file'
+      )
     }
   }
 
@@ -1611,10 +1617,18 @@ export class ContractUploadService {
     const normalizedMimeType = mimeType.trim().toLowerCase()
     const normalizedFileName = fileName.trim().toLowerCase()
 
-    return (
+    if (
       normalizedMimeType === contractDocumentMimeTypes.docx ||
       normalizedFileName.endsWith('.docx') ||
       (normalizedMimeType === 'application/octet-stream' && normalizedFileName.endsWith('.docx'))
+    ) {
+      return true
+    }
+
+    return (
+      normalizedMimeType === contractDocumentMimeTypes.doc ||
+      normalizedFileName.endsWith('.doc') ||
+      (normalizedMimeType === 'application/octet-stream' && normalizedFileName.endsWith('.doc'))
     )
   }
 
@@ -1623,6 +1637,10 @@ export class ContractUploadService {
     const normalizedFileName = fileName.trim().toLowerCase()
 
     if (normalizedMimeType === contractDocumentMimeTypes.docx || normalizedFileName.endsWith('.docx')) {
+      return true
+    }
+
+    if (normalizedMimeType === contractDocumentMimeTypes.doc || normalizedFileName.endsWith('.doc')) {
       return true
     }
 

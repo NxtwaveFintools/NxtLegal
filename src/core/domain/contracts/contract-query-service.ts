@@ -130,6 +130,9 @@ export class ContractQueryService {
     datePreset?: RepositoryDatePreset
     fromDate?: string
     toDate?: string
+    departmentId?: string
+    hodApproval?: 'yes' | 'no'
+    assignedToEmail?: string
   }): Promise<{ items: ContractListItem[]; nextCursor?: string; total: number }> {
     return this.contractRepository.listRepositoryContracts(params)
   }

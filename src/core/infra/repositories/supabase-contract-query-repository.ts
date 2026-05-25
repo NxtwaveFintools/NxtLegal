@@ -1013,6 +1013,9 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     datePreset?: RepositoryDatePreset
     fromDate?: string
     toDate?: string
+    departmentId?: string
+    hodApproval?: 'yes' | 'no'
+    assignedToEmail?: string
   }): Promise<{ items: ContractListItem[]; nextCursor?: string; total: number }> {
     const startedAt = Date.now()
     try {
@@ -1031,6 +1034,17 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       const workflowStatusesForRepositoryStatus = params.repositoryStatus
         ? repositoryStatusToWorkflowStatuses[params.repositoryStatus]
         : null
+
+      const normalizedAssignedToEmail = params.assignedToEmail?.trim().toLowerCase() || undefined
+      const assignedToContractIdSet = normalizedAssignedToEmail
+        ? await this.resolveContractIdsAssignedToEmail(params.tenantId, normalizedAssignedToEmail)
+        : null
+
+      if (assignedToContractIdSet && assignedToContractIdSet.size === 0) {
+        return { items: [], nextCursor: undefined, total: 0 }
+      }
+
+      const assignedToContractIds = assignedToContractIdSet ? Array.from(assignedToContractIdSet) : null
 
       const buildLegacyListQuery = (source: 'contracts_repository_view' | 'contracts', selectColumns: string) => {
         let query = supabase
@@ -1097,6 +1111,20 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
           query = query.in('department_id', visibilityFilter.hodDepartmentIds)
         }
 
+        if (params.departmentId) {
+          query = query.eq('department_id', params.departmentId)
+        }
+
+        if (params.hodApproval === 'yes') {
+          query = query.not('hod_approved_at', 'is', null)
+        } else if (params.hodApproval === 'no') {
+          query = query.is('hod_approved_at', null)
+        }
+
+        if (assignedToContractIds) {
+          query = query.in('id', assignedToContractIds)
+        }
+
         return query
       }
 
@@ -1140,6 +1168,20 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
         if (visibilityFilter?.hodDepartmentIds && visibilityFilter.hodDepartmentIds.length > 0) {
           totalQuery = totalQuery.in('department_id', visibilityFilter.hodDepartmentIds)
+        }
+
+        if (params.departmentId) {
+          totalQuery = totalQuery.eq('department_id', params.departmentId)
+        }
+
+        if (params.hodApproval === 'yes') {
+          totalQuery = totalQuery.not('hod_approved_at', 'is', null)
+        } else if (params.hodApproval === 'no') {
+          totalQuery = totalQuery.is('hod_approved_at', null)
+        }
+
+        if (assignedToContractIds) {
+          totalQuery = totalQuery.in('id', assignedToContractIds)
         }
 
         return totalQuery
@@ -6496,6 +6538,80 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     }
 
     return contextMap
+  }
+
+  private async resolveContractIdsAssignedToEmail(tenantId: string, email: string): Promise<Set<string>> {
+    const supabase = createServiceSupabase()
+    const contractIds = new Set<string>()
+
+    const { data: ownerRows, error: ownerError } = await supabase
+      .from('contracts')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('current_assignee_email', email)
+      .is('deleted_at', null)
+
+    if (ownerError) {
+      throw new DatabaseError('Failed to resolve assigned contracts for email', new Error(ownerError.message), {
+        code: ownerError.code,
+      })
+    }
+
+    for (const row of (ownerRows ?? []) as Array<{ id: string }>) {
+      contractIds.add(row.id)
+    }
+
+    const { data: collaboratorRows, error: collaboratorError } = await supabase
+      .from('contract_legal_collaborators')
+      .select('contract_id')
+      .eq('tenant_id', tenantId)
+      .eq('collaborator_email', email)
+      .is('deleted_at', null)
+
+    if (collaboratorError) {
+      if (
+        !this.isMissingRelationError(collaboratorError, 'contract_legal_collaborators') &&
+        !this.isMissingColumnError(collaboratorError, 'contract_legal_collaborators')
+      ) {
+        throw new DatabaseError(
+          'Failed to resolve legal collaborator assignments for email',
+          new Error(collaboratorError.message),
+          { code: collaboratorError.code }
+        )
+      }
+    } else {
+      for (const row of (collaboratorRows ?? []) as Array<{ contract_id: string }>) {
+        contractIds.add(row.contract_id)
+      }
+    }
+
+    const { data: assignmentRows, error: assignmentError } = await supabase
+      .from('contract_repository_assignments')
+      .select('contract_id')
+      .eq('tenant_id', tenantId)
+      .eq('user_email', email)
+      .is('deleted_at', null)
+
+    if (assignmentError) {
+      if (
+        !this.isMissingRelationError(assignmentError, 'contract_repository_assignments') &&
+        !this.isMissingColumnError(assignmentError, 'contract_repository_assignments') &&
+        assignmentError.code !== 'PGRST205' &&
+        assignmentError.code !== '42P01'
+      ) {
+        throw new DatabaseError(
+          'Failed to resolve contract repository assignments for email',
+          new Error(assignmentError.message),
+          { code: assignmentError.code }
+        )
+      }
+    } else {
+      for (const row of (assignmentRows ?? []) as Array<{ contract_id: string }>) {
+        contractIds.add(row.contract_id)
+      }
+    }
+
+    return contractIds
   }
 
   private async getContractAssignmentEmailMap(
