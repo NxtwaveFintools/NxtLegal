@@ -72,8 +72,8 @@ export default function ThirdPartyUploadSidebar({
 }: ThirdPartyUploadSidebarProps) {
   const router = useRouter()
   const isLegalSendForSigningMode = mode === contractUploadModes.legalSendForSigning
-  const acceptedFileTypes = isLegalSendForSigningMode ? '.pdf' : '.docx'
-  const acceptedExtensionsLabel = isLegalSendForSigningMode ? 'PDF (.pdf)' : 'Word (.docx)'
+  const acceptedFileTypes = isLegalSendForSigningMode ? '.pdf' : '.docx,.doc'
+  const acceptedExtensionsLabel = isLegalSendForSigningMode ? 'PDF (.pdf)' : 'Word (.docx, .doc)'
   const steps = useMemo(() => ['Choose Files', 'Additional Data', 'Review', 'Upload'], [])
   const [activeStep, setActiveStep] = useState(0)
   const [mainFile, setMainFile] = useState<File | null>(null)
@@ -160,13 +160,16 @@ export default function ThirdPartyUploadSidebar({
   }
 
   const handleMainFile = (file: File) => {
+    const lowerName = file.name.toLowerCase()
     const isValidFile = isLegalSendForSigningMode
-      ? file.name.toLowerCase().endsWith('.pdf')
-      : file.name.toLowerCase().endsWith('.docx')
+      ? lowerName.endsWith('.pdf')
+      : lowerName.endsWith('.docx') || lowerName.endsWith('.doc')
 
     if (!isValidFile) {
       setMainFile(null)
-      toast.error(isLegalSendForSigningMode ? 'Only PDF (.pdf) files allowed.' : 'Only Word (.docx) files allowed.')
+      toast.error(
+        isLegalSendForSigningMode ? 'Only PDF (.pdf) files allowed.' : 'Only Word (.docx, .doc) files allowed.'
+      )
       return
     }
 
@@ -179,7 +182,7 @@ export default function ThirdPartyUploadSidebar({
         toast.error(
           isLegalSendForSigningMode
             ? 'Please upload a .pdf contract to continue.'
-            : 'Please upload a .docx contract to continue.'
+            : 'Please upload a Word (.docx or .doc) contract to continue.'
         )
         return
       }
