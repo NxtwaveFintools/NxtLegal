@@ -687,3 +687,102 @@
   background-size: 800px 100%;
   animation: shimmer 1.6s ease-in-out infinite;
 }
+
+.filterHeader {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.filterHeaderTrigger {
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: color 0.2s ease;
+}
+
+.filterHeaderTrigger:hover {
+  color: var(--color-accent);
+}
+
+.filterHeaderTriggerActive {
+  color: var(--color-accent);
+}
+
+.filterHeaderCaret {
+  font-size: 10px;
+  color: var(--color-text-muted);
+}
+
+.filterHeaderTriggerActive .filterHeaderCaret {
+  color: var(--color-accent);
+}
+
+.filterActiveDot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-accent);
+  display: inline-block;
+}
+
+.filterHeaderDropdown {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  min-width: 200px;
+  max-width: 320px;
+  max-height: 260px;
+  overflow: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+  z-index: 40;
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 12px;
+  color: var(--color-text);
+}
+
+.filterHeaderOption {
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--color-text);
+  font-size: 12px;
+  text-align: left;
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.filterHeaderOption:hover {
+  background: var(--color-accent-soft);
+}
+
+.filterHeaderOptionSelected {
+  background: var(--color-surface-muted);
+  font-weight: 600;
+}
+
+.filterHeaderOptionCheck {
+  color: var(--color-accent);
+  font-weight: 700;
+}
+
+.filterHeaderEmpty {
+  padding: 10px;
+  color: var(--color-text-muted);
+  font-size: 11px;
+}
