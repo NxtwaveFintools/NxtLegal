@@ -191,13 +191,16 @@ export class ZohoSignClient {
       requests: {
         request_name: input.emailSubject,
         is_sequential: isSequential,
-        actions: input.recipients.map((recipient) => ({
-          action_type: 'SIGN',
-          recipient_name: recipient.name || recipient.email,
-          recipient_email: recipient.email,
-          signing_order: recipient.routingOrder,
-          is_embedded: recipient.recipientType === 'INTERNAL',
-        })),
+        actions: input.recipients.map((recipient) => {
+          const isViewer = recipient.recipientType === 'VIEWER'
+          return {
+            action_type: isViewer ? 'VIEW' : 'SIGN',
+            recipient_name: recipient.name || recipient.email,
+            recipient_email: recipient.email,
+            signing_order: recipient.routingOrder,
+            ...(isViewer ? {} : { is_embedded: true }),
+          }
+        }),
         expiration_days: 30,
       },
     }
@@ -238,17 +241,18 @@ export class ZohoSignClient {
         throw new Error(`Zoho Sign action_id missing for recipient ${recipient.email}`)
       }
 
-      const fieldsForRecipient = recipient.fields.filter(
-        (field) => field.assignedSignerEmail.trim().toLowerCase() === normalizedEmail
-      )
+      const isViewer = recipient.recipientType === 'VIEWER'
+      const fieldsForRecipient = isViewer
+        ? []
+        : recipient.fields.filter((field) => field.assignedSignerEmail.trim().toLowerCase() === normalizedEmail)
 
       return {
         action_id: actionId,
-        action_type: 'SIGN',
+        action_type: isViewer ? 'VIEW' : 'SIGN',
         recipient_name: recipient.name || recipient.email,
         recipient_email: recipient.email,
         signing_order: recipient.routingOrder,
-        is_embedded: recipient.recipientType === 'INTERNAL',
+        ...(isViewer ? {} : { is_embedded: true }),
         fields: fieldsForRecipient.map((field, index) =>
           this.mapFieldToZohoField(field, params.documentId, actionId, index)
         ),

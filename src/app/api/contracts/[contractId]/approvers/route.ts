@@ -38,6 +38,7 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
       actorRole: session.role,
       actorEmail: session.email ?? '',
       approverEmail: payload.approverEmail,
+      noteText: payload.noteText,
     })
 
     const contractApprovalNotificationService = getContractApprovalNotificationService()

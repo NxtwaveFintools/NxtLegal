@@ -165,6 +165,35 @@ describe('supabaseContractQueryRepository action permissions', () => {
     expect(is).toHaveBeenCalledWith('deleted_at', null)
   })
 
+  it('excludes VIEWER recipients from pending signatory count', async () => {
+    const query = {
+      eq: jest.fn(),
+      neq: jest.fn(),
+      is: jest.fn(),
+    }
+    query.eq.mockReturnValue(query)
+    query.neq.mockReturnValue(query)
+    query.is.mockResolvedValue({ count: 1, error: null })
+
+    const select = jest.fn().mockReturnValue(query)
+    const from = jest.fn().mockReturnValue({ select })
+
+    ;(createServiceSupabase as jest.Mock).mockReturnValue({ from })
+
+    const count = await supabaseContractQueryRepository.countPendingSignatoriesByContract({
+      tenantId: 'tenant-1',
+      contractId: 'contract-1',
+    })
+
+    expect(count).toBe(1)
+    expect(from).toHaveBeenCalledWith('contract_signatories')
+    expect(query.eq).toHaveBeenCalledWith('tenant_id', 'tenant-1')
+    expect(query.eq).toHaveBeenCalledWith('contract_id', 'contract-1')
+    expect(query.eq).toHaveBeenCalledWith('status', 'PENDING')
+    expect(query.neq).toHaveBeenCalledWith('recipient_type', 'VIEWER')
+    expect(query.is).toHaveBeenCalledWith('deleted_at', null)
+  })
+
   it('returns empty signatories when signatory table is not migrated yet', async () => {
     const order = jest.fn().mockResolvedValue({
       data: null,
@@ -359,6 +388,85 @@ describe('supabaseContractQueryRepository action permissions', () => {
     expect(eqTenant).toHaveBeenCalledWith('tenant_id', 'tenant-1')
     expect(eqContract).toHaveBeenCalledWith('contract_id', 'contract-1')
     expect(eqApprover).toHaveBeenCalledWith('approver_employee_id', 'employee-1')
+  })
+
+  it('allows HOD additional approver participant access without mapped departments', async () => {
+    const getHodDepartmentIdsSpy = jest.spyOn(
+      supabaseContractQueryRepository as unknown as {
+        getHodDepartmentIds: (tenantId: string, actorEmployeeId: string) => Promise<string[]>
+      },
+      'getHodDepartmentIds'
+    )
+    const isActionableAdditionalApproverSpy = jest.spyOn(
+      supabaseContractQueryRepository as unknown as {
+        isActionableAdditionalApprover: (params: {
+          tenantId: string
+          contractId: string
+          actorEmployeeId: string
+          status: string
+        }) => Promise<boolean>
+      },
+      'isActionableAdditionalApprover'
+    )
+    const isAdditionalApproverParticipantSpy = jest.spyOn(
+      supabaseContractQueryRepository as unknown as {
+        isAdditionalApproverParticipant: (params: {
+          tenantId: string
+          contractId: string
+          actorEmployeeId: string
+        }) => Promise<boolean>
+      },
+      'isAdditionalApproverParticipant'
+    )
+
+    getHodDepartmentIdsSpy.mockResolvedValue([])
+    isActionableAdditionalApproverSpy.mockResolvedValue(false)
+    isAdditionalApproverParticipantSpy.mockResolvedValue(true)
+
+    const canAccess = await supabaseContractQueryRepository.canAccessContract({
+      tenantId: 'tenant-1',
+      actorEmployeeId: 'hod-actor-1',
+      actorRole: 'HOD',
+      contract: {
+        id: 'contract-1',
+        title: 'Contract A',
+        contractTypeId: 'type-1',
+        status: 'UNDER_REVIEW',
+        uploadMode: 'DEFAULT',
+        uploadedByEmployeeId: 'poc-1',
+        uploadedByEmail: 'poc@nxtwave.co.in',
+        currentAssigneeEmployeeId: 'legal-1',
+        currentAssigneeEmail: 'legal@nxtwave.co.in',
+        departmentId: 'dept-1',
+        signatoryName: 'Sig Name',
+        signatoryDesignation: 'Manager',
+        signatoryEmail: 'sig@nxtwave.co.in',
+        backgroundOfRequest: 'Need review',
+        budgetApproved: true,
+        requestCreatedAt: new Date().toISOString(),
+        fileName: 'file.docx',
+        fileSizeBytes: 1024,
+        fileMimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        filePath: 'tenant/contract-1/file.docx',
+        rowVersion: 1,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+    })
+
+    expect(canAccess).toBe(true)
+    expect(getHodDepartmentIdsSpy).toHaveBeenCalledWith('tenant-1', 'hod-actor-1')
+    expect(isActionableAdditionalApproverSpy).toHaveBeenCalledWith({
+      tenantId: 'tenant-1',
+      contractId: 'contract-1',
+      actorEmployeeId: 'hod-actor-1',
+      status: 'UNDER_REVIEW',
+    })
+    expect(isAdditionalApproverParticipantSpy).toHaveBeenCalledWith({
+      tenantId: 'tenant-1',
+      contractId: 'contract-1',
+      actorEmployeeId: 'hod-actor-1',
+    })
   })
 
   it('retains collaborator when email matches current assignee regression', async () => {

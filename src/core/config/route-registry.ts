@@ -65,6 +65,7 @@ export const routeRegistry = {
       assignments: '/api/contracts/:contractId/assignments',
       legalMetadata: '/api/contracts/:contractId/legal-metadata',
       signatories: '/api/contracts/:contractId/signatories',
+      renameTitle: '/api/contracts/:contractId/title',
       signingPreparationDraft: '/api/contracts/:contractId/signing-preparation-draft',
       signingPreparationSend: '/api/contracts/:contractId/signing-prep/send',
       finalSignedArtifactDownload: '/api/contracts/:contractId/signed-docs/final/download',

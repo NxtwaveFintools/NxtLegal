@@ -2,7 +2,26 @@
 
 require('@testing-library/jest-dom')
 
+// Dummy env vars so server-side config modules can be imported without throwing.
+// Integration tests that need a real database use RUN_INTEGRATION_TESTS=1 to opt in
+// and are skipped (describe.skip) when that var is absent.
+if (!process.env.NEXT_PUBLIC_SUPABASE_URL) process.env.NEXT_PUBLIC_SUPABASE_URL = 'http://dummy.supabase.co'
+if (!process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY = 'dummy-anon-key'
+if (!process.env.SUPABASE_SERVICE_ROLE_KEY) process.env.SUPABASE_SERVICE_ROLE_KEY = 'dummy-service-role-key'
+if (!process.env.JWT_SECRET_KEY) process.env.JWT_SECRET_KEY = 'dummy-jwt-secret-key-at-least-32-chars!!'
+if (!process.env.AUTH_ALLOWED_DOMAINS) process.env.AUTH_ALLOWED_DOMAINS = 'nxtwave.co.in'
+if (!process.env.NEXT_PUBLIC_SITE_URL) process.env.NEXT_PUBLIC_SITE_URL = 'http://localhost:3000'
+
 jest.mock('canvas-confetti', () => jest.fn())
+
+jest.mock('@/core/infra/logging/logger', () => ({
+  logger: {
+    debug: jest.fn(),
+    info: jest.fn(),
+    warn: jest.fn(),
+    error: jest.fn(),
+  },
+}))
 
 // Mock Supabase client for tests
 jest.mock('@/lib/supabase/client', () => ({
@@ -43,4 +62,6 @@ global.console = {
   log: jest.fn(),
   debug: jest.fn(),
   info: jest.fn(),
+  time: jest.fn(),
+  timeEnd: jest.fn(),
 }

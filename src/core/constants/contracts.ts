@@ -118,6 +118,7 @@ export const contractDocumentKindAuditCertificate = contractDocumentKinds.auditC
 
 export const contractDocumentMimeTypes = {
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  doc: 'application/msword',
   pdf: 'application/pdf',
 } as const
 
@@ -152,18 +153,36 @@ export type ContractSignatoryStatus = (typeof contractSignatoryStatuses)[keyof t
 export const contractSignatoryRecipientTypes = {
   internal: 'INTERNAL',
   external: 'EXTERNAL',
+  viewer: 'VIEWER',
 } as const
 
 export type ContractSignatoryRecipientType =
   (typeof contractSignatoryRecipientTypes)[keyof typeof contractSignatoryRecipientTypes]
 
 export const contractSignatoryRecipientTypeLabels: Record<ContractSignatoryRecipientType, string> = {
-  INTERNAL: 'Nxtwave',
+  INTERNAL: 'NxtWave',
   EXTERNAL: 'Counter Party',
+  VIEWER: 'Viewer',
 }
 
 export const getContractSignatoryRecipientTypeLabel = (recipientType: ContractSignatoryRecipientType): string => {
   return contractSignatoryRecipientTypeLabels[recipientType]
+}
+
+export const contractSigningSubject = {
+  requestPrefix: 'Signature Requested',
+  senderOrganizationName: 'NxtWave Disruptive Technologies Private Limited',
+  missingDocumentFallbackTitle: 'Contract',
+} as const
+
+export const buildContractSignatureRequestedSubject = (documentTitle: string): string => {
+  const normalizedDocumentTitle = documentTitle.trim() || contractSigningSubject.missingDocumentFallbackTitle
+
+  return `${contractSigningSubject.requestPrefix}: ${normalizedDocumentTitle} - ${contractSigningSubject.senderOrganizationName}`
+}
+
+export const buildContractZohoSignatureRequestName = (documentTitle: string): string => {
+  return documentTitle.trim() || contractSigningSubject.missingDocumentFallbackTitle
 }
 
 export const contractSignatoryFieldTypes = {

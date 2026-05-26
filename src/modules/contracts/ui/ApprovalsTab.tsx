@@ -1,5 +1,5 @@
-import { useState, type FormEvent } from 'react'
-import type { ContractDetailResponse } from '@/core/client/contracts-client'
+import { useState, useEffect, type FormEvent } from 'react'
+import type { ContractDetailResponse, DepartmentOption } from '@/core/client/contracts-client'
 import { publicConfig } from '@/core/config/public-config'
 import Spinner from '@/components/ui/Spinner'
 import { toast } from 'sonner'
@@ -13,13 +13,17 @@ type ApprovalsTabProps = {
   canSkipApprovals: boolean
   approverEmail: string
   onApproverEmailChange: (value: string) => void
+  approverNote: string
+  onApproverNoteChange: (value: string) => void
   onAddApprover: () => Promise<void>
   onRemindApprover: (email?: string) => Promise<void>
   onSkipApprover: (params: { approverRole: 'HOD' | 'ADDITIONAL'; approverId?: string; reason: string }) => Promise<void>
   onSkipRefresh: () => void | Promise<void>
+  hodSuggestions: DepartmentOption[]
+  onLoadHodSuggestions: () => Promise<void>
 }
 
-type ApprovalStatus = 'PENDING' | 'NOT_SENT' | 'APPROVED' | 'SKIPPED'
+type ApprovalStatus = 'PENDING' | 'NOT_SENT' | 'APPROVED' | 'REJECTED' | 'SKIPPED'
 
 type ApprovalStep = {
   id: string
@@ -28,6 +32,7 @@ type ApprovalStep = {
   approverLabel: string
   status: ApprovalStatus
   timeLabel: string
+  noteText?: string | null
 }
 
 function resolveStepStatus(input: {
@@ -58,6 +63,10 @@ function resolveStepStatus(input: {
 
   if (input.additionalStatus === 'PENDING') {
     return 'PENDING'
+  }
+
+  if (input.additionalStatus === 'REJECTED') {
+    return 'REJECTED'
   }
 
   if (input.additionalStatus === 'SKIPPED' || input.additionalStatus === 'BYPASSED') {
@@ -109,6 +118,7 @@ function buildSteps(params: {
         additionalStatus: approver.status,
       }),
       timeLabel: approver.approvedAt ? new Date(approver.approvedAt).toLocaleString() : '—',
+      noteText: approver.noteText,
     })
   })
 
@@ -131,6 +141,10 @@ function statusClass(status: ApprovalStatus): string {
     return styles.approvalStatusSkipped
   }
 
+  if (status === 'REJECTED') {
+    return styles.approvalStatusRejected
+  }
+
   return styles.approvalStatusNotSent
 }
 
@@ -142,13 +156,24 @@ export default function ApprovalsTab({
   canSkipApprovals,
   approverEmail,
   onApproverEmailChange,
+  approverNote,
+  onApproverNoteChange,
   onAddApprover,
   onRemindApprover,
   onSkipApprover,
   onSkipRefresh,
+  hodSuggestions,
+  onLoadHodSuggestions,
 }: ApprovalsTabProps) {
   const steps = buildSteps({ contract, approvers })
   const [isSubmittingCurrentReminder, setIsSubmittingCurrentReminder] = useState(false)
+
+  useEffect(() => {
+    if (canManageApprovals) {
+      void onLoadHodSuggestions()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
   const [isSubmittingAddApprover, setIsSubmittingAddApprover] = useState(false)
   const [remindingStepId, setRemindingStepId] = useState<string | null>(null)
   const [skipStep, setSkipStep] = useState<ApprovalStep | null>(null)
@@ -305,15 +330,18 @@ export default function ApprovalsTab({
                         ? 'Not Sent'
                         : step.status === 'PENDING'
                           ? 'Pending'
-                          : step.status === 'SKIPPED'
-                            ? 'Skipped'
-                            : 'Approved'}
+                          : step.status === 'REJECTED'
+                            ? 'Rejected'
+                            : step.status === 'SKIPPED'
+                              ? 'Skipped'
+                              : 'Approved'}
                     </span>
                   </div>
 
                   <div className={styles.approvalStepMeta}>POC: {contract.uploadedByEmail}</div>
                   <div className={styles.approvalStepMeta}>Approver: {step.approverLabel}</div>
                   <div className={styles.approvalStepMeta}>Time: {step.timeLabel}</div>
+                  {step.noteText ? <div className={styles.approvalStepNote}>Note: {step.noteText}</div> : null}
 
                   {canRemindStep || canSkipStep ? (
                     <div className={styles.approvalStepActions}>
@@ -368,13 +396,37 @@ export default function ApprovalsTab({
       {canManageApprovals ? (
         <div className={styles.card}>
           <div className={styles.sectionTitle}>Add Approval</div>
-          <form className={styles.inlineForm} onSubmit={handleAddApprovalSubmit}>
+          <form className={styles.addApprovalForm} onSubmit={handleAddApprovalSubmit}>
+            {hodSuggestions.length > 0 ? (
+              <select
+                className={styles.hodSelect}
+                value=""
+                onChange={(e) => {
+                  if (e.target.value) onApproverEmailChange(e.target.value)
+                }}
+                aria-label="Select HOD"
+              >
+                <option value="">Select email</option>
+                {hodSuggestions.map((d) => (
+                  <option key={d.id} value={d.hodEmail ?? ''}>
+                    {d.hodName ? `${d.hodName} — ${d.name}` : `${d.hodEmail} — ${d.name}`}
+                  </option>
+                ))}
+              </select>
+            ) : null}
             <input
               type="email"
               className={styles.input}
               placeholder={approvalEmailPlaceholder}
               value={approverEmail}
               onChange={(event) => onApproverEmailChange(event.target.value)}
+            />
+            <textarea
+              className={styles.textarea}
+              placeholder="Add a note (optional)"
+              value={approverNote}
+              onChange={(event) => onApproverNoteChange(event.target.value)}
+              rows={3}
             />
             <button
               type="submit"

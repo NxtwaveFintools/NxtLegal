@@ -1,8 +1,9 @@
 'use client'
 
+import dynamic from 'next/dynamic'
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { useRouter } from 'next/navigation'
-import { type ColumnDef, type SortingState, flexRender, getCoreRowModel, useReactTable } from '@tanstack/react-table'
+import { type ColumnDef, type SortingState } from '@tanstack/react-table'
 import { useDebouncedValue } from '@/lib/hooks/use-debounced-value'
 import { toast } from 'sonner'
 import ContractStatusBadge from '@/modules/contracts/ui/ContractStatusBadge'
@@ -17,6 +18,7 @@ import {
 import {
   contractsClient,
   type ContractRecord,
+  type DepartmentOption,
   type LegalTeamMemberOption,
   type RepositoryDateBasis,
   type RepositoryExportColumn,
@@ -25,7 +27,24 @@ import {
   type RepositorySortBy,
 } from '@/core/client/contracts-client'
 import ErrorBoundary from '@/components/ui/ErrorBoundary'
+import type { RepositoryWorkspaceTableProps } from './RepositoryWorkspaceTable'
 import styles from './RepositoryWorkspace.module.css'
+
+const RepositoryWorkspaceTable = dynamic<RepositoryWorkspaceTableProps>(() => import('./RepositoryWorkspaceTable'), {
+  ssr: false,
+  loading: () => (
+    <div>
+      {[1, 2, 3, 4, 5].map((item) => (
+        <div key={item} className={styles.shimmerTableRow}>
+          <div className={styles.shimmerCell} style={{ width: `${50 + item * 8}%` }} />
+          <div className={styles.shimmerCell} style={{ width: '70%' }} />
+          <div className={styles.shimmerCell} style={{ width: '65%' }} />
+          <div className={styles.shimmerCell} style={{ width: '50%' }} />
+        </div>
+      ))}
+    </div>
+  ),
+})
 
 type RepositoryWorkspaceProps = {
   session: {
@@ -252,6 +271,11 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
   const [openAssignmentDropdownContractId, setOpenAssignmentDropdownContractId] = useState<string | null>(null)
   const [assignmentSavingByContractId, setAssignmentSavingByContractId] = useState<Record<string, boolean>>({})
   const [assignmentErrorByContractId, setAssignmentErrorByContractId] = useState<Record<string, string>>({})
+  const [departments, setDepartments] = useState<DepartmentOption[]>([])
+  const [departmentFilter, setDepartmentFilter] = useState<string>('')
+  const [hodApprovalFilter, setHodApprovalFilter] = useState<'yes' | 'no' | ''>('')
+  const [assignedToFilter, setAssignedToFilter] = useState<string>('')
+  const [openHeaderFilter, setOpenHeaderFilter] = useState<'department' | 'hodApproval' | 'assignedTo' | null>(null)
   const tableWrapRef = useRef<HTMLElement | null>(null)
   const tableAutoScrollFrameRef = useRef<number | null>(null)
   const tableAutoScrollVelocityRef = useRef(0)
@@ -344,6 +368,9 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
         datePreset: datePreset || undefined,
         fromDate: datePreset === 'custom' && customFromDate ? customFromDate : undefined,
         toDate: datePreset === 'custom' && customToDate ? customToDate : undefined,
+        departmentId: departmentFilter || undefined,
+        hodApproval: hodApprovalFilter || undefined,
+        assignedToEmail: assignedToFilter || undefined,
         includeReport: canAccessRepositoryReporting,
       })
 
@@ -380,6 +407,9 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     statusFilter,
     sortBy,
     sortDirection,
+    departmentFilter,
+    hodApprovalFilter,
+    assignedToFilter,
   ])
 
   useEffect(() => {
@@ -410,24 +440,70 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
   }, [isLegalTeamRole])
 
   useEffect(() => {
+    const loadDepartments = async () => {
+      const response = await contractsClient.departments()
+      if (!response.ok || !response.data) {
+        setDepartments([])
+        return
+      }
+      setDepartments(response.data.departments)
+    }
+
+    void loadDepartments()
+  }, [])
+
+  useEffect(() => {
+    if (!openHeaderFilter) {
+      return
+    }
+
+    const handleMouseDown = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null
+      if (!target) {
+        setOpenHeaderFilter(null)
+        return
+      }
+      if (target.closest('[data-repository-header-filter]')) {
+        return
+      }
+      setOpenHeaderFilter(null)
+    }
+
+    document.addEventListener('mousedown', handleMouseDown)
+    return () => document.removeEventListener('mousedown', handleMouseDown)
+  }, [openHeaderFilter])
+
+  useEffect(() => {
     setCursorHistory([undefined])
-  }, [customFromDate, customToDate, dateBasis, datePreset, debouncedSearch, statusFilter, sortBy, sortDirection])
+  }, [
+    customFromDate,
+    customToDate,
+    dateBasis,
+    datePreset,
+    debouncedSearch,
+    statusFilter,
+    sortBy,
+    sortDirection,
+    departmentFilter,
+    hodApprovalFilter,
+    assignedToFilter,
+  ])
 
-  const handleStatusFilterChange = (value: RepositoryStatusFilter | '') => {
+  const handleStatusFilterChange = useCallback((value: RepositoryStatusFilter | '') => {
     setStatusFilter(value)
-  }
+  }, [])
 
-  const handleDateBasisChange = (value: RepositoryDateBasis) => {
+  const handleDateBasisChange = useCallback((value: RepositoryDateBasis) => {
     setDateBasis(value)
-  }
+  }, [])
 
-  const handleDatePresetChange = (value: RepositoryDatePreset | '') => {
+  const handleDatePresetChange = useCallback((value: RepositoryDatePreset | '') => {
     setDatePreset(value)
     if (value !== 'custom') {
       setCustomFromDate('')
       setCustomToDate('')
     }
-  }
+  }, [])
 
   const closePreview = useCallback(() => {
     setActivePreview(null)
@@ -635,7 +711,55 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
       },
       {
         accessorKey: 'department',
-        header: 'Department',
+        enableSorting: false,
+        header: () => (
+          <div className={styles.filterHeader} data-repository-header-filter>
+            <button
+              type="button"
+              className={`${styles.filterHeaderTrigger} ${departmentFilter ? styles.filterHeaderTriggerActive : ''}`}
+              onClick={() => setOpenHeaderFilter((current) => (current === 'department' ? null : 'department'))}
+            >
+              <span>Department</span>
+              {departmentFilter ? <span className={styles.filterActiveDot} /> : null}
+              <span className={styles.filterHeaderCaret}>{openHeaderFilter === 'department' ? '▴' : '▾'}</span>
+            </button>
+            {openHeaderFilter === 'department' ? (
+              <div className={styles.filterHeaderDropdown}>
+                <button
+                  type="button"
+                  className={`${styles.filterHeaderOption} ${!departmentFilter ? styles.filterHeaderOptionSelected : ''}`}
+                  onClick={() => {
+                    setDepartmentFilter('')
+                    setOpenHeaderFilter(null)
+                  }}
+                >
+                  <span>All departments</span>
+                  {!departmentFilter ? <span className={styles.filterHeaderOptionCheck}>✓</span> : null}
+                </button>
+                {departments.length === 0 ? (
+                  <div className={styles.filterHeaderEmpty}>No departments available</div>
+                ) : (
+                  departments.map((dept) => (
+                    <button
+                      key={dept.id}
+                      type="button"
+                      className={`${styles.filterHeaderOption} ${
+                        departmentFilter === dept.id ? styles.filterHeaderOptionSelected : ''
+                      }`}
+                      onClick={() => {
+                        setDepartmentFilter(dept.id)
+                        setOpenHeaderFilter(null)
+                      }}
+                    >
+                      <span>{dept.name}</span>
+                      {departmentFilter === dept.id ? <span className={styles.filterHeaderOptionCheck}>✓</span> : null}
+                    </button>
+                  ))
+                )}
+              </div>
+            ) : null}
+          </div>
+        ),
         cell: ({ row }) => row.original.departmentName ?? '—',
       },
       {
@@ -657,7 +781,57 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
       },
       {
         accessorKey: 'hodApprovedAt',
-        header: 'HOD Approval',
+        enableSorting: false,
+        header: () => (
+          <div className={styles.filterHeader} data-repository-header-filter>
+            <button
+              type="button"
+              className={`${styles.filterHeaderTrigger} ${hodApprovalFilter ? styles.filterHeaderTriggerActive : ''}`}
+              onClick={() => setOpenHeaderFilter((current) => (current === 'hodApproval' ? null : 'hodApproval'))}
+            >
+              <span>HOD Approval</span>
+              {hodApprovalFilter ? <span className={styles.filterActiveDot} /> : null}
+              <span className={styles.filterHeaderCaret}>{openHeaderFilter === 'hodApproval' ? '▴' : '▾'}</span>
+            </button>
+            {openHeaderFilter === 'hodApproval' ? (
+              <div className={styles.filterHeaderDropdown}>
+                <button
+                  type="button"
+                  className={`${styles.filterHeaderOption} ${!hodApprovalFilter ? styles.filterHeaderOptionSelected : ''}`}
+                  onClick={() => {
+                    setHodApprovalFilter('')
+                    setOpenHeaderFilter(null)
+                  }}
+                >
+                  <span>All</span>
+                  {!hodApprovalFilter ? <span className={styles.filterHeaderOptionCheck}>✓</span> : null}
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.filterHeaderOption} ${hodApprovalFilter === 'yes' ? styles.filterHeaderOptionSelected : ''}`}
+                  onClick={() => {
+                    setHodApprovalFilter('yes')
+                    setOpenHeaderFilter(null)
+                  }}
+                >
+                  <span>Yes</span>
+                  {hodApprovalFilter === 'yes' ? <span className={styles.filterHeaderOptionCheck}>✓</span> : null}
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.filterHeaderOption} ${hodApprovalFilter === 'no' ? styles.filterHeaderOptionSelected : ''}`}
+                  onClick={() => {
+                    setHodApprovalFilter('no')
+                    setOpenHeaderFilter(null)
+                  }}
+                >
+                  <span>No</span>
+                  {hodApprovalFilter === 'no' ? <span className={styles.filterHeaderOptionCheck}>✓</span> : null}
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ),
         cell: ({ row }) =>
           row.original.hodApprovedAt ? (
             <div className={styles.hodApprovalWrap}>
@@ -718,7 +892,62 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
       },
       {
         accessorKey: 'assignedTo',
-        header: 'Assigned To',
+        enableSorting: false,
+        header: () =>
+          isLegalTeamRole ? (
+            <div className={styles.filterHeader} data-repository-header-filter>
+              <button
+                type="button"
+                className={`${styles.filterHeaderTrigger} ${assignedToFilter ? styles.filterHeaderTriggerActive : ''}`}
+                onClick={() => setOpenHeaderFilter((current) => (current === 'assignedTo' ? null : 'assignedTo'))}
+              >
+                <span>Assigned To</span>
+                {assignedToFilter ? <span className={styles.filterActiveDot} /> : null}
+                <span className={styles.filterHeaderCaret}>{openHeaderFilter === 'assignedTo' ? '▴' : '▾'}</span>
+              </button>
+              {openHeaderFilter === 'assignedTo' ? (
+                <div className={styles.filterHeaderDropdown}>
+                  <button
+                    type="button"
+                    className={`${styles.filterHeaderOption} ${!assignedToFilter ? styles.filterHeaderOptionSelected : ''}`}
+                    onClick={() => {
+                      setAssignedToFilter('')
+                      setOpenHeaderFilter(null)
+                    }}
+                  >
+                    <span>All assignees</span>
+                    {!assignedToFilter ? <span className={styles.filterHeaderOptionCheck}>✓</span> : null}
+                  </button>
+                  {legalTeamMembers.length === 0 ? (
+                    <div className={styles.filterHeaderEmpty}>No legal team members</div>
+                  ) : (
+                    legalTeamMembers.map((member) => {
+                      const memberEmail = member.email.toLowerCase()
+                      const isSelected = assignedToFilter === memberEmail
+                      const memberDisplayName = member.fullName?.trim() || toFallbackDisplayName(member.email)
+
+                      return (
+                        <button
+                          key={member.id}
+                          type="button"
+                          className={`${styles.filterHeaderOption} ${isSelected ? styles.filterHeaderOptionSelected : ''}`}
+                          onClick={() => {
+                            setAssignedToFilter(memberEmail)
+                            setOpenHeaderFilter(null)
+                          }}
+                        >
+                          <span>{memberDisplayName}</span>
+                          {isSelected ? <span className={styles.filterHeaderOptionCheck}>✓</span> : null}
+                        </button>
+                      )
+                    })
+                  )}
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <>Assigned To</>
+          ),
         cell: ({ row }) => {
           if (isLegalTeamRole) {
             const selectedEmails = resolveContractCollaboratorEmails(row.original)
@@ -866,10 +1095,15 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
       resolveContractAssignedEmails,
       resolveContractCollaboratorEmails,
       resolveEmailDisplayName,
+      departments,
+      departmentFilter,
+      hodApprovalFilter,
+      assignedToFilter,
+      openHeaderFilter,
     ]
   )
 
-  const toggleExportColumn = (column: RepositoryExportColumn) => {
+  const toggleExportColumn = useCallback((column: RepositoryExportColumn) => {
     setSelectedExportColumns((previous) => {
       if (previous.includes(column)) {
         return previous.filter((entry) => entry !== column)
@@ -877,35 +1111,57 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
 
       return [...previous, column]
     })
-  }
+  }, [])
 
-  const downloadExport = (format: 'csv' | 'excel' | 'pdf') => {
-    const exportUrl = contractsClient.repositoryExportUrl({
-      search: debouncedSearch,
-      repositoryStatus: statusFilter || undefined,
-      dateBasis,
-      datePreset: datePreset || undefined,
-      fromDate: datePreset === 'custom' && customFromDate ? customFromDate : undefined,
-      toDate: datePreset === 'custom' && customToDate ? customToDate : undefined,
-      format,
-      columns: selectedExportColumns,
-    })
+  const downloadExport = useCallback(
+    (format: 'csv' | 'excel' | 'pdf') => {
+      const exportUrl = contractsClient.repositoryExportUrl({
+        search: debouncedSearch,
+        repositoryStatus: statusFilter || undefined,
+        dateBasis,
+        datePreset: datePreset || undefined,
+        fromDate: datePreset === 'custom' && customFromDate ? customFromDate : undefined,
+        toDate: datePreset === 'custom' && customToDate ? customToDate : undefined,
+        format,
+        columns: selectedExportColumns,
+      })
 
-    window.open(exportUrl, '_blank', 'noopener,noreferrer')
-    setActiveExportFormat(null)
-  }
+      window.open(exportUrl, '_blank', 'noopener,noreferrer')
+      setActiveExportFormat(null)
+    },
+    [customFromDate, customToDate, dateBasis, datePreset, debouncedSearch, selectedExportColumns, statusFilter]
+  )
 
-  const table = useReactTable({
-    data: contracts,
-    columns,
-    state: { sorting },
-    onSortingChange: (updater) => {
+  const handleSortingChange = useCallback(
+    (updater: SortingState | ((current: SortingState) => SortingState)) => {
       const next = typeof updater === 'function' ? updater(sorting) : updater
       setSorting(next)
     },
-    manualSorting: true,
-    getCoreRowModel: getCoreRowModel(),
-  })
+    [sorting]
+  )
+
+  const handleOpenContract = useCallback(
+    (contractId: string) => {
+      router.push(
+        contractsClient.resolveProtectedContractPath(contractId, {
+          from: 'repository',
+        })
+      )
+    },
+    [router]
+  )
+
+  const handlePreviousPage = useCallback(() => {
+    setCursorHistory((previous) => previous.slice(0, previous.length - 1))
+  }, [])
+
+  const handleNextPage = useCallback(() => {
+    if (!nextCursor) {
+      return
+    }
+
+    setCursorHistory((previous) => [...previous, nextCursor])
+  }, [nextCursor])
 
   return (
     <ProtectedAppShell
@@ -1093,24 +1349,11 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
               type="button"
               className={styles.pageButton}
               disabled={cursorHistory.length <= 1}
-              onClick={() => {
-                setCursorHistory((previous) => previous.slice(0, previous.length - 1))
-              }}
+              onClick={handlePreviousPage}
             >
               Previous
             </button>
-            <button
-              type="button"
-              className={styles.pageButton}
-              disabled={!nextCursor}
-              onClick={() => {
-                if (!nextCursor) {
-                  return
-                }
-
-                setCursorHistory((previous) => [...previous, nextCursor])
-              }}
-            >
+            <button type="button" className={styles.pageButton} disabled={!nextCursor} onClick={handleNextPage}>
               Next
             </button>
           </section>
@@ -1121,75 +1364,14 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
             onMouseMove={handleTableWrapMouseMove}
             onMouseLeave={stopTableAutoScroll}
           >
-            {isLoading ? (
-              <div>
-                {[1, 2, 3, 4, 5].map((i) => (
-                  <div key={i} className={styles.shimmerTableRow}>
-                    <div className={styles.shimmerCell} style={{ width: `${50 + i * 8}%` }} />
-                    <div className={styles.shimmerCell} style={{ width: '70%' }} />
-                    <div className={styles.shimmerCell} style={{ width: '65%' }} />
-                    <div className={styles.shimmerCell} style={{ width: '50%' }} />
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <table className={styles.table}>
-                <thead>
-                  {table.getHeaderGroups().map((headerGroup) => (
-                    <tr key={headerGroup.id}>
-                      {headerGroup.headers.map((header) => {
-                        const canSort = header.column.getCanSort()
-                        const sortedState = header.column.getIsSorted()
-
-                        return (
-                          <th key={header.id}>
-                            {canSort ? (
-                              <button
-                                type="button"
-                                className={styles.sortButton}
-                                onClick={header.column.getToggleSortingHandler()}
-                              >
-                                {flexRender(header.column.columnDef.header, header.getContext())}
-                                {sortedState === 'asc' ? ' ↑' : sortedState === 'desc' ? ' ↓' : ''}
-                              </button>
-                            ) : (
-                              flexRender(header.column.columnDef.header, header.getContext())
-                            )}
-                          </th>
-                        )
-                      })}
-                    </tr>
-                  ))}
-                </thead>
-                <tbody>
-                  {table.getRowModel().rows.length === 0 ? (
-                    <tr>
-                      <td colSpan={columns.length} className={styles.empty}>
-                        No contracts found.
-                      </td>
-                    </tr>
-                  ) : (
-                    table.getRowModel().rows.map((row) => (
-                      <tr
-                        key={row.id}
-                        className={`${styles.row} ${row.original.isTatBreached ? styles.rowBreached : ''}`}
-                        onClick={() =>
-                          router.push(
-                            contractsClient.resolveProtectedContractPath(row.original.id, {
-                              from: 'repository',
-                            })
-                          )
-                        }
-                      >
-                        {row.getVisibleCells().map((cell) => (
-                          <td key={cell.id}>{flexRender(cell.column.columnDef.cell, cell.getContext())}</td>
-                        ))}
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            )}
+            <RepositoryWorkspaceTable
+              contracts={contracts}
+              columns={columns}
+              sorting={sorting}
+              onSortingChange={handleSortingChange}
+              isLoading={isLoading}
+              onOpenContract={handleOpenContract}
+            />
           </section>
 
           {activePreview ? (

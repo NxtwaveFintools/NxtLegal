@@ -230,6 +230,13 @@ describe('Assignment workflow integration', () => {
       },
     } as never)
 
+    jest.spyOn(contractsClient, 'departments').mockResolvedValue({
+      ok: true,
+      data: {
+        departments: [{ id: 'dept-1', name: 'Finance', hodName: null, hodEmail: null }],
+      },
+    } as never)
+
     const detailsRender = render(
       <ContractsWorkspace
         session={{

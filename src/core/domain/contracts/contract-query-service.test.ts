@@ -65,6 +65,7 @@ const createRepositoryMock = (): jest.Mocked<ContractQueryRepository> => ({
   getSigningPreparationDraft: jest.fn(),
   countPendingSignatoriesByContract: jest.fn(),
   moveContractToInSignature: jest.fn(),
+  softResetActiveSigningCycle: jest.fn(),
   deleteSigningPreparationDraft: jest.fn(),
   resolveEnvelopeContext: jest.fn(),
   recordZohoSignWebhookEvent: jest.fn(),
@@ -96,7 +97,10 @@ describe('ContractQueryService', () => {
       rowVersion: 2,
     }
 
-    repository.applyAction.mockResolvedValue(updatedContract)
+    repository.applyAction.mockResolvedValue({
+      contract: updatedContract,
+      previousStatus: 'HOD_PENDING',
+    })
     repository.getById.mockResolvedValue(updatedContract)
     repository.canAccessContract.mockResolvedValue(false)
 
@@ -110,13 +114,16 @@ describe('ContractQueryService', () => {
     })
 
     expect(result).toEqual({
-      contract: updatedContract,
-      counterparties: [],
-      documents: [],
-      availableActions: [],
-      additionalApprovers: [],
-      legalCollaborators: [],
-      signatories: [],
+      contractView: {
+        contract: updatedContract,
+        counterparties: [],
+        documents: [],
+        availableActions: [],
+        additionalApprovers: [],
+        legalCollaborators: [],
+        signatories: [],
+      },
+      previousStatus: 'HOD_PENDING',
     })
   })
 
@@ -152,7 +159,10 @@ describe('ContractQueryService', () => {
     const repository = createRepositoryMock()
     const service = new ContractQueryService(repository)
 
-    repository.applyAction.mockResolvedValue(baseContract)
+    repository.applyAction.mockResolvedValue({
+      contract: baseContract,
+      previousStatus: 'HOD_PENDING',
+    })
     repository.getById.mockResolvedValue(baseContract)
     repository.canAccessContract.mockRejectedValue(
       new AuthorizationError('CONTRACT_TIMELINE_FORBIDDEN', 'timeline unavailable')
@@ -360,6 +370,95 @@ describe('ContractQueryService', () => {
     })
 
     expect(repository.applyAction).not.toHaveBeenCalled()
+  })
+
+  it('forwards optional note when approving as additional approver', async () => {
+    const repository = createRepositoryMock()
+    const service = new ContractQueryService(repository)
+
+    const updatedContract: ContractDetail = {
+      ...baseContract,
+      status: 'UNDER_REVIEW',
+      currentAssigneeEmployeeId: 'legal-1',
+      currentAssigneeEmail: 'legalteam@nxtwave.co.in',
+      rowVersion: 2,
+    }
+
+    repository.applyAction.mockResolvedValue({
+      contract: updatedContract,
+      previousStatus: 'HOD_PENDING',
+    })
+    repository.getById.mockResolvedValue(updatedContract)
+    repository.canAccessContract.mockResolvedValue(true)
+    repository.getCounterparties.mockResolvedValue([])
+    repository.getDocuments.mockResolvedValue([])
+    repository.getAvailableActions.mockResolvedValue([])
+    repository.getAdditionalApprovers.mockResolvedValue([])
+    repository.getLegalCollaborators.mockResolvedValue([])
+    repository.getSignatories.mockResolvedValue([])
+
+    await service.applyContractAction({
+      tenantId: 'tenant-1',
+      contractId: updatedContract.id,
+      action: 'approver.approve',
+      actorEmployeeId: 'approver-1',
+      actorRole: 'USER',
+      actorEmail: 'approver@nxtwave.co.in',
+      noteText: 'Approved after reviewing latest revision',
+    })
+
+    expect(repository.applyAction).toHaveBeenCalledWith({
+      tenantId: 'tenant-1',
+      contractId: updatedContract.id,
+      action: 'approver.approve',
+      actorEmployeeId: 'approver-1',
+      actorRole: 'USER',
+      actorEmail: 'approver@nxtwave.co.in',
+      noteText: 'Approved after reviewing latest revision',
+    })
+  })
+
+  it('forwards optional note when adding additional approver', async () => {
+    const repository = createRepositoryMock()
+    const service = new ContractQueryService(repository)
+
+    const updatedContract: ContractDetail = {
+      ...baseContract,
+      status: 'UNDER_REVIEW',
+      currentAssigneeEmployeeId: 'legal-1',
+      currentAssigneeEmail: 'legalteam@nxtwave.co.in',
+      rowVersion: 2,
+    }
+
+    repository.addAdditionalApprover.mockResolvedValue(undefined)
+    repository.getById.mockResolvedValue(updatedContract)
+    repository.canAccessContract.mockResolvedValue(true)
+    repository.getCounterparties.mockResolvedValue([])
+    repository.getDocuments.mockResolvedValue([])
+    repository.getAvailableActions.mockResolvedValue([])
+    repository.getAdditionalApprovers.mockResolvedValue([])
+    repository.getLegalCollaborators.mockResolvedValue([])
+    repository.getSignatories.mockResolvedValue([])
+
+    await service.addAdditionalApprover({
+      tenantId: 'tenant-1',
+      contractId: updatedContract.id,
+      actorEmployeeId: 'legal-1',
+      actorRole: 'LEGAL_TEAM',
+      actorEmail: 'legalteam@nxtwave.co.in',
+      approverEmail: 'approver@nxtwave.co.in',
+      noteText: 'Please verify budget and indemnity clauses',
+    })
+
+    expect(repository.addAdditionalApprover).toHaveBeenCalledWith({
+      tenantId: 'tenant-1',
+      contractId: updatedContract.id,
+      actorEmployeeId: 'legal-1',
+      actorRole: 'LEGAL_TEAM',
+      actorEmail: 'legalteam@nxtwave.co.in',
+      approverEmail: 'approver@nxtwave.co.in',
+      noteText: 'Please verify budget and indemnity clauses',
+    })
   })
 
   it('restricts individual approval bypass to LEGAL_TEAM or ADMIN', async () => {

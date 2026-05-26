@@ -268,6 +268,45 @@ class SupabaseContractRepository implements ContractRepository {
     }
   }
 
+  async getAdditionalApproverAssignmentState(params: {
+    tenantId: string
+    contractId: string
+    approverEmployeeId: string
+  }): Promise<{
+    isAdditionalApprover: boolean
+    hasPendingAssignment: boolean
+  }> {
+    const supabase = createServiceSupabase()
+
+    const { data, error } = await supabase
+      .from('contract_additional_approvers')
+      .select('status')
+      .eq('tenant_id', params.tenantId)
+      .eq('contract_id', params.contractId)
+      .eq('approver_employee_id', params.approverEmployeeId)
+      .is('deleted_at', null)
+
+    if (error) {
+      if (error.code === '42P01' || error.code === 'PGRST205') {
+        return {
+          isAdditionalApprover: false,
+          hasPendingAssignment: false,
+        }
+      }
+
+      throw new DatabaseError('Failed to fetch additional approver assignment state', new Error(error.message), {
+        code: error.code,
+      })
+    }
+
+    const typedRows = (data ?? []) as Array<{ status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'SKIPPED' | 'BYPASSED' }>
+
+    return {
+      isAdditionalApprover: typedRows.length > 0,
+      hasPendingAssignment: typedRows.some((row) => row.status === 'PENDING'),
+    }
+  }
+
   async createCounterparties(input: CreateContractCounterpartyInput[]): Promise<ContractCounterpartyRecord[]> {
     if (input.length === 0) {
       return []

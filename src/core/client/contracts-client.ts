@@ -205,6 +205,7 @@ type ContractAdditionalApprover = {
   sequenceOrder: number
   status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'SKIPPED' | 'BYPASSED'
   approvedAt: string | null
+  noteText?: string | null
 }
 
 type ContractApproverReminderResponse = {
@@ -222,7 +223,7 @@ type ContractLegalCollaborator = {
 type ContractSignatory = {
   id: string
   signatoryEmail: string
-  recipientType: 'INTERNAL' | 'EXTERNAL'
+  recipientType: 'INTERNAL' | 'EXTERNAL' | 'VIEWER'
   routingOrder: number
   fieldConfig: Array<{
     fieldType: 'SIGNATURE' | 'INITIAL' | 'STAMP' | 'NAME' | 'DATE' | 'TIME' | 'TEXT'
@@ -248,7 +249,7 @@ type ContractSigningPreparationDraft = {
   recipients: Array<{
     name: string
     email: string
-    recipientType: 'INTERNAL' | 'EXTERNAL'
+    recipientType: 'INTERNAL' | 'EXTERNAL' | 'VIEWER'
     routingOrder: number
     designation?: string
     counterpartyId?: string
@@ -415,91 +416,6 @@ async function safeFetch<T>(url: string, init?: RequestInit): Promise<ApiRespons
   } catch {
     return networkErrorResponse<T>()
   }
-}
-
-/**
- * Upload files via XMLHttpRequest with real-time byte progress tracking.
- *
- * `fetch()` cannot report upload progress because it does not expose
- * `xhr.upload.onprogress`.  This wrapper sends `FormData` through XHR and
- * returns a Promise that resolves to the same `ApiResponse<T>` shape the
- * rest of the client uses.
- *
- * @param url             Target endpoint
- * @param formData        The multipart payload to send
- * @param options.headers Optional headers (e.g. Idempotency-Key)
- * @param options.onProgress  Callback invoked with 0–100 as bytes are sent
- * @param options.signal      AbortSignal to cancel the upload mid-flight
- */
-function xhrUpload<T>(
-  url: string,
-  formData: FormData,
-  options?: {
-    headers?: Record<string, string>
-    onProgress?: (percent: number) => void
-    signal?: AbortSignal
-  }
-): Promise<ApiResponse<T>> {
-  return new Promise<ApiResponse<T>>((resolve) => {
-    const xhr = new XMLHttpRequest()
-
-    // ── Progress tracking ──
-    xhr.upload.addEventListener('progress', (event) => {
-      if (event.lengthComputable && options?.onProgress) {
-        const percent = Math.round((event.loaded / event.total) * 100)
-        options.onProgress(percent)
-      }
-    })
-
-    // ── Completion ──
-    xhr.addEventListener('load', () => {
-      try {
-        const parsed = JSON.parse(xhr.responseText) as ApiResponse<T>
-        resolve(parsed)
-      } catch {
-        resolve({
-          ok: false,
-          error: { code: 'invalid_json_response', message: 'Unexpected response from server' },
-        })
-      }
-    })
-
-    // ── Network error ──
-    xhr.addEventListener('error', () => {
-      resolve(networkErrorResponse<T>())
-    })
-
-    // ── Abort ──
-    xhr.addEventListener('abort', () => {
-      resolve({
-        ok: false,
-        error: { code: 'upload_cancelled', message: 'Upload was cancelled.' },
-      })
-    })
-
-    // ── Wire AbortSignal ──
-    if (options?.signal) {
-      if (options.signal.aborted) {
-        resolve({
-          ok: false,
-          error: { code: 'upload_cancelled', message: 'Upload was cancelled.' },
-        })
-        return
-      }
-      options.signal.addEventListener('abort', () => xhr.abort(), { once: true })
-    }
-
-    xhr.open('POST', url)
-    xhr.withCredentials = true
-
-    if (options?.headers) {
-      for (const [key, value] of Object.entries(options.headers)) {
-        xhr.setRequestHeader(key, value)
-      }
-    }
-
-    xhr.send(formData)
-  })
 }
 
 function resolveSupabaseSignedUploadUrl(signedUrl: string): string {
@@ -744,6 +660,9 @@ export const contractsClient = {
     datePreset?: RepositoryDatePreset
     fromDate?: string
     toDate?: string
+    departmentId?: string
+    hodApproval?: 'yes' | 'no'
+    assignedToEmail?: string
     /** When true, the response will include reporting aggregates; avoids a separate repositoryReport call. */
     includeReport?: boolean
   }): Promise<ApiResponse<RepositoryListResponse>> {
@@ -791,6 +710,18 @@ export const contractsClient = {
 
     if (params?.toDate) {
       query.set('toDate', params.toDate)
+    }
+
+    if (params?.departmentId) {
+      query.set('departmentId', params.departmentId)
+    }
+
+    if (params?.hodApproval) {
+      query.set('hodApproval', params.hodApproval)
+    }
+
+    if (params?.assignedToEmail) {
+      query.set('assignedToEmail', params.assignedToEmail)
     }
 
     if (params?.includeReport) {
@@ -1289,7 +1220,7 @@ export const contractsClient = {
     })
   },
 
-  async addApprover(contractId: string, payload: { approverEmail: string }) {
+  async addApprover(contractId: string, payload: { approverEmail: string; noteText?: string }) {
     return safeFetch<ContractDetailResponse>(resolveContractPath(routeRegistry.api.contracts.approvers, contractId), {
       method: 'POST',
       credentials: 'include',
@@ -1339,6 +1270,17 @@ export const contractsClient = {
     )
   },
 
+  async renameTitle(contractId: string, payload: { title: string }) {
+    return safeFetch<ContractDetailResponse>(resolveContractPath(routeRegistry.api.contracts.renameTitle, contractId), {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    })
+  },
+
   async addSignatory(
     contractId: string,
     payload:
@@ -1346,7 +1288,7 @@ export const contractsClient = {
       | {
           recipients: Array<{
             signatoryEmail: string
-            recipientType: 'INTERNAL' | 'EXTERNAL'
+            recipientType: 'INTERNAL' | 'EXTERNAL' | 'VIEWER'
             routingOrder: number
             fields: Array<{
               field_type: 'SIGNATURE' | 'INITIAL' | 'STAMP' | 'NAME' | 'DATE' | 'TIME' | 'TEXT'
@@ -1377,7 +1319,7 @@ export const contractsClient = {
       recipients: Array<{
         name: string
         email: string
-        recipient_type: 'INTERNAL' | 'EXTERNAL'
+        recipient_type: 'INTERNAL' | 'EXTERNAL' | 'VIEWER'
         routing_order: number
         designation?: string
         counterparty_id?: string

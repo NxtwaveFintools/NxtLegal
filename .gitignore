@@ -98,6 +98,8 @@ Desktop.ini
 dist/
 coverage/
 *.tsbuildinfo
+.claude/skills
+.agents
 supabase/migrations/20260512123000_seed_test_accounts_mcp.sql
 .agents
 .claude

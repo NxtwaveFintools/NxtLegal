@@ -86,10 +86,16 @@ export const failedContractNotificationsQuerySchema = z.object({
   contractId: z.string().uuid().optional(),
 })
 
+export const contractRenameTitleSchema = z.object({
+  title: z.string().trim().min(1, 'Title is required').max(500, 'Title must be 500 characters or fewer'),
+})
+
 export const repositorySortByValues = ['title', 'created_at', 'hod_approved_at', 'status', 'tat_deadline_at'] as const
 export const repositorySortDirectionValues = ['asc', 'desc'] as const
 export const repositoryDateBasisValues = ['request_created_at', 'hod_approved_at'] as const
 export const repositoryDatePresetValues = ['week', 'month', 'multiple_months', 'quarter', 'year', 'custom'] as const
+
+export const repositoryHodApprovalValues = ['yes', 'no'] as const
 
 export const repositoryContractsQuerySchema = z.object({
   cursor: z.string().optional(),
@@ -103,6 +109,9 @@ export const repositoryContractsQuerySchema = z.object({
   datePreset: z.enum(repositoryDatePresetValues).optional(),
   fromDate: z.string().date().optional(),
   toDate: z.string().date().optional(),
+  departmentId: z.string().uuid().optional(),
+  hodApproval: z.enum(repositoryHodApprovalValues).optional(),
+  assignedToEmail: z.string().trim().toLowerCase().email().optional(),
   // When true, the response also includes the reporting aggregates (avoids a second round-trip).
   includeReport: z.coerce.boolean().optional().default(false),
 })
@@ -148,7 +157,7 @@ export const repositoryExportQuerySchema = repositoryReportingQuerySchema.extend
 export const contractActionSchema = z
   .object({
     action: z.enum(contractActionNames),
-    noteText: z.string().trim().max(2000).optional(),
+    noteText: z.string().trim().optional(),
   })
   .superRefine((value, context) => {
     const isRemarkMandatoryAction =
@@ -192,6 +201,7 @@ export const contractActivityReadStateSchema = z.object({
 
 export const contractApproverSchema = z.object({
   approverEmail: z.string().trim().toLowerCase().email('Valid approver email is required'),
+  noteText: z.string().trim().optional(),
 })
 
 export const contractApproverReminderSchema = z.object({
@@ -231,7 +241,7 @@ export const contractSignatoryFieldTypeValues = [
   'TIME',
   'TEXT',
 ] as const
-export const contractSignatoryRecipientTypeValues = ['INTERNAL', 'EXTERNAL'] as const
+export const contractSignatoryRecipientTypeValues = ['INTERNAL', 'EXTERNAL', 'VIEWER'] as const
 
 const contractSignatoryFieldSchema = z
   .object({

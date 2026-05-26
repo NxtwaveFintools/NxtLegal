@@ -1,6 +1,15 @@
 import type { NextConfig } from 'next'
 
 const nextConfig: NextConfig = {
+  compiler: {
+    removeConsole:
+      process.env.NODE_ENV === 'production'
+        ? {
+            exclude: ['error', 'warn'],
+          }
+        : false,
+  },
+
   // Framework-level body size & timeout configuration.
   // Route Handlers using request.formData() are not capped by Next.js in Node.js runtime,
   // but Server Actions ARE limited to 1 MB by default. This raises that ceiling to match

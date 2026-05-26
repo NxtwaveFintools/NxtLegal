@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { contractsClient, type ContractDocument } from '@/core/client/contracts-client'
+import { contractsClient, type ContractAdditionalApprover, type ContractDocument } from '@/core/client/contracts-client'
 import { contractDocumentKinds, contractStatuses } from '@/core/constants/contracts'
 import Spinner from '@/components/ui/Spinner'
 import { toast } from 'sonner'
@@ -12,13 +12,16 @@ type ContractDocumentsPanelProps = {
   contractStatus: string
   userRole?: string
   actorEmployeeId?: string
+  additionalApprovers?: ContractAdditionalApprover[]
   uploadedByEmployeeId?: string
   currentDocumentId?: string | null
   documents: ContractDocument[]
   defaultUploaderEmail?: string
-  onPreviewDocument: (document: ContractDocument) => void
+  onPreviewDocument: (document: ContractDocument) => Promise<void> | void
   onDownloadDocument: (document: ContractDocument) => void
   onRefreshDocuments: () => Promise<void>
+  isPreparingPreview?: boolean
+  previewingDocumentId?: string | null
 }
 
 type ExtendedDocument = ContractDocument & {
@@ -86,6 +89,8 @@ const ActiveVersionCard = (props: {
   document: ExtendedDocument
   canReplace: boolean
   onPreview: () => void
+  isPreviewLoading: boolean
+  isPreviewDisabled: boolean
   onDownload: () => void
   onReplace: () => void
   replaceDisabledMessage?: string
@@ -115,8 +120,20 @@ const ActiveVersionCard = (props: {
         <span>{formatDate(props.document.createdAt)}</span>
       </div>
       <div className={workspaceStyles.actions}>
-        <button type="button" className={workspaceStyles.button} onClick={props.onPreview}>
-          Preview
+        <button
+          type="button"
+          className={workspaceStyles.button}
+          onClick={props.onPreview}
+          disabled={props.isPreviewDisabled}
+        >
+          {props.isPreviewLoading ? (
+            <span className={workspaceStyles.buttonContent}>
+              <Spinner size={14} />
+              Opening...
+            </span>
+          ) : (
+            'Preview'
+          )}
         </button>
         <button
           type="button"
@@ -149,6 +166,8 @@ const VersionHistoryTable = (props: {
   defaultUploaderEmail?: string
   onDownload: (document: ExtendedDocument) => void
   onPreview: (document: ExtendedDocument) => void
+  isPreparingPreview: boolean
+  previewingDocumentId?: string | null
 }) => {
   return (
     <div className={workspaceStyles.card}>
@@ -161,6 +180,7 @@ const VersionHistoryTable = (props: {
           const uploaderRole = document.uploadedByRole ?? '—'
           const uploaderNameOrEmail =
             document.uploadedByName ?? document.uploadedByEmail ?? props.defaultUploaderEmail ?? '—'
+          const isPreviewLoading = props.isPreparingPreview && props.previewingDocumentId === document.id
 
           return (
             <div key={document.id} className={workspaceStyles.documentRow}>
@@ -174,8 +194,20 @@ const VersionHistoryTable = (props: {
                 <div className={workspaceStyles.itemMeta}>{formatDate(document.createdAt)}</div>
               </div>
               <div className={workspaceStyles.actions}>
-                <button type="button" className={workspaceStyles.button} onClick={() => props.onPreview(document)}>
-                  Preview
+                <button
+                  type="button"
+                  className={workspaceStyles.button}
+                  onClick={() => props.onPreview(document)}
+                  disabled={props.isPreparingPreview}
+                >
+                  {isPreviewLoading ? (
+                    <span className={workspaceStyles.buttonContent}>
+                      <Spinner size={14} />
+                      Opening...
+                    </span>
+                  ) : (
+                    'Preview'
+                  )}
                 </button>
                 <button
                   type="button"
@@ -198,12 +230,16 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
     contractId,
     contractStatus,
     userRole,
+    actorEmployeeId,
+    additionalApprovers = [],
     currentDocumentId,
     documents,
     defaultUploaderEmail,
     onPreviewDocument,
     onDownloadDocument,
     onRefreshDocuments,
+    isPreparingPreview = false,
+    previewingDocumentId,
   } = props
 
   const [isReplaceModalOpen, setIsReplaceModalOpen] = useState(false)
@@ -250,8 +286,17 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
 
     for (const document of supportingDocuments) {
       const normalizedCounterpartyName = document.counterpartyName?.trim() || ''
-      const label = normalizedCounterpartyName || 'Budget Approval Supporting Documents'
-      const key = document.counterpartyId?.trim() || label
+      let label: string
+      let key: string
+
+      if (document.counterpartyId?.trim()) {
+        key = document.counterpartyId.trim()
+        label = normalizedCounterpartyName || 'Supporting Documents'
+      } else {
+        const isAdditional = (document.displayName ?? '').toLowerCase().startsWith('additional')
+        key = isAdditional ? 'additional-supporting' : 'budget-supporting'
+        label = isAdditional ? 'Additional Supporting Documents' : 'Budget Approval Supporting Documents'
+      }
 
       const existingGroup = groupedDocuments.get(key)
       if (existingGroup) {
@@ -281,6 +326,23 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
     return primaryDocuments[0]
   }, [currentDocumentId, primaryDocuments])
 
+  const actorAdditionalApproverAssignments = useMemo(() => {
+    const normalizedActorEmployeeId = actorEmployeeId?.trim()
+    if (!normalizedActorEmployeeId) {
+      return []
+    }
+
+    return additionalApprovers.filter((approver) => approver.approverEmployeeId === normalizedActorEmployeeId)
+  }, [actorEmployeeId, additionalApprovers])
+
+  const isAdditionalApproverParticipant = actorAdditionalApproverAssignments.length > 0
+  const hasPendingAdditionalApproverAssignment = actorAdditionalApproverAssignments.some(
+    (approver) => approver.status === 'PENDING'
+  )
+  const isPrivilegedReplacementRole = userRole === 'LEGAL_TEAM' || userRole === 'ADMIN'
+  const isBlockedAdditionalApproverReplacement =
+    !isPrivilegedReplacementRole && isAdditionalApproverParticipant && !hasPendingAdditionalApproverAssignment
+
   const replacementStatusesForLegal = new Set<string>([
     contractStatuses.pendingInternal,
     contractStatuses.pendingExternal,
@@ -294,20 +356,23 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
     canLegalReplaceInCurrentStatus || adminOnlyReplacementStatuses.has(contractStatus)
   const canMarkFinalExecuted = userRole === 'LEGAL_TEAM' || userRole === 'ADMIN'
   const canReplaceInUnderReview = contractStatus === contractStatuses.underReview
-  const canReplace =
+  const canReplaceByRoleAndStatus =
     canReplaceInUnderReview ||
     (userRole === 'LEGAL_TEAM' && canLegalReplaceInCurrentStatus) ||
     (userRole === 'ADMIN' && canAdminReplaceInCurrentStatus)
+  const canReplace = canReplaceByRoleAndStatus && !isBlockedAdditionalApproverReplacement
   const canReplaceSupporting = canReplace
 
-  const replaceDisabledMessage =
-    contractStatus === contractStatuses.signing
+  const replaceDisabledMessage = isBlockedAdditionalApproverReplacement
+    ? 'Replacement is available for additional approvers only while their approval is pending.'
+    : contractStatus === contractStatuses.signing
       ? 'Replacement is unavailable while contract is in signing.'
       : contractStatus === contractStatuses.rejected || contractStatus === contractStatuses.void
         ? 'Replacement is restricted to Admin for rejected/void contracts.'
         : 'Replacement is unavailable for this contract status.'
-  const supportingReplaceDisabledMessage =
-    contractStatus === contractStatuses.signing
+  const supportingReplaceDisabledMessage = isBlockedAdditionalApproverReplacement
+    ? 'Supporting replacement is available for additional approvers only while their approval is pending.'
+    : contractStatus === contractStatuses.signing
       ? 'Supporting document replacement is unavailable while contract is in signing.'
       : contractStatus === contractStatuses.rejected || contractStatus === contractStatuses.void
         ? 'Supporting document replacement is restricted to Admin for rejected/void contracts.'
@@ -442,7 +507,11 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
       <ActiveVersionCard
         document={activeDocument}
         canReplace={canReplace}
-        onPreview={() => props.onPreviewDocument(activeDocument)}
+        onPreview={() => {
+          void props.onPreviewDocument(activeDocument)
+        }}
+        isPreviewLoading={isPreparingPreview && previewingDocumentId === activeDocument.id}
+        isPreviewDisabled={isPreparingPreview}
         onDownload={() => props.onDownloadDocument(activeDocument)}
         onReplace={openReplaceModal}
         replaceDisabledMessage={replaceDisabledMessage}
@@ -456,6 +525,8 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
         onDownload={(document) => onDownloadDocument(document)}
         onPreview={(document) => onPreviewDocument(document)}
         defaultUploaderEmail={defaultUploaderEmail}
+        isPreparingPreview={isPreparingPreview}
+        previewingDocumentId={previewingDocumentId}
       />
 
       {completionArtifacts.length > 0 ? (
@@ -465,6 +536,7 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
             {completionArtifacts.map((document) => {
               const artifactLabel =
                 document.documentKind === 'EXECUTED_CONTRACT' ? 'Executed Contract' : 'Completion Certificate'
+              const isPreviewLoading = isPreparingPreview && previewingDocumentId === document.id
 
               return (
                 <div key={document.id} className={workspaceStyles.documentRow}>
@@ -477,9 +549,19 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
                     <button
                       type="button"
                       className={workspaceStyles.button}
-                      onClick={() => onPreviewDocument(document)}
+                      onClick={() => {
+                        void onPreviewDocument(document)
+                      }}
+                      disabled={isPreparingPreview}
                     >
-                      Preview
+                      {isPreviewLoading ? (
+                        <span className={workspaceStyles.buttonContent}>
+                          <Spinner size={14} />
+                          Opening...
+                        </span>
+                      ) : (
+                        'Preview'
+                      )}
                     </button>
                     <button
                       type="button"
@@ -517,30 +599,44 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
                   ) : null}
                 </div>
                 <div className={workspaceStyles.timeline}>
-                  {group.documents.map((document) => (
-                    <div key={document.id} className={workspaceStyles.documentRow}>
-                      <div className={workspaceStyles.documentMeta}>
-                        <div className={workspaceStyles.itemMeta}>{document.fileName}</div>
-                        <div className={workspaceStyles.itemMeta}>{formatDate(document.createdAt)}</div>
+                  {group.documents.map((document) => {
+                    const isPreviewLoading = isPreparingPreview && previewingDocumentId === document.id
+
+                    return (
+                      <div key={document.id} className={workspaceStyles.documentRow}>
+                        <div className={workspaceStyles.documentMeta}>
+                          <div className={workspaceStyles.itemMeta}>{document.fileName}</div>
+                          <div className={workspaceStyles.itemMeta}>{formatDate(document.createdAt)}</div>
+                        </div>
+                        <div className={workspaceStyles.actions}>
+                          <button
+                            type="button"
+                            className={workspaceStyles.button}
+                            onClick={() => {
+                              void onPreviewDocument(document)
+                            }}
+                            disabled={isPreparingPreview}
+                          >
+                            {isPreviewLoading ? (
+                              <span className={workspaceStyles.buttonContent}>
+                                <Spinner size={14} />
+                                Opening...
+                              </span>
+                            ) : (
+                              'Preview'
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            className={`${workspaceStyles.button} ${workspaceStyles.buttonGhost}`}
+                            onClick={() => onDownloadDocument(document)}
+                          >
+                            Download
+                          </button>
+                        </div>
                       </div>
-                      <div className={workspaceStyles.actions}>
-                        <button
-                          type="button"
-                          className={workspaceStyles.button}
-                          onClick={() => onPreviewDocument(document)}
-                        >
-                          Preview
-                        </button>
-                        <button
-                          type="button"
-                          className={`${workspaceStyles.button} ${workspaceStyles.buttonGhost}`}
-                          onClick={() => onDownloadDocument(document)}
-                        >
-                          Download
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                    )
+                  })}
                 </div>
               </div>
             ))}

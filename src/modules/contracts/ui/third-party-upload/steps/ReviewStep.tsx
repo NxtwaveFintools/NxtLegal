@@ -19,6 +19,7 @@ type ReviewStepProps = {
   backgroundOfRequest: string
   budgetApproved: boolean
   budgetSupportingFileNames: string[]
+  naAdditionalFileNames: string[]
   departmentName: string
   bypassHodApproval?: boolean
   bypassReason?: string
@@ -33,11 +34,14 @@ export default function ReviewStep({
   backgroundOfRequest,
   budgetApproved,
   budgetSupportingFileNames,
+  naAdditionalFileNames,
   departmentName,
   bypassHodApproval = false,
   bypassReason,
   organizationEntity,
 }: ReviewStepProps) {
+  const isAllNaCounterparties =
+    counterparties.length === 1 && counterparties[0]?.counterpartyName.trim().toUpperCase() === 'NA'
   return (
     <div>
       <div className={styles.sectionTitle}>Review</div>
@@ -102,6 +106,12 @@ export default function ReviewStep({
         <div className={styles.summaryRow}>
           <span>Budget Approval Supporting Docs</span>
           <span>{budgetSupportingFileNames.length > 0 ? budgetSupportingFileNames.join(', ') : 'Not provided'}</span>
+        </div>
+      ) : null}
+      {isAllNaCounterparties && naAdditionalFileNames.length > 0 ? (
+        <div className={styles.summaryRow}>
+          <span>Additional Supporting Docs</span>
+          <span>{naAdditionalFileNames.join(', ')}</span>
         </div>
       ) : null}
       <div className={styles.summaryRow}>
