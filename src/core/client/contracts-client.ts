@@ -791,6 +791,9 @@ export const contractsClient = {
     datePreset?: RepositoryDatePreset
     fromDate?: string
     toDate?: string
+    departmentId?: string
+    hodApproval?: 'yes' | 'no'
+    assignedToEmail?: string
     format?: RepositoryExportFormat
     columns?: RepositoryExportColumn[]
   }): string {
@@ -822,6 +825,18 @@ export const contractsClient = {
 
     if (params?.toDate) {
       query.set('toDate', params.toDate)
+    }
+
+    if (params?.departmentId) {
+      query.set('departmentId', params.departmentId)
+    }
+
+    if (params?.hodApproval) {
+      query.set('hodApproval', params.hodApproval)
+    }
+
+    if (params?.assignedToEmail) {
+      query.set('assignedToEmail', params.assignedToEmail)
     }
 
     if (params?.format) {

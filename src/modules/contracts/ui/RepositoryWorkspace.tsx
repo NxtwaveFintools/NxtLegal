@@ -226,6 +226,11 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
   const router = useRouter()
   const normalizedRole = (session.role ?? '').toUpperCase()
   const isLegalTeamRole = normalizedRole === 'LEGAL_TEAM' || normalizedRole === 'ADMIN'
+  const canSeeTatAndAging =
+    normalizedRole === 'LEGAL_TEAM' ||
+    normalizedRole === 'LEGAL_ADMIN' ||
+    normalizedRole === 'ADMIN' ||
+    normalizedRole === 'SUPER_ADMIN'
   const canAccessRepositoryReporting =
     isLegalTeamRole ||
     normalizedRole === 'LEGAL_ADMIN' ||
@@ -244,6 +249,8 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
   const [sorting, setSorting] = useState<SortingState>([{ id: 'requestDate', desc: true }])
   const [cursorHistory, setCursorHistory] = useState<Array<string | undefined>>([undefined])
   const [nextCursor, setNextCursor] = useState<string | null>(null)
+  const [totalCount, setTotalCount] = useState<number>(0)
+  const [rowsPerPage, setRowsPerPage] = useState<number>(15)
   const [reportMetrics, setReportMetrics] = useState<{
     departmentMetrics: Array<{
       departmentId: string | null
@@ -359,7 +366,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     try {
       const response = await contractsClient.repositoryList({
         cursor: activeCursor,
-        limit: 15,
+        limit: rowsPerPage,
         sortBy,
         sortDirection,
         search: debouncedSearch,
@@ -383,6 +390,10 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
 
       setContracts(response.data.contracts)
       setNextCursor(response.data.pagination.cursor)
+      // API only computes total on the first page (cursor=undefined); preserve it across subsequent pages
+      if (!activeCursor) {
+        setTotalCount(response.data.pagination.total)
+      }
 
       if (canAccessRepositoryReporting) {
         setReportMetrics(response.data.report ?? null)
@@ -410,6 +421,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     departmentFilter,
     hodApprovalFilter,
     assignedToFilter,
+    rowsPerPage,
   ])
 
   useEffect(() => {
@@ -487,6 +499,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     departmentFilter,
     hodApprovalFilter,
     assignedToFilter,
+    rowsPerPage,
   ])
 
   const handleStatusFilterChange = useCallback((value: RepositoryStatusFilter | '') => {
@@ -842,28 +855,34 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
             <span className={styles.hodPending}>No</span>
           ),
       },
-      {
-        accessorKey: 'tatPolicy',
-        header: 'TAT',
-        cell: () => agingPolicyText,
-      },
-      {
-        accessorKey: 'contractAging',
-        header: 'Contract Aging',
-        cell: ({ row }) => {
-          const tone = getAgingTone(row.original.agingBusinessDays)
-          const overdueLabel = formatOverdueLabel(row.original)
+      ...(canSeeTatAndAging
+        ? ([
+            {
+              accessorKey: 'tatPolicy',
+              header: 'TAT',
+              cell: () => agingPolicyText,
+            },
+            {
+              accessorKey: 'contractAging',
+              header: 'Contract Aging',
+              cell: ({ row }: { row: { original: ContractRecord } }) => {
+                const tone = getAgingTone(row.original.agingBusinessDays)
+                const overdueLabel = formatOverdueLabel(row.original)
 
-          return (
-            <div className={styles.agingWrap}>
-              <span className={styles[`agingTone${tone.charAt(0).toUpperCase()}${tone.slice(1)}`]}>
-                {typeof row.original.agingBusinessDays === 'number' ? `${row.original.agingBusinessDays} days` : '—'}
-              </span>
-              {overdueLabel ? <span className={styles.overdueLabel}>{overdueLabel}</span> : null}
-            </div>
-          )
-        },
-      },
+                return (
+                  <div className={styles.agingWrap}>
+                    <span className={styles[`agingTone${tone.charAt(0).toUpperCase()}${tone.slice(1)}`]}>
+                      {typeof row.original.agingBusinessDays === 'number'
+                        ? `${row.original.agingBusinessDays} days`
+                        : '—'}
+                    </span>
+                    {overdueLabel ? <span className={styles.overdueLabel}>{overdueLabel}</span> : null}
+                  </div>
+                )
+              },
+            },
+          ] as ColumnDef<ContractRecord>[])
+        : []),
       {
         accessorKey: 'status',
         header: 'Status',
@@ -878,7 +897,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
                 status={row.original.status}
                 displayLabel={row.original.repositoryStatusLabel ?? row.original.displayStatusLabel}
               />
-              {shouldShowStuckBadge ? (
+              {shouldShowStuckBadge && canSeeTatAndAging ? (
                 <span className={styles[`stuckTone${stuckTone.charAt(0).toUpperCase()}${stuckTone.slice(1)}`]}>
                   {daysInStatus} day{daysInStatus === 1 ? '' : 's'} in status
                 </span>
@@ -1089,6 +1108,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
       handleContractAssignmentChange,
       handleOpenCurrentDocument,
       isLegalTeamRole,
+      canSeeTatAndAging,
       legalTeamMembers,
       legalTeamMembersError,
       openAssignmentDropdownContractId,
@@ -1122,6 +1142,9 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
         datePreset: datePreset || undefined,
         fromDate: datePreset === 'custom' && customFromDate ? customFromDate : undefined,
         toDate: datePreset === 'custom' && customToDate ? customToDate : undefined,
+        departmentId: departmentFilter || undefined,
+        hodApproval: hodApprovalFilter || undefined,
+        assignedToEmail: assignedToFilter || undefined,
         format,
         columns: selectedExportColumns,
       })
@@ -1129,7 +1152,18 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
       window.open(exportUrl, '_blank', 'noopener,noreferrer')
       setActiveExportFormat(null)
     },
-    [customFromDate, customToDate, dateBasis, datePreset, debouncedSearch, selectedExportColumns, statusFilter]
+    [
+      customFromDate,
+      customToDate,
+      dateBasis,
+      datePreset,
+      debouncedSearch,
+      selectedExportColumns,
+      statusFilter,
+      departmentFilter,
+      hodApprovalFilter,
+      assignedToFilter,
+    ]
   )
 
   const handleSortingChange = useCallback(
@@ -1351,10 +1385,27 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
               disabled={cursorHistory.length <= 1}
               onClick={handlePreviousPage}
             >
-              Previous
+              ← Previous
             </button>
+            <span className={styles.paginationInfo}>
+              Page {cursorHistory.length} of {totalCount > 0 ? Math.ceil(totalCount / rowsPerPage) : 1} · {totalCount}{' '}
+              total
+            </span>
+            <label className={styles.rowsPerPageLabel}>
+              Rows
+              <select
+                className={styles.rowsPerPageSelect}
+                value={rowsPerPage}
+                onChange={(event) => setRowsPerPage(Number(event.target.value))}
+              >
+                <option value={10}>10</option>
+                <option value={15}>15</option>
+                <option value={25}>25</option>
+                <option value={50}>50</option>
+              </select>
+            </label>
             <button type="button" className={styles.pageButton} disabled={!nextCursor} onClick={handleNextPage}>
-              Next
+              Next →
             </button>
           </section>
 
@@ -1371,6 +1422,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
               onSortingChange={handleSortingChange}
               isLoading={isLoading}
               onOpenContract={handleOpenContract}
+              canSeeTatAndAging={canSeeTatAndAging}
             />
           </section>
 

@@ -252,6 +252,12 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   const searchParams = useSearchParams()
   const searchParamsKey = searchParams.toString()
   const roleConfig = useMemo(() => getRoleConfig(session.role), [session.role])
+  const normalizedDashboardRole = (session.role ?? '').toUpperCase()
+  const canSeeDashboardTatAndAging =
+    normalizedDashboardRole === 'LEGAL_TEAM' ||
+    normalizedDashboardRole === 'LEGAL_ADMIN' ||
+    normalizedDashboardRole === 'ADMIN' ||
+    normalizedDashboardRole === 'SUPER_ADMIN'
   const contractsSectionRef = useRef<HTMLElement | null>(null)
   const latestContractsRequestIdRef = useRef(0)
   const lastVisibilityRefreshAtRef = useRef(0)
@@ -1204,8 +1210,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                 </div>
 
                 {optimisticContracts.map((contract) => {
-                  const showAging =
-                    session.role !== contractWorkflowRoles.hod && shouldShowDashboardAging(contract.status)
+                  const showAging = canSeeDashboardTatAndAging && shouldShowDashboardAging(contract.status)
                   const showApprovalRequestedTimeline =
                     session.role === contractWorkflowRoles.hod &&
                     activeFilter === 'HOD_PENDING' &&
@@ -1234,8 +1239,9 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                         : agingTone === 'red'
                           ? styles.contractAgingRed
                           : styles.contractAgingNeutral
-                  const tatBreachLabel = formatDashboardTatBreachLabel(contract)
-                  const shouldHighlightBreach = contract.isTatBreached && !isTerminalContractStatus(contract.status)
+                  const tatBreachLabel = canSeeDashboardTatAndAging ? formatDashboardTatBreachLabel(contract) : null
+                  const shouldHighlightBreach =
+                    canSeeDashboardTatAndAging && contract.isTatBreached && !isTerminalContractStatus(contract.status)
 
                   const isContractSelected = selectedContractIds.has(contract.id)
 
