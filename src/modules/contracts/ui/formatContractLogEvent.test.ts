@@ -83,3 +83,52 @@ describe('formatContractLogEvent legal send-for-signing semantics', () => {
     expect(result.some((event) => event.id === 'draft-1')).toBe(false)
   })
 })
+
+describe('supporting document added events', () => {
+  const base = {
+    id: 'e1',
+    actorEmail: 'poc@x.co',
+    actorRole: 'POC',
+    createdAt: new Date().toISOString(),
+    eventType: 'CONTRACT_SUPPORTING_DOCUMENT_ADDED',
+    action: 'contract.supporting_document.added',
+    noteText: null,
+    targetEmail: null,
+  }
+
+  it('formats a budget upload', () => {
+    const result = formatContractLogEvent({
+      ...base,
+      metadata: { section_category: 'BUDGET', file_name: 'budget.pdf' },
+    } as never)
+    expect(result.message).toBe('Uploaded "budget.pdf" to Budget Approval Supporting Documents.')
+    expect(result.category).toBe('GENERAL')
+  })
+  it('formats an additional upload', () => {
+    const result = formatContractLogEvent({
+      ...base,
+      metadata: { section_category: 'ADDITIONAL', file_name: 'extra.png' },
+    } as never)
+    expect(result.message).toBe('Uploaded "extra.png" to Additional Supporting Documents.')
+  })
+  it('formats a counterparty upload', () => {
+    const result = formatContractLogEvent({
+      ...base,
+      metadata: { section_category: 'COUNTERPARTY', file_name: 'nda.pdf', counterparty_name: 'Acme Corp' },
+    } as never)
+    expect(result.message).toBe('Uploaded "nda.pdf" to Counterparty Documents for Acme Corp.')
+  })
+  it('falls back when metadata is missing', () => {
+    const result = formatContractLogEvent({ ...base, metadata: {} } as never)
+    expect(result.message).toBe('Uploaded a supporting document.')
+  })
+  it('formats the budget-approved flip', () => {
+    const result = formatContractLogEvent({
+      ...base,
+      eventType: 'CONTRACT_BUDGET_APPROVED_SET',
+      action: 'contract.budget_approved.set',
+      metadata: {},
+    } as never)
+    expect(result.message).toBe('Marked Budget Approved as Yes via document upload.')
+  })
+})

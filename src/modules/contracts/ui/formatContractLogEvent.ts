@@ -37,6 +37,8 @@ type CanonicalContractLogEventType =
   | 'SIGNATORY_DECLINED'
   | 'SIGNATORY_EXPIRED'
   | 'SIGNING_PREPARATION_DRAFT_SAVED'
+  | 'SUPPORTING_DOCUMENT_ADDED'
+  | 'BUDGET_APPROVED_SET'
 
 type TimelineEventCategory = 'SIGNING' | 'APPROVAL' | 'ASSIGNMENT' | 'STATUS' | 'DISCUSSION' | 'GENERAL'
 
@@ -101,6 +103,8 @@ const knownCanonicalEventTypes = new Set<CanonicalContractLogEventType>([
   'SIGNATORY_DECLINED',
   'SIGNATORY_EXPIRED',
   'SIGNING_PREPARATION_DRAFT_SAVED',
+  'SUPPORTING_DOCUMENT_ADDED',
+  'BUDGET_APPROVED_SET',
 ])
 
 const actionMessageOverrides: Record<string, string> = {
@@ -162,6 +166,10 @@ function normalizeEventType(rawType?: string | null): CanonicalContractLogEventT
       return 'SIGNATORY_DECLINED'
     case 'CONTRACT_SIGNATORY_EXPIRED':
       return 'SIGNATORY_EXPIRED'
+    case 'CONTRACT_SUPPORTING_DOCUMENT_ADDED':
+      return 'SUPPORTING_DOCUMENT_ADDED'
+    case 'CONTRACT_BUDGET_APPROVED_SET':
+      return 'BUDGET_APPROVED_SET'
     default:
       return null
   }
@@ -232,6 +240,10 @@ function normalizeFromAction(rawAction: string): CanonicalContractLogEventType |
       return 'SIGNATORY_EXPIRED'
     case 'contract.signing_preparation_draft.saved':
       return 'SIGNING_PREPARATION_DRAFT_SAVED'
+    case 'contract.supporting_document.added':
+      return 'SUPPORTING_DOCUMENT_ADDED'
+    case 'contract.budget_approved.set':
+      return 'BUDGET_APPROVED_SET'
     default:
       return null
   }
@@ -642,6 +654,24 @@ function resolveLogMessage(
 
       return 'Saved signing preparation draft.'
     }
+    case 'SUPPORTING_DOCUMENT_ADDED': {
+      const sectionCategory = getMetadataString(event.metadata, ['section_category'])
+      const fileName = getMetadataString(event.metadata, ['file_name'])
+      const counterpartyName = getMetadataString(event.metadata, ['counterparty_name'])
+      const fileLabel = fileName ? `"${fileName}"` : 'a document'
+      if (sectionCategory === 'BUDGET') {
+        return `Uploaded ${fileLabel} to Budget Approval Supporting Documents.`
+      }
+      if (sectionCategory === 'ADDITIONAL') {
+        return `Uploaded ${fileLabel} to Additional Supporting Documents.`
+      }
+      if (sectionCategory === 'COUNTERPARTY') {
+        return `Uploaded ${fileLabel} to Counterparty Documents for ${counterpartyName ?? 'a counterparty'}.`
+      }
+      return 'Uploaded a supporting document.'
+    }
+    case 'BUDGET_APPROVED_SET':
+      return 'Marked Budget Approved as Yes via document upload.'
     default:
       break
   }

@@ -21,22 +21,29 @@ Two gaps in the contract Documents experience:
    their HOD have no way to view or download the executed contract / completion
    certificate.
 
-## Goals
+## Goals (FINAL — revised 2026-06-01)
 
-- Add a **versioned Upload** action for supporting documents in the Documents
+- Add an **Upload (add-new)** action for supporting documents in the Documents
   tab, **per section** (Budget Approval, Additional, and one per counterparty).
-- Uploading **never replaces or deletes** an existing doc. Each upload becomes the
-  **next version** in that section; the **most recent version is the "Current"**
-  one, and earlier versions are retained in that section's **Version History**.
+- All three sections are **append-only lists**: **each Upload adds a NEW distinct
+  document** to that section. Uploading **never replaces or deletes** an existing
+  doc. (Versioning of an individual item is still handled by that item's existing
+  **Replace** button — unchanged.)
+- A **Budget Approval** upload additionally **flips the contract's
+  `budget_approved` flag to `true`** (display flag only — no status change, no
+  approvals re-triggered, no notifications). The flag flip is shown everywhere
+  `budget_approved` is read.
 - Make those sections **always visible** (even when empty) so docs can be added
   post-raise.
 - Allow the **creator (POC)**, their **HOD**, and **LEGAL_TEAM/ADMIN** to upload
   supporting docs, but only in **pre-completion** statuses.
-- **No contract status change** on upload; instead **log the upload to the
-  activity timeline**.
-- Let **POC and HOD view & download** signed/executed documents — both via a
-  read-only "Signed Docs" tab and via the existing Documents-tab execution
-  artifacts.
+- **No contract status change** on upload; instead **log every upload to the
+  activity timeline** ("{actor} uploaded {file} to {section}"), plus a second line
+  when a Budget upload flips the flag.
+- Let **POC and HOD view & download** signed/executed documents. Department
+  scoping is **implicit**: anyone who can already read the contract can download
+  (no extra department guard).
+- **Leave the main contract document Replace flow completely untouched.**
 
 ## Non-Goals
 
@@ -50,23 +57,24 @@ Two gaps in the contract Documents experience:
 
 ## Decisions (confirmed)
 
-| Question | Decision |
+| Question | Decision (FINAL) |
 |---|---|
 | Who can upload new supporting docs | Creator (POC) + their HOD + LEGAL_TEAM/ADMIN |
-| Sections shown when empty | Budget Approval + Additional + one per counterparty |
-| Upload semantics | Versioned & append-only — newest = Current, older = Version History. No replacement/deletion. |
-| Section = version chain | Each section is one chain; the most recent upload is the active/current version |
-| Replace button | **Kept** alongside Upload (Legal/Admin), behavior unchanged |
-| Signed-doc access for POC/HOD | Both: read-only Signed Docs tab **and** Documents-tab downloads |
+| Sections shown when empty | Budget Approval + Additional + one per counterparty — **always rendered** |
+| Upload semantics | **Append-only LIST**: each Upload adds a NEW distinct document. No replacement/deletion. |
+| Section model | All three sections are flat lists of documents. (No version-chain logic for new uploads.) |
+| Budget upload side-effect | Flips `contract.budget_approved` → `true` (display flag only). Logged when it actually flips. |
+| Counterparty docs | One Upload per **existing** counterparty (no new-counterparty creation here). |
+| Replace button | Existing per-item Replace **unchanged**; main-doc Replace **untouched**. |
+| Signed-doc access for POC/HOD | Allowed; relies on existing contract read-access (department implicit). |
 | Statuses allowing upload | Pre-completion only |
-| Status change on upload | None — log to activity timeline instead |
+| Status change on upload | None — log to activity timeline instead (every upload). |
+| File types | DOC / DOCX / PDF / **PNG / JPG** |
 
 **Allowed upload statuses (pre-completion):** `DRAFT`, `UPLOADED`,
 `HOD_PENDING`, `UNDER_REVIEW`, `PENDING_WITH_INTERNAL_STAKEHOLDERS`,
 `PENDING_WITH_EXTERNAL_STAKEHOLDERS`, `OFFLINE_EXECUTION`, `ON_HOLD`.
 **Blocked:** `SIGNING`, `COMPLETED`, `EXECUTED`, `VOID`, `REJECTED`.
-
-**Allowed file types:** DOC / DOCX / PDF (reuse `isAllowedReplacementUpload`).
 
 ---
 

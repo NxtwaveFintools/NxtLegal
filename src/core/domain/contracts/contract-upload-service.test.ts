@@ -1353,3 +1353,156 @@ describe('ContractUploadService direct-to-storage init/finalize', () => {
     expect(result.id).toBe('contract-1')
   })
 })
+
+describe('ContractUploadService.finalizeAddSupportingDocument', () => {
+  const buildContractRecord = (overrides?: Record<string, unknown>) => ({
+    id: 'c-1',
+    tenantId: 't1',
+    uploadedByEmployeeId: 'emp-1',
+    currentAssigneeEmployeeId: 'emp-1',
+    status: 'HOD_PENDING',
+    currentDocumentId: 'doc-1',
+    filePath: 't1/c-1/versions/v1.pdf',
+    fileName: 'v1.pdf',
+    ...overrides,
+  })
+
+  const contractRepository = {
+    getForAccess: jest.fn(),
+    addSupportingDocument: jest.fn().mockResolvedValue(undefined),
+    setBudgetApproved: jest.fn().mockResolvedValue({ changed: false }),
+    updateContractStatus: jest.fn().mockResolvedValue(undefined),
+    listCounterparties: jest.fn().mockResolvedValue([]),
+    isUploaderInActorTeam: jest.fn().mockResolvedValue(false),
+  }
+
+  const contractStorageRepository = {
+    exists: jest.fn().mockResolvedValue(true),
+    createSignedUploadUrl: jest.fn().mockImplementation(async (path: string) => ({
+      path,
+      token: 'token-1',
+      signedUrl: `https://upload.example/${encodeURIComponent(path)}`,
+    })),
+  }
+
+  const service = new ContractUploadService(contractRepository as never, contractStorageRepository as never, logger)
+
+  beforeEach(() => {
+    jest.clearAllMocks()
+    contractRepository.getForAccess.mockResolvedValue(buildContractRecord())
+    contractStorageRepository.exists.mockResolvedValue(true)
+    contractRepository.addSupportingDocument.mockResolvedValue(undefined)
+    contractRepository.setBudgetApproved.mockResolvedValue({ changed: false })
+    contractRepository.updateContractStatus.mockResolvedValue(undefined)
+    contractRepository.listCounterparties.mockResolvedValue([])
+    contractRepository.isUploaderInActorTeam.mockResolvedValue(false)
+  })
+
+  it('persists a budget supporting doc and flips budget_approved', async () => {
+    contractRepository.getForAccess.mockResolvedValue(
+      buildContractRecord({ status: 'HOD_PENDING', uploadedByEmployeeId: 'emp-1' })
+    )
+    await service.finalizeAddSupportingDocument({
+      tenantId: 't1',
+      contractId: 'c-1',
+      sectionCategory: 'BUDGET',
+      fileName: 'budget.pdf',
+      fileSizeBytes: 10,
+      fileMimeType: 'application/pdf',
+      uploadedByEmployeeId: 'emp-1',
+      uploadedByEmail: 'poc@x.co',
+      uploadedByRole: 'POC',
+      path: 't1/c-1/counterparty-additions/x-budget.pdf',
+    })
+    expect(contractRepository.addSupportingDocument).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sectionCategory: 'BUDGET',
+        displayName: 'Budget Approval Supporting Document',
+        counterpartyId: null,
+      })
+    )
+    expect(contractRepository.setBudgetApproved).toHaveBeenCalledWith(
+      expect.objectContaining({ contractId: 'c-1', actorEmployeeId: 'emp-1' })
+    )
+    expect(contractRepository.updateContractStatus).not.toHaveBeenCalled()
+  })
+
+  it('does NOT flip budget_approved for non-budget sections', async () => {
+    contractRepository.getForAccess.mockResolvedValue(
+      buildContractRecord({ status: 'HOD_PENDING', uploadedByEmployeeId: 'emp-1' })
+    )
+    await service.finalizeAddSupportingDocument({
+      tenantId: 't1',
+      contractId: 'c-1',
+      sectionCategory: 'ADDITIONAL',
+      fileName: 'extra.png',
+      fileSizeBytes: 10,
+      fileMimeType: 'image/png',
+      uploadedByEmployeeId: 'emp-1',
+      uploadedByEmail: 'poc@x.co',
+      uploadedByRole: 'POC',
+      path: 't1/c-1/counterparty-additions/x-extra.png',
+    })
+    expect(contractRepository.setBudgetApproved).not.toHaveBeenCalled()
+    expect(contractRepository.addSupportingDocument).toHaveBeenCalledWith(
+      expect.objectContaining({ sectionCategory: 'ADDITIONAL', displayName: 'Additional Supporting Document' })
+    )
+  })
+
+  it('rejects an unrelated non-privileged actor', async () => {
+    contractRepository.getForAccess.mockResolvedValue(
+      buildContractRecord({ status: 'HOD_PENDING', uploadedByEmployeeId: 'someone-else' })
+    )
+    contractRepository.isUploaderInActorTeam.mockResolvedValue(false)
+    await expect(
+      service.finalizeAddSupportingDocument({
+        tenantId: 't1',
+        contractId: 'c-1',
+        sectionCategory: 'ADDITIONAL',
+        fileName: 'x.pdf',
+        fileSizeBytes: 10,
+        fileMimeType: 'application/pdf',
+        uploadedByEmployeeId: 'emp-99',
+        uploadedByEmail: 'other@x.co',
+        uploadedByRole: 'POC',
+        path: 't1/c-1/counterparty-additions/x.pdf',
+      })
+    ).rejects.toMatchObject({ code: 'CONTRACT_SUPPORTING_UPLOAD_FORBIDDEN' })
+  })
+
+  it('rejects a blocked (post-completion) status', async () => {
+    contractRepository.getForAccess.mockResolvedValue(
+      buildContractRecord({ status: 'EXECUTED', uploadedByEmployeeId: 'emp-1' })
+    )
+    await expect(
+      service.finalizeAddSupportingDocument({
+        tenantId: 't1',
+        contractId: 'c-1',
+        sectionCategory: 'BUDGET',
+        fileName: 'x.pdf',
+        fileSizeBytes: 10,
+        fileMimeType: 'application/pdf',
+        uploadedByEmployeeId: 'emp-1',
+        uploadedByEmail: 'poc@x.co',
+        uploadedByRole: 'POC',
+        path: 't1/c-1/counterparty-additions/x.pdf',
+      })
+    ).rejects.toMatchObject({ code: 'CONTRACT_SUPPORTING_UPLOAD_STATUS_FORBIDDEN' })
+  })
+
+  it('requires counterpartyId for COUNTERPARTY uploads', async () => {
+    await expect(
+      service.initiateAddSupportingDocument({
+        tenantId: 't1',
+        contractId: 'c-1',
+        sectionCategory: 'COUNTERPARTY',
+        fileName: 'x.pdf',
+        fileSizeBytes: 10,
+        fileMimeType: 'application/pdf',
+        uploadedByEmployeeId: 'emp-1',
+        uploadedByEmail: 'poc@x.co',
+        uploadedByRole: 'POC',
+      })
+    ).rejects.toMatchObject({ code: 'VALIDATION_ERROR' })
+  })
+})

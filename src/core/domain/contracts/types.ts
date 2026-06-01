@@ -116,6 +116,32 @@ export type CreateContractDocumentInput = {
   replacedDocumentId?: string | null
 }
 
+export type SupportingDocumentSectionCategory = 'BUDGET' | 'ADDITIONAL' | 'COUNTERPARTY'
+
+export type AddSupportingDocumentInput = {
+  tenantId: string
+  contractId: string
+  sectionCategory: SupportingDocumentSectionCategory
+  counterpartyId?: string | null
+  counterpartyName?: string | null
+  displayName: string
+  fileName: string
+  filePath: string
+  fileSizeBytes: number
+  fileMimeType: string
+  uploadedByEmployeeId: string
+  uploadedByEmail: string
+  uploadedByRole: string
+}
+
+export type SetBudgetApprovedInput = {
+  tenantId: string
+  contractId: string
+  actorEmployeeId: string
+  actorEmail: string
+  actorRole: string
+}
+
 export type ReplacePrimaryContractDocumentInput = {
   tenantId: string
   contractId: string
