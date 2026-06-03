@@ -1,6 +1,6 @@
 /** @jest-environment jsdom */
 
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import ContractDocumentsPanel from '@/modules/contracts/ui/ContractDocumentsPanel'
 import { contractsClient, type ContractDocument } from '@/core/client/contracts-client'
 
@@ -476,6 +476,120 @@ describe('ContractDocumentsPanel', () => {
       expect.objectContaining({
         contractId: 'contract-1',
         documentId: 'supporting-doc-42',
+      })
+    )
+  })
+
+  it('always renders Budget and Additional supporting sections with Upload buttons for an allowed uploader', async () => {
+    const { container } = render(
+      <ContractDocumentsPanel
+        contractId="contract-1"
+        contractStatus="HOD_PENDING"
+        userRole="POC"
+        actorEmployeeId="emp-1"
+        uploadedByEmployeeId="emp-1"
+        counterparties={[]}
+        currentDocumentId="doc-1"
+        documents={[makeDoc()]}
+        onPreviewDocument={jest.fn()}
+        onDownloadDocument={jest.fn()}
+        onRefreshDocuments={async () => undefined}
+      />
+    )
+
+    expect(screen.getByText('Budget Approval Supporting Documents')).toBeTruthy()
+    expect(screen.getByText('Additional Supporting Documents')).toBeTruthy()
+
+    const budgetSection = container.querySelector('[data-section="budget-supporting"]')
+    const additionalSection = container.querySelector('[data-section="additional-supporting"]')
+    expect(budgetSection).not.toBeNull()
+    expect(additionalSection).not.toBeNull()
+
+    const uploadButtons = screen
+      .getAllByRole('button', { name: 'Upload' })
+      .filter((button) => budgetSection?.contains(button) || additionalSection?.contains(button))
+    expect(uploadButtons.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it('renders a section per counterparty using counterparty name as label', async () => {
+    const { container } = render(
+      <ContractDocumentsPanel
+        contractId="contract-1"
+        contractStatus="HOD_PENDING"
+        userRole="POC"
+        actorEmployeeId="emp-1"
+        uploadedByEmployeeId="emp-1"
+        counterparties={[{ id: 'cp-1', counterpartyName: 'Acme Corp' }]}
+        currentDocumentId="doc-1"
+        documents={[makeDoc()]}
+        onPreviewDocument={jest.fn()}
+        onDownloadDocument={jest.fn()}
+        onRefreshDocuments={async () => undefined}
+      />
+    )
+
+    expect(screen.getByText('Acme Corp')).toBeTruthy()
+    expect(container.querySelector('[data-section="cp-1"]')).not.toBeNull()
+  })
+
+  it('hides supporting Upload buttons once contract is COMPLETED', async () => {
+    const { container } = render(
+      <ContractDocumentsPanel
+        contractId="contract-1"
+        contractStatus="COMPLETED"
+        userRole="POC"
+        actorEmployeeId="emp-1"
+        uploadedByEmployeeId="emp-1"
+        counterparties={[]}
+        currentDocumentId="doc-1"
+        documents={[makeDoc()]}
+        onPreviewDocument={jest.fn()}
+        onDownloadDocument={jest.fn()}
+        onRefreshDocuments={async () => undefined}
+      />
+    )
+
+    const budgetSection = container.querySelector('[data-section="budget-supporting"]')
+    expect(budgetSection).not.toBeNull()
+    expect(screen.queryByRole('button', { name: 'Upload' })).toBeNull()
+  })
+
+  it('submits a supporting upload with the correct section category', async () => {
+    const addSupportingSpy = jest.spyOn(contractsClient, 'addSupportingDocument').mockResolvedValue({
+      ok: true,
+      data: { success: true },
+    } as never)
+
+    const { container } = render(
+      <ContractDocumentsPanel
+        contractId="contract-1"
+        contractStatus="HOD_PENDING"
+        userRole="POC"
+        actorEmployeeId="emp-1"
+        uploadedByEmployeeId="emp-1"
+        counterparties={[]}
+        currentDocumentId="doc-1"
+        documents={[makeDoc()]}
+        onPreviewDocument={jest.fn()}
+        onDownloadDocument={jest.fn()}
+        onRefreshDocuments={async () => undefined}
+      />
+    )
+
+    const budgetSection = container.querySelector('[data-section="budget-supporting"]') as HTMLElement
+    const budgetUpload = within(budgetSection).getByRole('button', { name: 'Upload' })
+    fireEvent.click(budgetUpload)
+
+    const uploadDialog = screen.getByRole('dialog', { name: 'Upload supporting document' })
+    fireEvent.change(within(uploadDialog).getByLabelText('File'), {
+      target: { files: [new File(['budget'], 'budget.pdf', { type: 'application/pdf' })] },
+    })
+    fireEvent.click(within(uploadDialog).getByRole('button', { name: 'Upload' }))
+
+    await waitFor(() => expect(addSupportingSpy).toHaveBeenCalled())
+    expect(addSupportingSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sectionCategory: 'BUDGET',
       })
     )
   })

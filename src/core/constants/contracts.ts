@@ -120,6 +120,8 @@ export const contractDocumentMimeTypes = {
   docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   doc: 'application/msword',
   pdf: 'application/pdf',
+  png: 'image/png',
+  jpeg: 'image/jpeg',
 } as const
 
 export const contractDocumentVersioning = {
@@ -138,6 +140,16 @@ export const contractDocumentUploadRules = {
   initialAllowedMimeTypes: [contractDocumentMimeTypes.docx] as const,
   replacementAllowedMimeTypes: [contractDocumentMimeTypes.docx, contractDocumentMimeTypes.pdf] as const,
 } as const
+
+export const contractSupportingUploadAllowedExtensions = ['.doc', '.docx', '.pdf', '.png', '.jpg', '.jpeg'] as const
+
+export const contractSupportingUploadAllowedMimeTypes = [
+  contractDocumentMimeTypes.doc,
+  contractDocumentMimeTypes.docx,
+  contractDocumentMimeTypes.pdf,
+  contractDocumentMimeTypes.png,
+  contractDocumentMimeTypes.jpeg,
+] as const
 
 export const contractCounterpartyValues = {
   notApplicable: 'NA',

@@ -1,4 +1,5 @@
 import type {
+  AddSupportingDocumentInput,
   ContractAccessRecord,
   ContractCounterpartyRecord,
   ContractDocumentAccessRecord,
@@ -8,6 +9,7 @@ import type {
   CreateContractDocumentInput,
   CreateContractUploadInput,
   ReplacePrimaryContractDocumentInput,
+  SetBudgetApprovedInput,
   UpdateContractStatusInput,
 } from '@/core/domain/contracts/types'
 
@@ -60,6 +62,8 @@ export interface ContractRepository {
     uploadedByEmail: string
     uploadedByRole: string
   }): Promise<void>
+  addSupportingDocument(input: AddSupportingDocumentInput): Promise<void>
+  setBudgetApproved(input: SetBudgetApprovedInput): Promise<{ changed: boolean }>
   updateContractStatus(input: UpdateContractStatusInput): Promise<void>
   isPocAssignedToDepartment(params: { tenantId: string; pocEmail: string; departmentId: string }): Promise<boolean>
   isHodAssignedToDepartment(params: { tenantId: string; hodEmail: string; departmentId: string }): Promise<boolean>

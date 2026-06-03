@@ -15,7 +15,6 @@ import {
   contractAuditEvents,
   contractSignatoryRecipientTypes,
   contractStatuses,
-  contractWorkflowRoles,
 } from '@/core/constants/contracts'
 import { buildMasterTemplate } from '@/lib/email/master-template'
 import type { ContractDetailView } from '@/core/domain/contracts/contract-query-repository'
@@ -645,12 +644,9 @@ export class ContractSignatoryService {
       throw new AuthorizationError('CONTRACT_SIGNATORY_FORBIDDEN', 'User role is required for final artifact download')
     }
 
-    if (params.actorRole !== contractWorkflowRoles.legalTeam && params.actorRole !== contractWorkflowRoles.admin) {
-      throw new AuthorizationError(
-        'CONTRACT_SIGNATORY_FORBIDDEN',
-        'Only LEGAL_TEAM or ADMIN can download final signing artifacts'
-      )
-    }
+    // Access is enforced below by getContractDetail's canAccessContract check, which already
+    // scopes by ownership / assignment / HOD-team / department. Any role that can read the
+    // contract (POC creator, HOD of the department, Legal, Admin) may download its signed docs.
 
     const contractDetailStartedAt = Date.now()
     const contractView = await this.contractQueryService.getContractDetail({
