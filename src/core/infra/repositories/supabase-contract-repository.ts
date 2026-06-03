@@ -791,7 +791,10 @@ class SupabaseContractRepository implements ContractRepository {
       {
         tenant_id: input.tenantId,
         user_id: input.uploadedByEmployeeId,
-        event_type: 'CONTRACT_SUPPORTING_DOCUMENT_ADDED',
+        // `event_type` is the Postgres enum `audit_event_type`, which does not include a
+        // supporting-document-added value. Like `replaceSupportingDocument`, we leave it null
+        // and rely on `action`; the activity log resolves its label from `action`.
+        event_type: null,
         action: 'contract.supporting_document.added',
         actor_email: input.uploadedByEmail,
         actor_role: input.uploadedByRole,
@@ -843,7 +846,9 @@ class SupabaseContractRepository implements ContractRepository {
       {
         tenant_id: input.tenantId,
         user_id: input.actorEmployeeId,
-        event_type: 'CONTRACT_BUDGET_APPROVED_SET',
+        // `audit_event_type` enum has no budget-approved-set value; leave null and rely on
+        // `action` (the activity log resolves its label from `action`).
+        event_type: null,
         action: 'contract.budget_approved.set',
         actor_email: input.actorEmail,
         actor_role: input.actorRole,

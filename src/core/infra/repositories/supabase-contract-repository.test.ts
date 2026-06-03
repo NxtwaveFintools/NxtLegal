@@ -64,7 +64,7 @@ describe('SupabaseContractRepository.addSupportingDocument', () => {
     expect(capturedAuditInsert).toEqual([
       expect.objectContaining({
         action: 'contract.supporting_document.added',
-        event_type: 'CONTRACT_SUPPORTING_DOCUMENT_ADDED',
+        event_type: null,
         resource_id: 'c-1',
         metadata: expect.objectContaining({
           document_id: 'doc-1',
@@ -121,7 +121,7 @@ describe('SupabaseContractRepository.setBudgetApproved', () => {
     expect(capturedAuditInsert).toEqual([
       expect.objectContaining({
         action: 'contract.budget_approved.set',
-        event_type: 'CONTRACT_BUDGET_APPROVED_SET',
+        event_type: null,
       }),
     ])
   })
