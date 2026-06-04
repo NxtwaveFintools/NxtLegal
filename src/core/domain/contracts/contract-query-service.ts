@@ -163,6 +163,9 @@ export class ContractQueryService {
     datePreset?: RepositoryDatePreset
     fromDate?: string
     toDate?: string
+    departmentId?: string
+    hodApproval?: 'yes' | 'no'
+    assignedToEmail?: string
     columns: RepositoryExportColumn[]
   }): Promise<RepositoryExportRow[]> {
     return this.contractRepository.listRepositoryExportRows(params)
@@ -181,6 +184,9 @@ export class ContractQueryService {
     datePreset?: RepositoryDatePreset
     fromDate?: string
     toDate?: string
+    departmentId?: string
+    hodApproval?: 'yes' | 'no'
+    assignedToEmail?: string
     columns: RepositoryExportColumn[]
   }): Promise<RepositoryExportRowsChunk> {
     return this.contractRepository.listRepositoryExportRowsChunk(params)

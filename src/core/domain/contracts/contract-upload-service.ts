@@ -8,16 +8,21 @@ import {
   contractDocumentVersioning,
   contractStatuses,
   contractStorage,
+  contractSupportingUploadAllowedExtensions,
+  contractSupportingUploadAllowedMimeTypes,
+  contractWorkflowRoles,
 } from '@/core/constants/contracts'
 import { limits } from '@/core/constants/limits'
 import { AuthorizationError, BusinessRuleError, DatabaseError } from '@/core/http/errors'
 import type { ContractRepository } from '@/core/domain/contracts/contract-repository'
 import type { ContractStorageRepository } from '@/core/domain/contracts/contract-storage-repository'
 import type {
+  AddSupportingDocumentInput,
   ContractAccessRecord,
   ContractDocumentAccessRecord,
   ContractDocumentRecord,
   ContractRecord,
+  SupportingDocumentSectionCategory,
 } from '@/core/domain/contracts/types'
 
 type Logger = {
@@ -180,6 +185,16 @@ export class ContractUploadService {
   private readonly adminOnlyReplacementStatuses = new Set<ContractStatus>([
     contractStatuses.rejected,
     contractStatuses.void,
+  ])
+  private readonly supportingUploadAllowedStatuses = new Set<ContractStatus>([
+    contractStatuses.draft,
+    contractStatuses.uploaded,
+    contractStatuses.hodPending,
+    contractStatuses.underReview,
+    contractStatuses.pendingInternal,
+    contractStatuses.pendingExternal,
+    contractStatuses.offlineExecution,
+    contractStatuses.onHold,
   ])
   private readonly privilegedReadRoles = new Set(['ADMIN', 'LEGAL_TEAM'])
   private readonly emailPattern = /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i
@@ -827,6 +842,95 @@ export class ContractUploadService {
     }
 
     await this.persistSupportingReplacementMetadata(contract, sourceDocument, input)
+  }
+
+  async initiateAddSupportingDocument(
+    input: Omit<AddSupportingDocumentInput, 'displayName' | 'filePath' | 'counterpartyName'>
+  ): Promise<InitializeReplaceSupportingDocumentResult> {
+    if (!this.isAllowedSupportingUpload(input.fileName, input.fileMimeType)) {
+      throw new BusinessRuleError(
+        'CONTRACT_SUPPORTING_UPLOAD_FILE_FORMAT_INVALID',
+        'Supporting document must be DOC, DOCX, PDF, PNG, or JPG'
+      )
+    }
+    if (input.sectionCategory === 'COUNTERPARTY' && !input.counterpartyId?.trim()) {
+      throw new BusinessRuleError('VALIDATION_ERROR', 'counterpartyId is required for counterparty documents')
+    }
+    const contract = await this.contractRepository.getForAccess(input.contractId, input.tenantId)
+    if (!contract) {
+      throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found for tenant')
+    }
+    await this.assertSupportingUploadPermissions(contract, input)
+    const safeFileName = this.sanitizeFileName(input.fileName)
+    const path = `${input.tenantId}/${input.contractId}/counterparty-additions/${randomUUID()}-${safeFileName}`
+    const signedUpload = await this.contractStorageRepository.createSignedUploadUrl(path)
+    return {
+      upload: {
+        fileName: safeFileName,
+        fileSizeBytes: input.fileSizeBytes,
+        fileMimeType: input.fileMimeType,
+        ...signedUpload,
+      },
+    }
+  }
+
+  async finalizeAddSupportingDocument(
+    input: Omit<AddSupportingDocumentInput, 'displayName' | 'filePath' | 'counterpartyName'> & { path: string }
+  ): Promise<void> {
+    if (!this.isAllowedSupportingUpload(input.fileName, input.fileMimeType)) {
+      throw new BusinessRuleError(
+        'CONTRACT_SUPPORTING_UPLOAD_FILE_FORMAT_INVALID',
+        'Supporting document must be DOC, DOCX, PDF, PNG, or JPG'
+      )
+    }
+    if (input.sectionCategory === 'COUNTERPARTY' && !input.counterpartyId?.trim()) {
+      throw new BusinessRuleError('VALIDATION_ERROR', 'counterpartyId is required for counterparty documents')
+    }
+    const contract = await this.contractRepository.getForAccess(input.contractId, input.tenantId)
+    if (!contract) {
+      throw new BusinessRuleError('CONTRACT_NOT_FOUND', 'Contract not found for tenant')
+    }
+    await this.assertSupportingUploadPermissions(contract, input)
+    const exists = await this.contractStorageRepository.exists(input.path)
+    if (!exists) {
+      throw new BusinessRuleError(
+        'CONTRACT_UPLOAD_INCOMPLETE',
+        'Uploaded supporting document file is missing from storage'
+      )
+    }
+    const section = this.resolveSupportingSection(input)
+    let counterpartyName: string | null = null
+    if (input.sectionCategory === 'COUNTERPARTY' && input.counterpartyId) {
+      const counterparties = await this.contractRepository.listCounterparties({
+        tenantId: input.tenantId,
+        contractId: input.contractId,
+      })
+      counterpartyName = counterparties.find((cp) => cp.id === input.counterpartyId)?.counterpartyName ?? null
+    }
+    await this.contractRepository.addSupportingDocument({
+      tenantId: input.tenantId,
+      contractId: input.contractId,
+      sectionCategory: input.sectionCategory,
+      counterpartyId: section.counterpartyId,
+      counterpartyName,
+      displayName: section.displayName,
+      fileName: input.fileName,
+      filePath: input.path,
+      fileSizeBytes: input.fileSizeBytes,
+      fileMimeType: input.fileMimeType,
+      uploadedByEmployeeId: input.uploadedByEmployeeId,
+      uploadedByEmail: input.uploadedByEmail,
+      uploadedByRole: input.uploadedByRole,
+    })
+    if (input.sectionCategory === 'BUDGET') {
+      await this.contractRepository.setBudgetApproved({
+        tenantId: input.tenantId,
+        contractId: input.contractId,
+        actorEmployeeId: input.uploadedByEmployeeId,
+        actorEmail: input.uploadedByEmail,
+        actorRole: input.uploadedByRole,
+      })
+    }
   }
 
   async replacePrimaryDocument(input: ReplacePrimaryDocumentInput): Promise<ContractDocumentRecord> {
@@ -1573,6 +1677,56 @@ export class ContractUploadService {
         'Supporting document replacement is unavailable for the current contract status'
       )
     }
+  }
+
+  private async assertSupportingUploadPermissions(
+    contract: ContractAccessRecord,
+    input: { uploadedByEmployeeId: string; uploadedByRole: string }
+  ): Promise<void> {
+    if (!this.supportingUploadAllowedStatuses.has(contract.status)) {
+      throw new BusinessRuleError(
+        'CONTRACT_SUPPORTING_UPLOAD_STATUS_FORBIDDEN',
+        'Supporting documents can only be uploaded before the contract is completed'
+      )
+    }
+    const isPrivileged =
+      input.uploadedByRole === contractWorkflowRoles.legalTeam || input.uploadedByRole === contractWorkflowRoles.admin
+    if (isPrivileged) return
+    if (contract.uploadedByEmployeeId === input.uploadedByEmployeeId) return
+    if (input.uploadedByRole === contractWorkflowRoles.hod) {
+      const isUploaderInTeam = await this.contractRepository.isUploaderInActorTeam({
+        tenantId: contract.tenantId,
+        actorEmployeeId: input.uploadedByEmployeeId,
+        uploaderEmployeeId: contract.uploadedByEmployeeId,
+      })
+      if (isUploaderInTeam) return
+    }
+    throw new AuthorizationError(
+      'CONTRACT_SUPPORTING_UPLOAD_FORBIDDEN',
+      'You do not have permission to upload supporting documents for this contract'
+    )
+  }
+
+  private resolveSupportingSection(input: {
+    sectionCategory: SupportingDocumentSectionCategory
+    counterpartyId?: string | null
+  }): { displayName: string; counterpartyId: string | null } {
+    if (input.sectionCategory === 'COUNTERPARTY') {
+      return { displayName: 'Counterparty Document', counterpartyId: input.counterpartyId ?? null }
+    }
+    if (input.sectionCategory === 'ADDITIONAL') {
+      return { displayName: 'Additional Supporting Document', counterpartyId: null }
+    }
+    return { displayName: 'Budget Approval Supporting Document', counterpartyId: null }
+  }
+
+  private isAllowedSupportingUpload(fileName: string, mimeType: string): boolean {
+    const normalizedMimeType = mimeType.trim().toLowerCase()
+    const normalizedFileName = fileName.trim().toLowerCase()
+    if ((contractSupportingUploadAllowedMimeTypes as readonly string[]).includes(normalizedMimeType)) {
+      return true
+    }
+    return contractSupportingUploadAllowedExtensions.some((extension) => normalizedFileName.endsWith(extension))
   }
 
   private async persistSupportingReplacementMetadata(

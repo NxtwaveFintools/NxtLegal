@@ -102,8 +102,20 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
     }
 
     const queryParams = Object.fromEntries(request.nextUrl.searchParams.entries())
-    const { search, status, repositoryStatus, dateBasis, datePreset, fromDate, toDate, format, columns } =
-      repositoryExportQuerySchema.parse(queryParams)
+    const {
+      search,
+      status,
+      repositoryStatus,
+      dateBasis,
+      datePreset,
+      fromDate,
+      toDate,
+      departmentId,
+      hodApproval,
+      assignedToEmail,
+      format,
+      columns,
+    } = repositoryExportQuerySchema.parse(queryParams)
 
     const selectedColumns = columns.length > 0 ? columns : defaultColumns
 
@@ -147,6 +159,9 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
                 datePreset,
                 fromDate,
                 toDate,
+                departmentId,
+                hodApproval,
+                assignedToEmail,
                 columns: selectedColumns,
               })
 
@@ -209,6 +224,9 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
       datePreset,
       fromDate,
       toDate,
+      departmentId,
+      hodApproval,
+      assignedToEmail,
       columns: selectedColumns,
     })
 

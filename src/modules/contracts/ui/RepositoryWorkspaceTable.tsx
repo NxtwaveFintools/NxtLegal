@@ -15,6 +15,7 @@ export type RepositoryWorkspaceTableProps = {
   onSortingChange: (updater: SortingUpdater) => void
   isLoading: boolean
   onOpenContract: (contractId: string) => void
+  canSeeTatAndAging?: boolean
 }
 
 export default function RepositoryWorkspaceTable({
@@ -24,6 +25,7 @@ export default function RepositoryWorkspaceTable({
   onSortingChange,
   isLoading,
   onOpenContract,
+  canSeeTatAndAging = false,
 }: RepositoryWorkspaceTableProps) {
   // eslint-disable-next-line react-hooks/incompatible-library
   const table = useReactTable({
@@ -90,7 +92,7 @@ export default function RepositoryWorkspaceTable({
           table.getRowModel().rows.map((row) => (
             <tr
               key={row.id}
-              className={`${styles.row} ${row.original.isTatBreached ? styles.rowBreached : ''}`}
+              className={`${styles.row} ${canSeeTatAndAging && row.original.isTatBreached ? styles.rowBreached : ''}`}
               onClick={() => onOpenContract(row.original.id)}
             >
               {row.getVisibleCells().map((cell) => (

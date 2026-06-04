@@ -5,6 +5,7 @@ import { contractStatuses, contractUploadModes, type ContractStatus } from '@/co
 import { DatabaseError } from '@/core/http/errors'
 import type { ContractRepository } from '@/core/domain/contracts/contract-repository'
 import type {
+  AddSupportingDocumentInput,
   ContractAccessRecord,
   ContractCounterpartyRecord,
   ContractDocumentAccessRecord,
@@ -14,6 +15,7 @@ import type {
   CreateContractDocumentInput,
   CreateContractUploadInput,
   ReplacePrimaryContractDocumentInput,
+  SetBudgetApprovedInput,
   UpdateContractStatusInput,
 } from '@/core/domain/contracts/types'
 
@@ -753,6 +755,116 @@ class SupabaseContractRepository implements ContractRepository {
         }
       )
     }
+  }
+
+  async addSupportingDocument(input: AddSupportingDocumentInput): Promise<void> {
+    const supabase = createServiceSupabase()
+
+    const { data: insertedDocument, error: insertError } = await supabase
+      .from('contract_documents')
+      .insert({
+        tenant_id: input.tenantId,
+        contract_id: input.contractId,
+        document_kind: 'COUNTERPARTY_SUPPORTING',
+        counterparty_id: input.counterpartyId ?? null,
+        display_name: input.displayName,
+        file_name: input.fileName,
+        file_path: input.filePath,
+        file_size_bytes: input.fileSizeBytes,
+        file_mime_type: input.fileMimeType,
+        uploaded_by_employee_id: input.uploadedByEmployeeId,
+        uploaded_by_email: input.uploadedByEmail,
+        uploaded_role: input.uploadedByRole,
+        replaced_document_id: null,
+      })
+      .select('id')
+      .single<{ id: string }>()
+
+    if (insertError) {
+      throw new DatabaseError('Failed to add supporting contract document', new Error(insertError.message), {
+        code: insertError.code,
+        details: insertError.details,
+      })
+    }
+
+    const { error: auditError } = await supabase.from('audit_logs').insert([
+      {
+        tenant_id: input.tenantId,
+        user_id: input.uploadedByEmployeeId,
+        // `event_type` is the Postgres enum `audit_event_type`, which does not include a
+        // supporting-document-added value. Like `replaceSupportingDocument`, we leave it null
+        // and rely on `action`; the activity log resolves its label from `action`.
+        event_type: null,
+        action: 'contract.supporting_document.added',
+        actor_email: input.uploadedByEmail,
+        actor_role: input.uploadedByRole,
+        resource_type: 'contract',
+        resource_id: input.contractId,
+        metadata: {
+          document_id: insertedDocument?.id ?? null,
+          section_category: input.sectionCategory,
+          counterparty_name: input.counterpartyName ?? null,
+          file_name: input.fileName,
+          file_mime_type: input.fileMimeType,
+          file_size_bytes: input.fileSizeBytes,
+        },
+      },
+    ])
+
+    if (auditError) {
+      throw new DatabaseError('Failed to write supporting document added audit event', new Error(auditError.message), {
+        code: auditError.code,
+      })
+    }
+  }
+
+  async setBudgetApproved(input: SetBudgetApprovedInput): Promise<{ changed: boolean }> {
+    const supabase = createServiceSupabase()
+
+    const { data, error } = await supabase
+      .from('contracts')
+      .update({ budget_approved: true, updated_at: new Date().toISOString() })
+      .eq('tenant_id', input.tenantId)
+      .eq('id', input.contractId)
+      .eq('budget_approved', false)
+      .is('deleted_at', null)
+      .select('id')
+
+    if (error) {
+      throw new DatabaseError('Failed to update budget approved flag', new Error(error.message), {
+        code: error.code,
+        details: error.details,
+      })
+    }
+
+    const changed = Array.isArray(data) && data.length > 0
+    if (!changed) {
+      return { changed: false }
+    }
+
+    const { error: auditError } = await supabase.from('audit_logs').insert([
+      {
+        tenant_id: input.tenantId,
+        user_id: input.actorEmployeeId,
+        // `audit_event_type` enum has no budget-approved-set value; leave null and rely on
+        // `action` (the activity log resolves its label from `action`).
+        event_type: null,
+        action: 'contract.budget_approved.set',
+        actor_email: input.actorEmail,
+        actor_role: input.actorRole,
+        resource_type: 'contract',
+        resource_id: input.contractId,
+        metadata: { source: 'supporting_document_upload' },
+      },
+    ])
+
+    if (auditError) {
+      throw new DatabaseError('Failed to write budget approved audit event', new Error(auditError.message), {
+        code: auditError.code,
+      })
+    }
+
+    return { changed: true }
   }
 
   async updateContractStatus(input: UpdateContractStatusInput): Promise<void> {

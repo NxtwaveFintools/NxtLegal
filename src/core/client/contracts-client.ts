@@ -791,6 +791,9 @@ export const contractsClient = {
     datePreset?: RepositoryDatePreset
     fromDate?: string
     toDate?: string
+    departmentId?: string
+    hodApproval?: 'yes' | 'no'
+    assignedToEmail?: string
     format?: RepositoryExportFormat
     columns?: RepositoryExportColumn[]
   }): string {
@@ -822,6 +825,18 @@ export const contractsClient = {
 
     if (params?.toDate) {
       query.set('toDate', params.toDate)
+    }
+
+    if (params?.departmentId) {
+      query.set('departmentId', params.departmentId)
+    }
+
+    if (params?.hodApproval) {
+      query.set('hodApproval', params.hodApproval)
+    }
+
+    if (params?.assignedToEmail) {
+      query.set('assignedToEmail', params.assignedToEmail)
     }
 
     if (params?.format) {
@@ -1182,6 +1197,76 @@ export const contractsClient = {
         },
         body: JSON.stringify({
           documentId: params.documentId,
+          file: {
+            fileName: initResponse.data.upload.fileName,
+            fileSizeBytes: params.file.size,
+            fileMimeType: params.file.type || 'application/octet-stream',
+            path: initResponse.data.upload.path,
+          },
+        }),
+      }
+    )
+  },
+
+  async addSupportingDocument(params: {
+    contractId: string
+    sectionCategory: 'BUDGET' | 'ADDITIONAL' | 'COUNTERPARTY'
+    counterpartyId?: string
+    file: File
+    idempotencyKey: string
+  }): Promise<ApiResponse<{ success: true }>> {
+    const initResponse = await safeFetch<{ upload: { signedUrl: string; path: string; fileName: string } }>(
+      resolveContractPath(routeRegistry.api.contracts.addSupportingDocumentInit, params.contractId),
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': `${params.idempotencyKey}:init`,
+        },
+        body: JSON.stringify({
+          sectionCategory: params.sectionCategory,
+          counterpartyId: params.counterpartyId,
+          file: {
+            fileName: params.file.name,
+            fileSizeBytes: params.file.size,
+            fileMimeType: params.file.type || 'application/octet-stream',
+          },
+        }),
+      }
+    )
+
+    if (!initResponse.ok || !initResponse.data) {
+      return initResponse as unknown as ApiResponse<{ success: true }>
+    }
+
+    try {
+      await xhrSignedUpload(initResponse.data.upload.signedUrl, params.file)
+    } catch (error) {
+      if (String(error).toLowerCase().includes('cancel')) {
+        return {
+          ok: false,
+          error: { code: 'upload_cancelled', message: 'Upload was cancelled.' },
+        }
+      }
+      return {
+        ok: false,
+        error: { code: 'signed_upload_failed', message: 'File upload to storage failed.' },
+      }
+    }
+
+    return safeFetch<{ success: true }>(
+      resolveContractPath(routeRegistry.api.contracts.addSupportingDocumentFinalize, params.contractId),
+      {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'Content-Type': 'application/json',
+          'Idempotency-Key': `${params.idempotencyKey}:finalize`,
+        },
+        body: JSON.stringify({
+          sectionCategory: params.sectionCategory,
+          counterpartyId: params.counterpartyId,
           file: {
             fileName: initResponse.data.upload.fileName,
             fileSizeBytes: params.file.size,
