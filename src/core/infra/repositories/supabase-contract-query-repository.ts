@@ -1489,6 +1489,9 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     datePreset?: RepositoryDatePreset
     fromDate?: string
     toDate?: string
+    departmentId?: string
+    hodApproval?: 'yes' | 'no'
+    assignedToEmail?: string
     columns: RepositoryExportColumn[]
   }): Promise<RepositoryExportRow[]> {
     const rows: RepositoryExportRow[] = []
@@ -1526,6 +1529,9 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     datePreset?: RepositoryDatePreset
     fromDate?: string
     toDate?: string
+    departmentId?: string
+    hodApproval?: 'yes' | 'no'
+    assignedToEmail?: string
     columns: RepositoryExportColumn[]
   }): Promise<RepositoryExportRowsChunk> {
     const result = await this.listRepositoryContracts({
@@ -1543,6 +1549,9 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       datePreset: params.datePreset,
       fromDate: params.fromDate,
       toDate: params.toDate,
+      departmentId: params.departmentId,
+      hodApproval: params.hodApproval,
+      assignedToEmail: params.assignedToEmail,
     })
 
     const selectedColumns =

@@ -13,6 +13,7 @@ type ContractDocumentsPanelProps = {
   userRole?: string
   actorEmployeeId?: string
   additionalApprovers?: ContractAdditionalApprover[]
+  counterparties?: Array<{ id: string; counterpartyName: string }>
   uploadedByEmployeeId?: string
   currentDocumentId?: string | null
   documents: ContractDocument[]
@@ -232,6 +233,7 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
     userRole,
     actorEmployeeId,
     additionalApprovers = [],
+    counterparties = [],
     currentDocumentId,
     documents,
     defaultUploaderEmail,
@@ -248,6 +250,13 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
   const [isSupportingReplaceModalOpen, setIsSupportingReplaceModalOpen] = useState(false)
   const [supportingReplacementFile, setSupportingReplacementFile] = useState<File | null>(null)
   const [selectedSupportingDocument, setSelectedSupportingDocument] = useState<ExtendedDocument | null>(null)
+  const [isUploadModalOpen, setIsUploadModalOpen] = useState(false)
+  const [uploadFile, setUploadFile] = useState<File | null>(null)
+  const [uploadTarget, setUploadTarget] = useState<{
+    category: 'BUDGET' | 'ADDITIONAL' | 'COUNTERPARTY'
+    counterpartyId?: string
+    label: string
+  } | null>(null)
 
   const primaryDocuments = useMemo(() => {
     return documents
@@ -362,6 +371,23 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
     (userRole === 'ADMIN' && canAdminReplaceInCurrentStatus)
   const canReplace = canReplaceByRoleAndStatus && !isBlockedAdditionalApproverReplacement
   const canReplaceSupporting = canReplace
+
+  const supportingUploadAllowedStatuses = new Set<string>([
+    contractStatuses.draft,
+    contractStatuses.uploaded,
+    contractStatuses.hodPending,
+    contractStatuses.underReview,
+    contractStatuses.pendingInternal,
+    contractStatuses.pendingExternal,
+    contractStatuses.offlineExecution,
+    contractStatuses.onHold,
+  ])
+  const isUploaderActor = Boolean(
+    actorEmployeeId && props.uploadedByEmployeeId && actorEmployeeId === props.uploadedByEmployeeId
+  )
+  const canUploadSupporting =
+    supportingUploadAllowedStatuses.has(contractStatus) &&
+    (userRole === 'LEGAL_TEAM' || userRole === 'ADMIN' || userRole === 'HOD' || isUploaderActor)
 
   const replaceDisabledMessage = isBlockedAdditionalApproverReplacement
     ? 'Replacement is available for additional approvers only while their approval is pending.'
@@ -493,6 +519,70 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
     void uploadPromise
   }
 
+  const openUploadModal = (target: {
+    category: 'BUDGET' | 'ADDITIONAL' | 'COUNTERPARTY'
+    counterpartyId?: string
+    label: string
+  }) => {
+    setUploadTarget(target)
+    setIsUploadModalOpen(true)
+  }
+
+  const closeUploadModal = () => {
+    setIsUploadModalOpen(false)
+    setUploadFile(null)
+    setUploadTarget(null)
+  }
+
+  const handleUploadSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+
+    if (!uploadTarget) {
+      toast.error('Upload section context is missing')
+      return
+    }
+
+    if (!uploadFile) {
+      toast.error('Please select a file to upload')
+      return
+    }
+
+    const selectedFile = uploadFile
+    const target = uploadTarget
+
+    closeUploadModal()
+
+    const idempotencyKey =
+      typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(16).slice(2)}`
+
+    const uploadPromise = contractsClient
+      .addSupportingDocument({
+        contractId,
+        sectionCategory: target.category,
+        counterpartyId: target.counterpartyId,
+        file: selectedFile,
+        idempotencyKey,
+      })
+      .then(async (response) => {
+        if (!response.ok) {
+          throw new Error(response.error?.message ?? 'Failed to upload document')
+        }
+
+        await onRefreshDocuments()
+        return response
+      })
+
+    toast.promise(uploadPromise, {
+      loading: `Uploading to ${target.label}...`,
+      success: 'Document uploaded successfully',
+      error: (error) => (error instanceof Error ? error.message : 'Failed to upload document'),
+    })
+
+    void uploadPromise
+  }
+
   if (!activeDocument) {
     return (
       <div className={workspaceStyles.card}>
@@ -578,75 +668,143 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
         </div>
       ) : null}
 
-      {supportingDocumentsByCounterparty.length > 0 ? (
-        <div className={workspaceStyles.card}>
-          <div className={workspaceStyles.sectionTitle}>Counterparty Supporting Documents</div>
-          <div className={workspaceStyles.timeline}>
-            {supportingDocumentsByCounterparty.map((group) => (
-              <div key={group.key} className={workspaceStyles.event}>
-                <div className={workspaceStyles.sectionHeaderRow}>
-                  <div className={workspaceStyles.eventActor}>{group.label}</div>
-                  {canReplaceSupporting && group.documents[0] ? (
+      {(() => {
+        const groupsByKey = new Map(supportingDocumentsByCounterparty.map((group) => [group.key, group]))
+
+        const sections: Array<{
+          key: string
+          label: string
+          category: 'BUDGET' | 'ADDITIONAL' | 'COUNTERPARTY'
+          counterpartyId?: string
+          documents: ExtendedDocument[]
+        }> = [
+          {
+            key: 'budget-supporting',
+            label: 'Budget Approval Supporting Documents',
+            category: 'BUDGET',
+            documents: groupsByKey.get('budget-supporting')?.documents ?? [],
+          },
+          {
+            key: 'additional-supporting',
+            label: 'Additional Supporting Documents',
+            category: 'ADDITIONAL',
+            documents: groupsByKey.get('additional-supporting')?.documents ?? [],
+          },
+          ...counterparties.map((counterparty) => ({
+            key: counterparty.id,
+            label: counterparty.counterpartyName,
+            category: 'COUNTERPARTY' as const,
+            counterpartyId: counterparty.id,
+            documents: groupsByKey.get(counterparty.id)?.documents ?? [],
+          })),
+        ]
+
+        // Include any grouped counterparty documents whose counterparty is not in the
+        // provided counterparties list (e.g. removed counterparties) so existing docs are not orphaned.
+        const knownKeys = new Set(sections.map((section) => section.key))
+        for (const group of supportingDocumentsByCounterparty) {
+          if (knownKeys.has(group.key)) {
+            continue
+          }
+          sections.push({
+            key: group.key,
+            label: group.label,
+            category: 'COUNTERPARTY',
+            counterpartyId: group.key,
+            documents: group.documents,
+          })
+        }
+
+        return (
+          <div className={workspaceStyles.card}>
+            <div className={workspaceStyles.sectionTitle}>Counterparty Supporting Documents</div>
+            <div className={workspaceStyles.timeline}>
+              {sections.map((section) => (
+                <div key={section.key} data-section={section.key} className={workspaceStyles.event}>
+                  <div className={workspaceStyles.sectionHeaderRow}>
+                    <div className={workspaceStyles.eventActor}>{section.label}</div>
                     <div className={workspaceStyles.actions}>
-                      <button
-                        type="button"
-                        className={`${workspaceStyles.button} ${workspaceStyles.buttonPrimary}`}
-                        onClick={() => openSupportingReplaceModal(group.documents[0])}
-                      >
-                        Replace Document
-                      </button>
+                      {canUploadSupporting ? (
+                        <button
+                          type="button"
+                          className={`${workspaceStyles.button} ${workspaceStyles.buttonPrimary}`}
+                          onClick={() =>
+                            openUploadModal({
+                              category: section.category,
+                              counterpartyId: section.counterpartyId,
+                              label: section.label,
+                            })
+                          }
+                        >
+                          Upload
+                        </button>
+                      ) : null}
+                      {canReplaceSupporting && section.documents[0] ? (
+                        <button
+                          type="button"
+                          className={`${workspaceStyles.button} ${workspaceStyles.buttonGhost}`}
+                          onClick={() => openSupportingReplaceModal(section.documents[0])}
+                        >
+                          Replace Document
+                        </button>
+                      ) : null}
                     </div>
-                  ) : null}
-                </div>
-                <div className={workspaceStyles.timeline}>
-                  {group.documents.map((document) => {
-                    const isPreviewLoading = isPreparingPreview && previewingDocumentId === document.id
+                  </div>
+                  {section.documents.length === 0 ? (
+                    <div className={workspaceStyles.placeholderRow}>No documents uploaded yet.</div>
+                  ) : (
+                    <div className={workspaceStyles.timeline}>
+                      {section.documents.map((document) => {
+                        const isPreviewLoading = isPreparingPreview && previewingDocumentId === document.id
 
-                    return (
-                      <div key={document.id} className={workspaceStyles.documentRow}>
-                        <div className={workspaceStyles.documentMeta}>
-                          <div className={workspaceStyles.itemMeta}>{document.fileName}</div>
-                          <div className={workspaceStyles.itemMeta}>{formatDate(document.createdAt)}</div>
-                        </div>
-                        <div className={workspaceStyles.actions}>
-                          <button
-                            type="button"
-                            className={workspaceStyles.button}
-                            onClick={() => {
-                              void onPreviewDocument(document)
-                            }}
-                            disabled={isPreparingPreview}
-                          >
-                            {isPreviewLoading ? (
-                              <span className={workspaceStyles.buttonContent}>
-                                <Spinner size={14} />
-                                Opening...
-                              </span>
-                            ) : (
-                              'Preview'
-                            )}
-                          </button>
-                          <button
-                            type="button"
-                            className={`${workspaceStyles.button} ${workspaceStyles.buttonGhost}`}
-                            onClick={() => onDownloadDocument(document)}
-                          >
-                            Download
-                          </button>
-                        </div>
-                      </div>
-                    )
-                  })}
+                        return (
+                          <div key={document.id} className={workspaceStyles.documentRow}>
+                            <div className={workspaceStyles.documentMeta}>
+                              <div className={workspaceStyles.itemMeta}>{document.fileName}</div>
+                              <div className={workspaceStyles.itemMeta}>{formatDate(document.createdAt)}</div>
+                            </div>
+                            <div className={workspaceStyles.actions}>
+                              <button
+                                type="button"
+                                className={workspaceStyles.button}
+                                onClick={() => {
+                                  void onPreviewDocument(document)
+                                }}
+                                disabled={isPreparingPreview}
+                              >
+                                {isPreviewLoading ? (
+                                  <span className={workspaceStyles.buttonContent}>
+                                    <Spinner size={14} />
+                                    Opening...
+                                  </span>
+                                ) : (
+                                  'Preview'
+                                )}
+                              </button>
+                              <button
+                                type="button"
+                                className={`${workspaceStyles.button} ${workspaceStyles.buttonGhost}`}
+                                onClick={() => onDownloadDocument(document)}
+                              >
+                                Download
+                              </button>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
+            {!canReplaceSupporting &&
+            supportingReplaceDisabledMessage &&
+            sections.some((section) => section.documents.length > 0) ? (
+              <div className={workspaceStyles.eventMeta}>{supportingReplaceDisabledMessage}</div>
+            ) : null}
           </div>
-        </div>
-      ) : null}
-
-      {!canReplaceSupporting && supportingReplaceDisabledMessage && supportingDocumentsByCounterparty.length > 0 ? (
-        <div className={workspaceStyles.eventMeta}>{supportingReplaceDisabledMessage}</div>
-      ) : null}
+        )
+      })()}
 
       {isReplaceModalOpen ? (
         <div
@@ -716,6 +874,42 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
                 type="button"
                 className={`${workspaceStyles.button} ${workspaceStyles.buttonGhost}`}
                 onClick={closeSupportingReplaceModal}
+              >
+                Cancel
+              </button>
+              <button type="submit" className={`${workspaceStyles.button} ${workspaceStyles.buttonPrimary}`}>
+                Upload
+              </button>
+            </div>
+          </form>
+        </div>
+      ) : null}
+
+      {isUploadModalOpen ? (
+        <div
+          className={workspaceStyles.actionRemarkOverlay}
+          role="dialog"
+          aria-modal="true"
+          aria-label="Upload supporting document"
+        >
+          <form className={workspaceStyles.actionRemarkModal} onSubmit={handleUploadSubmit}>
+            <div className={workspaceStyles.replacementModalTitle}>
+              {uploadTarget ? `Upload to ${uploadTarget.label}` : 'Upload Supporting Document'}
+            </div>
+            <label className={workspaceStyles.replacementModalField}>
+              <span>File</span>
+              <input
+                type="file"
+                className={workspaceStyles.input}
+                accept=".doc,.docx,.pdf,.png,.jpg,.jpeg"
+                onChange={(event) => setUploadFile(event.target.files?.[0] ?? null)}
+              />
+            </label>
+            <div className={workspaceStyles.actionRemarkActions}>
+              <button
+                type="button"
+                className={`${workspaceStyles.button} ${workspaceStyles.buttonGhost}`}
+                onClick={closeUploadModal}
               >
                 Cancel
               </button>

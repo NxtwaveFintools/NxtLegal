@@ -1,5 +1,5 @@
 import { ContractSignatoryService } from '@/core/domain/contracts/contract-signatory-service'
-import { BusinessRuleError, ExternalServiceError } from '@/core/http/errors'
+import { AuthorizationError, BusinessRuleError, ExternalServiceError } from '@/core/http/errors'
 import { PDFDocument } from 'pdf-lib'
 
 const mockContractView = {
@@ -1831,5 +1831,71 @@ describe('ContractSignatoryService', () => {
 
     expect(contractQueryService.moveContractToInSignature).not.toHaveBeenCalled()
     expect(contractQueryService.deleteSigningPreparationDraft).not.toHaveBeenCalled()
+  })
+
+  // ── Task 8 Feature B: relax Legal/Admin-only gate on downloadFinalSigningArtifact ──
+
+  it('delegates access decision to getContractDetail for non-LEGAL roles (POC/HOD)', async () => {
+    // Strategy: mock getContractDetail to throw CONTRACT_READ_FORBIDDEN, then assert that
+    // a POC call propagates that error rather than the old CONTRACT_SIGNATORY_FORBIDDEN.
+    // This proves the Legal/Admin-only gate is gone and access is now decided by getContractDetail.
+    const readForbiddenError = new AuthorizationError('CONTRACT_READ_FORBIDDEN', 'Not your contract')
+
+    const contractQueryService = {
+      getContractDetail: jest.fn().mockRejectedValue(readForbiddenError),
+    }
+
+    const service = new ContractSignatoryService(
+      contractQueryService as never,
+      { createSignedDownloadUrl: jest.fn() },
+      { createDocument: jest.fn() } as never,
+      { upload: jest.fn() } as never,
+      { createSigningEnvelope: jest.fn(), downloadCompletedEnvelopeDocuments: jest.fn() },
+      { sendTemplateEmail: jest.fn() },
+      { signatoryLinkTemplateId: 101, signingCompletedTemplateId: 102 },
+      'https://app.example.com',
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+    )
+
+    await expect(
+      service.downloadFinalSigningArtifact({
+        tenantId: 't1',
+        contractId: 'c-1',
+        actorEmployeeId: 'poc-emp-1',
+        actorRole: 'POC',
+        artifact: 'signed_document',
+      })
+    ).rejects.toMatchObject({ code: 'CONTRACT_READ_FORBIDDEN' })
+
+    // getContractDetail must have been called (proving we reached it, not the old role gate)
+    expect(contractQueryService.getContractDetail).toHaveBeenCalledWith({
+      tenantId: 't1',
+      contractId: 'c-1',
+      employeeId: 'poc-emp-1',
+      role: 'POC',
+    })
+  })
+
+  it('still rejects when actorRole is missing (no role at all)', async () => {
+    const service = new ContractSignatoryService(
+      { getContractDetail: jest.fn() } as never,
+      { createSignedDownloadUrl: jest.fn() },
+      { createDocument: jest.fn() } as never,
+      { upload: jest.fn() } as never,
+      { createSigningEnvelope: jest.fn(), downloadCompletedEnvelopeDocuments: jest.fn() },
+      { sendTemplateEmail: jest.fn() },
+      { signatoryLinkTemplateId: 101, signingCompletedTemplateId: 102 },
+      'https://app.example.com',
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+    )
+
+    await expect(
+      service.downloadFinalSigningArtifact({
+        tenantId: 't1',
+        contractId: 'c-1',
+        actorEmployeeId: 'emp-1',
+        artifact: 'signed_document',
+      } as never)
+    ).rejects.toMatchObject({ code: 'CONTRACT_SIGNATORY_FORBIDDEN' })
   })
 })

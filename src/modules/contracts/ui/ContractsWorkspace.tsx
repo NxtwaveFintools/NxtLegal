@@ -251,7 +251,11 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const signingSendPollingIntervalByContractIdRef = useRef<Record<string, number>>({})
   const signingSendPollingInFlightByContractIdRef = useRef<Record<string, boolean>>({})
   const signingSendPollingDeadlineByContractIdRef = useRef<Record<string, number>>({})
-  const canViewSignedDocsTab = session.role === 'LEGAL_TEAM' || session.role === 'ADMIN'
+  const canViewSignedDocsTab =
+    session.role === 'LEGAL_TEAM' ||
+    session.role === 'ADMIN' ||
+    session.role === contractWorkflowRoles.hod ||
+    (Boolean(selectedContract) && session.employeeId === selectedContract?.uploadedByEmployeeId)
   const isHodSession = session.role === contractWorkflowRoles.hod
   const shouldShowRemarkBackgroundContext =
     Boolean(remarkActionItem) &&
@@ -2973,6 +2977,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                       userRole={session.role}
                       actorEmployeeId={session.employeeId}
                       additionalApprovers={approvers}
+                      counterparties={counterparties}
                       uploadedByEmployeeId={selectedContract.uploadedByEmployeeId}
                       currentDocumentId={selectedContract.currentDocumentId}
                       documents={documents}

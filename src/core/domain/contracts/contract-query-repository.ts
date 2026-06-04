@@ -424,6 +424,9 @@ export interface ContractQueryRepository {
     datePreset?: RepositoryDatePreset
     fromDate?: string
     toDate?: string
+    departmentId?: string
+    hodApproval?: 'yes' | 'no'
+    assignedToEmail?: string
     columns: RepositoryExportColumn[]
   }): Promise<RepositoryExportRow[]>
   listRepositoryExportRowsChunk(params: {
@@ -439,6 +442,9 @@ export interface ContractQueryRepository {
     datePreset?: RepositoryDatePreset
     fromDate?: string
     toDate?: string
+    departmentId?: string
+    hodApproval?: 'yes' | 'no'
+    assignedToEmail?: string
     columns: RepositoryExportColumn[]
   }): Promise<RepositoryExportRowsChunk>
   getById(tenantId: string, contractId: string): Promise<ContractDetail | null>

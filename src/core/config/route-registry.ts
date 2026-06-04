@@ -53,6 +53,8 @@ export const routeRegistry = {
       replaceSupportingDocument: '/api/contracts/:contractId/replace-supporting-document',
       replaceSupportingDocumentInit: '/api/contracts/:contractId/replace-supporting-document/init',
       replaceSupportingDocumentFinalize: '/api/contracts/:contractId/replace-supporting-document/finalize',
+      addSupportingDocumentInit: '/api/contracts/:contractId/supporting-document/init',
+      addSupportingDocumentFinalize: '/api/contracts/:contractId/supporting-document/finalize',
       download: '/api/contracts/:contractId/download',
       preview: '/api/contracts/:contractId/preview',
       timeline: '/api/contracts/:contractId/timeline',
