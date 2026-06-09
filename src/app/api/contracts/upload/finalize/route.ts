@@ -148,8 +148,12 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
     }
 
     logger.warn('Contract upload finalize failed', {
-      error: String(error),
+      error: error instanceof Error ? error.message : String(error),
       errorCode: isAppError(error) ? error.code : 'INTERNAL_ERROR',
+      // DatabaseError (and friends) wrap the real Supabase/Postgres failure here; without
+      // surfacing it a finalize 500 is opaque in the logs. metadata carries the pg code/details
+      // attached by the repository layer.
+      errorMetadata: isAppError(error) ? error.metadata : undefined,
     })
 
     const status = isAppError(error) ? error.statusCode : 500

@@ -17,7 +17,8 @@
       "PowerShell(npx tsc --noEmit)",
       "PowerShell(npx eslint src/app/api/contracts/upload/route.ts src/app/api/contracts/upload/init/route.ts src/app/api/contracts/upload/finalize/route.ts src/app/api/contracts/upload/upload-metadata-payload.ts src/modules/contracts/ui/third-party-upload/ThirdPartyUploadSidebar.tsx src/modules/contracts/ui/third-party-upload/steps/AdditionalDataStep.tsx)",
       "PowerShell(npx jest src/app/api/contracts/upload --silent 2>&1 | Select-Object -Last 30)",
-      "mcp__supabase__execute_sql"
+      "mcp__supabase__execute_sql",
+      "Bash(Select-Object -First 30)"
     ],
     "additionalDirectories": [
       "c:\\Users\\Nxtwave\\Documents\\NxtLegal\\docs\\superpowers"

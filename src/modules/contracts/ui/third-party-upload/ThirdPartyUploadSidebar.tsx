@@ -403,7 +403,15 @@ export default function ThirdPartyUploadSidebar({
         budgetApproved,
         founderApprovalReason: budgetApproved ? null : founderApprovalReason.trim(),
         file: mainFile,
-        supportingFiles: isAllNaCounterparties ? naAdditionalFiles : budgetApproved ? budgetSupportingFiles : [],
+        // Founder-approval documents must always be sent when founder approval is Yes —
+        // including for NA counterparties, where the founder-approval doc and the optional
+        // NA additional docs can coexist. Previously the `isAllNaCounterparties` branch won
+        // outright and silently dropped `budgetSupportingFiles`, so the server saw zero
+        // supporting files and rejected the upload with "Supporting document is required".
+        supportingFiles: [
+          ...(budgetApproved ? budgetSupportingFiles : []),
+          ...(isAllNaCounterparties ? naAdditionalFiles : []),
+        ],
         idempotencyKey,
         onProgress: (percent) => setUploadProgress(percent),
         signal: abortController.signal,

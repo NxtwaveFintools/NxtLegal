@@ -1869,7 +1869,7 @@ export class ContractUploadService {
     if (input.budgetApproved && totalSupportingFileCount === 0) {
       throw new BusinessRuleError(
         'BUDGET_APPROVAL_SUPPORTING_REQUIRED',
-        'Supporting document is required when budget approved is set to yes'
+        'Supporting document is required when founder approval is set to yes'
       )
     }
 
