@@ -5,7 +5,8 @@ import { getContractUploadService, getIdempotencyService } from '@/core/registry
 import { isAppError } from '@/core/http/errors'
 import { logger } from '@/core/infra/logging/logger'
 import {
-  uploadContractMetadataSchema,
+  buildUploadContractMetadataSchema,
+  isLegalUploadActor,
   resolveUploadContractMetadataInput,
 } from '@/app/api/contracts/upload/upload-metadata-payload'
 
@@ -33,7 +34,9 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
     }
 
     const payload = await request.json()
-    const parsedPayload = uploadContractMetadataSchema.safeParse(payload)
+    const parsedPayload = buildUploadContractMetadataSchema({
+      enforceContentMinimums: !isLegalUploadActor(session.role),
+    }).safeParse(payload)
     if (!parsedPayload.success) {
       return NextResponse.json(
         errorResponse('VALIDATION_ERROR', parsedPayload.error.issues[0]?.message ?? 'Invalid input'),

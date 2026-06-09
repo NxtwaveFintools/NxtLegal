@@ -62,6 +62,14 @@ import { POST } from '@/app/api/contracts/upload/route'
 
 type PostRequestArg = Parameters<typeof POST>[0]
 
+// Founder approval defaults to "No", which now requires a >=120 character reason.
+const VALID_FOUNDER_REASON =
+  'Founder approval was not obtained because the spend falls within the pre-approved departmental budget envelope and does not require escalation to the founders office for this engagement cycle.'
+
+// The description (background of request) now requires a >=120 character value on the default upload flow.
+const VALID_DESCRIPTION =
+  'This contract requires a thorough legal review to validate the indemnity, liability, and termination clauses before execution because the counterparty proposed several non-standard amendments.'
+
 describe('Contracts upload route', () => {
   beforeEach(() => {
     jest.clearAllMocks()
@@ -83,6 +91,7 @@ describe('Contracts upload route', () => {
           title: 'Master Service Agreement',
           contractTypeId: '11111111-1111-1111-1111-111111111111',
           departmentId: '22222222-2222-2222-2222-222222222222',
+          founderApprovalReason: VALID_FOUNDER_REASON,
           counterparties: JSON.stringify([
             {
               counterpartyName: 'Acme Inc',
@@ -149,6 +158,8 @@ describe('Contracts upload route', () => {
           title: 'Master Service Agreement',
           contractTypeId: '11111111-1111-1111-1111-111111111111',
           departmentId: '22222222-2222-2222-2222-222222222222',
+          backgroundOfRequest: VALID_DESCRIPTION,
+          founderApprovalReason: VALID_FOUNDER_REASON,
           counterparties: JSON.stringify([
             {
               counterpartyName: 'Acme Inc',
@@ -213,6 +224,8 @@ describe('Contracts upload route', () => {
           title: 'Master Service Agreement',
           contractTypeId: '11111111-1111-1111-1111-111111111111',
           departmentId: '22222222-2222-2222-2222-222222222222',
+          backgroundOfRequest: VALID_DESCRIPTION,
+          founderApprovalReason: VALID_FOUNDER_REASON,
           counterparties: JSON.stringify([
             {
               counterpartyName: 'NA',
@@ -309,6 +322,60 @@ describe('Contracts upload route', () => {
     expect(mockContractUploadService.uploadContract).not.toHaveBeenCalled()
   })
 
+  it('rejects upload when founder approval is No and reason is shorter than 120 characters', async () => {
+    const mainFile = new File([new Uint8Array([1, 2, 3])], 'contract.docx', {
+      type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    })
+    const supportingFile = new File([new Uint8Array([4, 5, 6])], 'supporting.pdf', {
+      type: 'application/pdf',
+    })
+
+    const formData: FormDataLike = {
+      get: (key: string) => {
+        const values: Record<string, unknown> = {
+          title: 'Master Service Agreement',
+          contractTypeId: '11111111-1111-1111-1111-111111111111',
+          departmentId: '22222222-2222-2222-2222-222222222222',
+          backgroundOfRequest: VALID_DESCRIPTION,
+          founderApprovalReason: 'Too short reason',
+          counterparties: JSON.stringify([
+            {
+              counterpartyName: 'Acme Inc',
+              backgroundOfRequest: 'Need legal review',
+              budgetApproved: false,
+              signatories: [{ name: 'Vendor Signatory', designation: 'Director', email: 'vendor@example.com' }],
+              supportingFileIndices: [0],
+            },
+          ]),
+          file: mainFile,
+        }
+
+        return values[key] ?? null
+      },
+      getAll: (key: string) => {
+        if (key === 'supportingFiles') {
+          return [supportingFile]
+        }
+        return []
+      },
+    }
+
+    const response = await POST({
+      headers: {
+        get: (name: string) => (name === 'Idempotency-Key' ? 'idem-123' : null),
+      },
+      formData: async () => formData,
+    } as unknown as PostRequestArg)
+
+    const body = await response.json()
+
+    expect(response.status).toBe(400)
+    expect(body.ok).toBe(false)
+    expect(body.error.code).toBe('VALIDATION_ERROR')
+    expect(body.error.message).toContain('founder approval is No')
+    expect(mockContractUploadService.uploadContract).not.toHaveBeenCalled()
+  })
+
   it('waits for HOD notification attempt before finalizing response', async () => {
     const mainFile = new File([new Uint8Array([1, 2, 3])], 'contract.docx', {
       type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
@@ -343,6 +410,8 @@ describe('Contracts upload route', () => {
           title: 'Master Service Agreement',
           contractTypeId: '11111111-1111-1111-1111-111111111111',
           departmentId: '22222222-2222-2222-2222-222222222222',
+          backgroundOfRequest: VALID_DESCRIPTION,
+          founderApprovalReason: VALID_FOUNDER_REASON,
           counterparties: JSON.stringify([
             {
               counterpartyName: 'Acme Inc',

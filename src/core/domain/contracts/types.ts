@@ -38,6 +38,7 @@ export type CreateContractUploadInput = {
   backgroundOfRequest: string
   departmentId: string
   budgetApproved: boolean
+  founderApprovalReason?: string | null
   uploadedByEmployeeId: string
   uploadedByEmail: string
   uploadedByRole: string

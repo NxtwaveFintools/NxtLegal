@@ -10,7 +10,8 @@ import {
   getIdempotencyService,
 } from '@/core/registry/service-registry'
 import {
-  uploadContractMetadataSchema,
+  buildUploadContractMetadataSchema,
+  isLegalUploadActor,
   resolveUploadContractMetadataInput,
 } from '@/app/api/contracts/upload/upload-metadata-payload'
 
@@ -57,7 +58,9 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
     const payloadRecordSchema = z.object({
       contractId: z.string().trim().uuid('Valid contractId is required'),
     })
-    const parsedMeta = uploadContractMetadataSchema.safeParse(payload)
+    const parsedMeta = buildUploadContractMetadataSchema({
+      enforceContentMinimums: !isLegalUploadActor(session.role),
+    }).safeParse(payload)
     if (!parsedMeta.success) {
       return NextResponse.json(
         errorResponse('VALIDATION_ERROR', parsedMeta.error.issues[0]?.message ?? 'Invalid input'),

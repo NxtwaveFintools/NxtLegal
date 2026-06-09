@@ -11,9 +11,19 @@
       "Bash(Get-Content \"C:\\\\Users\\\\Nxtwave\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Nxtwave-Documents-NxtLegal\\\\e76134ac-c56f-4c4c-88d3-d53e87a76ebb\\\\tasks\\\\b6y2k7w3r.output\")",
       "Bash(npx jest *)",
       "mcp__supabase__list_tables",
-      "Bash(mkdir -p \"c:\\\\Users\\\\Nxtwave\\\\Documents\\\\NxtLegal\\\\docs\\\\superpowers\\\\specs\")"
+      "Bash(mkdir -p \"c:\\\\Users\\\\Nxtwave\\\\Documents\\\\NxtLegal\\\\docs\\\\superpowers\\\\specs\")",
+      "mcp__claude_ai_Supabase__execute_sql",
+      "mcp__claude_ai_Supabase__list_projects",
+      "PowerShell(npx tsc --noEmit)",
+      "PowerShell(npx eslint src/app/api/contracts/upload/route.ts src/app/api/contracts/upload/init/route.ts src/app/api/contracts/upload/finalize/route.ts src/app/api/contracts/upload/upload-metadata-payload.ts src/modules/contracts/ui/third-party-upload/ThirdPartyUploadSidebar.tsx src/modules/contracts/ui/third-party-upload/steps/AdditionalDataStep.tsx)",
+      "PowerShell(npx jest src/app/api/contracts/upload --silent 2>&1 | Select-Object -Last 30)",
+      "mcp__supabase__execute_sql"
     ],
-    "additionalDirectories": ["c:\\Users\\Nxtwave\\Documents\\NxtLegal\\docs\\superpowers"]
+    "additionalDirectories": [
+      "c:\\Users\\Nxtwave\\Documents\\NxtLegal\\docs\\superpowers"
+    ]
   },
-  "enabledMcpjsonServers": ["supabase"]
+  "enabledMcpjsonServers": [
+    "supabase"
+  ]
 }

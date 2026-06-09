@@ -1,5 +1,11 @@
 import { z } from 'zod'
-import { contractCounterpartyValues, contractUploadModes } from '@/core/constants/contracts'
+import {
+  contractCounterpartyValues,
+  contractDescription,
+  contractFounderApprovalReason,
+  contractUploadModes,
+  contractWorkflowRoles,
+} from '@/core/constants/contracts'
 import type { UploadContractMetadataInput } from '@/core/domain/contracts/contract-upload-service'
 
 const EMAIL_PATTERN = /^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i
@@ -29,6 +35,11 @@ export const uploadContractMetadataSchema = z
     backgroundOfRequest: z.string().trim().max(4000, 'Background of request exceeds maximum length').optional(),
     departmentId: z.string().trim(),
     budgetApproved: z.boolean().optional().default(false),
+    founderApprovalReason: z
+      .string()
+      .trim()
+      .max(contractFounderApprovalReason.maxLength, 'Founder approval reason exceeds maximum length')
+      .optional(),
     uploadMode: z
       .enum([contractUploadModes.default, contractUploadModes.legalSendForSigning])
       .optional()
@@ -140,6 +151,49 @@ export const uploadContractMetadataSchema = z
 
 export type UploadContractMetadataRequest = z.infer<typeof uploadContractMetadataSchema>
 
+// Legal team / admin uploads are exempt from the description and founder-approval-reason
+// minimum-length rules — they get plain free-text fields with no minimum.
+export const isLegalUploadActor = (role: string): boolean =>
+  role === contractWorkflowRoles.legalTeam || role === contractWorkflowRoles.admin
+
+// Builds the metadata schema, optionally layering on the description / founder-reason
+// minimum-length rules. These content minimums are skipped for legal-send-for-signing
+// uploads and when `enforceContentMinimums` is false (i.e. legal team / admin actors).
+export const buildUploadContractMetadataSchema = (options?: { enforceContentMinimums?: boolean }) => {
+  const enforceContentMinimums = options?.enforceContentMinimums ?? true
+
+  return uploadContractMetadataSchema.superRefine((data, context) => {
+    if (!enforceContentMinimums) {
+      return
+    }
+
+    const isLegalSendForSigning = data.uploadMode === contractUploadModes.legalSendForSigning
+    if (isLegalSendForSigning) {
+      return
+    }
+
+    const descriptionLength = data.backgroundOfRequest?.trim().length ?? 0
+    if (descriptionLength < contractDescription.minLength) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: `A description of at least ${contractDescription.minLength} characters is required`,
+        path: ['backgroundOfRequest'],
+      })
+    }
+
+    if (!data.budgetApproved) {
+      const reasonLength = data.founderApprovalReason?.trim().length ?? 0
+      if (reasonLength < contractFounderApprovalReason.minLength) {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `A reason of at least ${contractFounderApprovalReason.minLength} characters is required when founder approval is No`,
+          path: ['founderApprovalReason'],
+        })
+      }
+    }
+  })
+}
+
 export const resolveUploadContractMetadataInput = (
   requestBody: UploadContractMetadataRequest,
   session: { tenantId: string; employeeId: string; email: string; role: string }
@@ -213,6 +267,7 @@ export const resolveUploadContractMetadataInput = (
     backgroundOfRequest: resolvedBackgroundOfRequest,
     departmentId: requestBody.departmentId,
     budgetApproved: requestBody.budgetApproved,
+    founderApprovalReason: requestBody.budgetApproved ? null : (requestBody.founderApprovalReason?.trim() ?? null),
     uploadMode: requestBody.uploadMode,
     bypassHodApproval: requestBody.bypassHodApproval,
     bypassReason: requestBody.bypassReason,

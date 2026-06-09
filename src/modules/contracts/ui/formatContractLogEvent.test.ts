@@ -101,7 +101,7 @@ describe('supporting document added events', () => {
       ...base,
       metadata: { section_category: 'BUDGET', file_name: 'budget.pdf' },
     } as never)
-    expect(result.message).toBe('Uploaded "budget.pdf" to Budget Approval Supporting Documents.')
+    expect(result.message).toBe('Uploaded "budget.pdf" to Founder Approval Supporting Documents.')
     expect(result.category).toBe('GENERAL')
   })
   it('formats an additional upload', () => {
@@ -129,6 +129,6 @@ describe('supporting document added events', () => {
       action: 'contract.budget_approved.set',
       metadata: {},
     } as never)
-    expect(result.message).toBe('Marked Budget Approved as Yes via document upload.')
+    expect(result.message).toBe('Marked Founder Approval as Yes via document upload.')
   })
 })

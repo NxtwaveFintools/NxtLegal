@@ -180,6 +180,28 @@ class SupabaseContractRepository implements ContractRepository {
       })
     }
 
+    const { error: founderApprovalReasonError } = await supabase
+      .from('contracts')
+      .update({
+        founder_approval_reason: input.budgetApproved ? null : (input.founderApprovalReason ?? null),
+      })
+      .eq('tenant_id', input.tenantId)
+      .eq('id', input.contractId)
+      .is('deleted_at', null)
+
+    if (
+      founderApprovalReasonError &&
+      !this.isMissingColumnError(founderApprovalReasonError, 'founder_approval_reason')
+    ) {
+      throw new DatabaseError(
+        'Failed to persist founder approval reason',
+        new Error(founderApprovalReasonError.message),
+        {
+          code: founderApprovalReasonError.code,
+        }
+      )
+    }
+
     const createdContract = await this.loadCreatedContract(input.contractId, input.tenantId)
 
     if (input.uploadMode === contractUploadModes.legalSendForSigning) {
@@ -1090,6 +1112,17 @@ class SupabaseContractRepository implements ContractRepository {
 
     const message = (error.message ?? '').toLowerCase()
     return message.includes('upload_mode') && message.includes('column') && message.includes('does not exist')
+  }
+
+  private isMissingColumnError(error: { code?: string | null; message?: string | null }, columnName: string): boolean {
+    if (error.code === '42703') {
+      return true
+    }
+
+    const message = (error.message ?? '').toLowerCase()
+    return (
+      message.includes(columnName.toLowerCase()) && message.includes('column') && message.includes('does not exist')
+    )
   }
 }
 

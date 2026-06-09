@@ -133,6 +133,7 @@ type ContractEntity = {
   background_of_request: string
   department_id: string
   budget_approved: boolean
+  founder_approval_reason?: string | null
   legal_effective_date?: string | null
   legal_termination_date?: string | null
   legal_notice_period?: string | null
@@ -448,6 +449,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       this.mapListItem(row, additionalApproverContext.get(row.id), {
         creatorName: dashboardEnrichment.creatorNameByContractId.get(row.id) ?? null,
         executedAt: dashboardEnrichment.executedAtByContractId.get(row.id) ?? null,
+        budgetApproved: dashboardEnrichment.budgetApprovedByContractId.get(row.id) ?? null,
       })
     )
     const items = await this.attachActorContractSignals(params.tenantId, params.employeeId, mappedItems, params.role)
@@ -1330,6 +1332,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         this.mapListItem(row, additionalApproverContext.get(row.id), {
           creatorName: enrichment.creatorNameByContractId.get(row.id) ?? null,
           executedAt: enrichment.executedAtByContractId.get(row.id) ?? null,
+          budgetApproved: enrichment.budgetApprovedByContractId.get(row.id) ?? null,
           departmentName: row.department_id ? (departmentNameById.get(row.department_id) ?? null) : null,
           assignedToUsers:
             params.role === 'LEGAL_TEAM' || params.role === 'ADMIN'
@@ -1632,7 +1635,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     const supabase = createServiceSupabase()
 
     const contractDetailSelectWithLegalMetadata =
-      'id, tenant_id, title, contract_type_id, counterparty_name, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, signatory_name, signatory_designation, signatory_email, background_of_request, department_id, budget_approved, legal_effective_date, legal_termination_date, legal_notice_period, legal_auto_renewal, request_created_at, current_document_id, void_reason, hod_approved_at, tat_deadline_at, tat_breached_at, file_name, file_size_bytes, file_mime_type, file_path, created_at, updated_at, row_version, upload_mode'
+      'id, tenant_id, title, contract_type_id, counterparty_name, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, signatory_name, signatory_designation, signatory_email, background_of_request, department_id, budget_approved, founder_approval_reason, legal_effective_date, legal_termination_date, legal_notice_period, legal_auto_renewal, request_created_at, current_document_id, void_reason, hod_approved_at, tat_deadline_at, tat_breached_at, file_name, file_size_bytes, file_mime_type, file_path, created_at, updated_at, row_version, upload_mode'
     const contractDetailSelectLegacy =
       'id, tenant_id, title, contract_type_id, counterparty_name, status, uploaded_by_employee_id, uploaded_by_email, current_assignee_employee_id, current_assignee_email, signatory_name, signatory_designation, signatory_email, background_of_request, department_id, budget_approved, request_created_at, current_document_id, void_reason, hod_approved_at, tat_deadline_at, tat_breached_at, file_name, file_size_bytes, file_mime_type, file_path, created_at, updated_at, row_version'
 
@@ -6301,6 +6304,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       executedAt?: string | null
       departmentName?: string | null
       assignedToUsers?: string[]
+      budgetApproved?: boolean | null
     }
   ): ContractListItem {
     this.assertStatus(row.status)
@@ -6344,6 +6348,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       legalNoticePeriod: row.legal_notice_period ?? null,
       legalAutoRenewal: row.legal_auto_renewal ?? null,
       backgroundOfRequest: row.background_of_request ?? null,
+      budgetApproved: metadata?.budgetApproved ?? null,
       departmentId: row.department_id ?? null,
       departmentName: metadata?.departmentName ?? null,
       assignedToUsers: metadata?.assignedToUsers ?? [row.current_assignee_email],
@@ -6362,19 +6367,21 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
   ): Promise<{
     creatorNameByContractId: Map<string, string | null>
     executedAtByContractId: Map<string, string | null>
+    budgetApprovedByContractId: Map<string, boolean | null>
   }> {
     const creatorNameByContractId = new Map<string, string | null>()
     const executedAtByContractId = new Map<string, string | null>()
+    const budgetApprovedByContractId = new Map<string, boolean | null>()
 
     if (rows.length === 0) {
-      return { creatorNameByContractId, executedAtByContractId }
+      return { creatorNameByContractId, executedAtByContractId, budgetApprovedByContractId }
     }
 
     const supabase = createServiceSupabase()
     const contractIds = Array.from(new Set(rows.map((row) => row.id)))
     const uploaderIds = Array.from(new Set(rows.map((row) => row.uploaded_by_employee_id).filter(Boolean)))
 
-    const [usersResult, signatoriesResult] = await Promise.all([
+    const [usersResult, signatoriesResult, budgetApprovedResult] = await Promise.all([
       uploaderIds.length > 0
         ? supabase.from('users').select('id, full_name').eq('tenant_id', tenantId).in('id', uploaderIds)
         : Promise.resolve({ data: [] as Array<{ id: string; full_name: string | null }>, error: null }),
@@ -6389,7 +6396,24 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
             data: [] as Array<{ contract_id: string; status: string; signed_at: string | null }>,
             error: null,
           }),
+      contractIds.length > 0
+        ? supabase.from('contracts').select('id, budget_approved').eq('tenant_id', tenantId).in('id', contractIds)
+        : Promise.resolve({ data: [] as Array<{ id: string; budget_approved: boolean | null }>, error: null }),
     ])
+
+    if (budgetApprovedResult.error) {
+      throw new DatabaseError(
+        'Failed to resolve founder approval flags for contracts',
+        new Error(budgetApprovedResult.error.message),
+        {
+          code: budgetApprovedResult.error.code,
+        }
+      )
+    }
+
+    for (const row of (budgetApprovedResult.data ?? []) as Array<{ id: string; budget_approved: boolean | null }>) {
+      budgetApprovedByContractId.set(row.id, row.budget_approved ?? null)
+    }
 
     if (usersResult.error) {
       throw new DatabaseError('Failed to resolve creator names for contracts', new Error(usersResult.error.message), {
@@ -6470,7 +6494,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       executedAtByContractId.set(contractId, executedAt)
     }
 
-    return { creatorNameByContractId, executedAtByContractId }
+    return { creatorNameByContractId, executedAtByContractId, budgetApprovedByContractId }
   }
 
   private resolveDepartmentName(department: RepositoryJoinedContractRow['department']): string | null {
@@ -7020,6 +7044,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       signatoryEmail: row.signatory_email,
       backgroundOfRequest: row.background_of_request,
       budgetApproved: row.budget_approved,
+      founderApprovalReason: row.founder_approval_reason ?? null,
       legalEffectiveDate: row.legal_effective_date ?? null,
       legalTerminationDate: row.legal_termination_date ?? null,
       legalNoticePeriod: row.legal_notice_period ?? null,

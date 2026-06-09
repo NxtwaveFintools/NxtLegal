@@ -304,7 +304,7 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
       } else {
         const isAdditional = (document.displayName ?? '').toLowerCase().startsWith('additional')
         key = isAdditional ? 'additional-supporting' : 'budget-supporting'
-        label = isAdditional ? 'Additional Supporting Documents' : 'Budget Approval Supporting Documents'
+        label = isAdditional ? 'Additional Supporting Documents' : 'Founder Approval Supporting Documents'
       }
 
       const existingGroup = groupedDocuments.get(key)
@@ -680,7 +680,7 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
         }> = [
           {
             key: 'budget-supporting',
-            label: 'Budget Approval Supporting Documents',
+            label: 'Founder Approval Supporting Documents',
             category: 'BUDGET',
             documents: groupsByKey.get('budget-supporting')?.documents ?? [],
           },
