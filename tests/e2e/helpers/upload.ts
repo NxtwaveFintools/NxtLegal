@@ -26,8 +26,12 @@ export interface UploadContractOptions {
   signatoryEmail?: string
   /** Background of request */
   background?: string
+  /** Contract title (defaults to auto-generated) */
+  contractTitle?: string
   /** Budget approved — "Yes" or "No" */
   budgetApproved?: string
+  /** Founder approval reason (required when budgetApproved is "No"); min 120 chars */
+  founderApprovalReason?: string
 }
 
 // ─── Upload Flow ─────────────────────────────────────────────────────────────
@@ -70,6 +74,9 @@ export async function uploadContract(
   // ── Step 2: Additional Data ──────────────────────────────────────────────
   await expect(page.locator('select#contract-type')).toBeVisible({ timeout: 10_000 })
 
+  // Contract Title (required) — entered name is the first segment of the stored title
+  await page.locator('input#contract-title').fill(options.contractTitle || `${TEST_DATA_PREFIX} Automated E2E Contract`)
+
   // Select contract type — pick the first available option if not specified
   const contractTypeSelect = page.locator('select#contract-type')
   if (options.contractType) {
@@ -111,7 +118,10 @@ export async function uploadContract(
   // Fill background
   await page
     .locator('textarea#background-of-request')
-    .fill(options.background || `${TEST_DATA_PREFIX} Automated E2E test contract upload — ${new Date().toISOString()}`)
+    .fill(
+      options.background ||
+        `${TEST_DATA_PREFIX} Automated E2E test contract upload that exercises the full third-party intake wizard end to end, capturing a sufficiently long description — ${new Date().toISOString()}`
+    )
 
   // Department — locked for POC (shows a read-only input) or selectable if not locked
   const departmentSelect = page.locator('select#department-id')
@@ -129,8 +139,20 @@ export async function uploadContract(
 
   // Set budget approved — default to 'No' to avoid triggering the budget-doc upload section
   const budgetSelect = page.locator('select#budget-approved')
+  const resolvedBudgetApproved = options.budgetApproved || 'No'
   if (await budgetSelect.isVisible({ timeout: 2_000 }).catch(() => false)) {
-    await budgetSelect.selectOption({ label: options.budgetApproved || 'No' })
+    await budgetSelect.selectOption({ label: resolvedBudgetApproved })
+  }
+
+  // Founder approval = No requires a reason of at least 120 characters
+  if (resolvedBudgetApproved === 'No') {
+    const reasonInput = page.locator('textarea#founder-approval-reason')
+    if (await reasonInput.isVisible({ timeout: 2_000 }).catch(() => false)) {
+      await reasonInput.fill(
+        options.founderApprovalReason ||
+          `${TEST_DATA_PREFIX} Founder approval is not applicable for this automated end-to-end test contract because the spend is already covered within the approved departmental budget envelope.`
+      )
+    }
   }
 
   // Department is auto-selected for POC users (locked to their team)

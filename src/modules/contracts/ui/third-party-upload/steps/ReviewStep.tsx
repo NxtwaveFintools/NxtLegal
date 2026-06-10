@@ -5,6 +5,7 @@ import styles from '../third-party-upload.module.css'
 type ReviewStepProps = {
   isSendForSigningFlow?: boolean
   mainFileName: string | null
+  contractTitle: string
   contractType: string
   counterparties: Array<{
     counterpartyName: string
@@ -18,6 +19,7 @@ type ReviewStepProps = {
   }>
   backgroundOfRequest: string
   budgetApproved: boolean
+  founderApprovalReason: string
   budgetSupportingFileNames: string[]
   naAdditionalFileNames: string[]
   departmentName: string
@@ -29,10 +31,12 @@ type ReviewStepProps = {
 export default function ReviewStep({
   isSendForSigningFlow = false,
   mainFileName,
+  contractTitle,
   contractType,
   counterparties,
   backgroundOfRequest,
   budgetApproved,
+  founderApprovalReason,
   budgetSupportingFileNames,
   naAdditionalFileNames,
   departmentName,
@@ -49,6 +53,10 @@ export default function ReviewStep({
       <div className={styles.summaryRow}>
         <span>Main Document</span>
         <span>{mainFileName || 'Not set'}</span>
+      </div>
+      <div className={styles.summaryRow}>
+        <span>Contract Title</span>
+        <span>{contractTitle || 'Not set'}</span>
       </div>
       <div className={styles.summaryRow}>
         <span>Contract Type</span>
@@ -99,12 +107,18 @@ export default function ReviewStep({
         <span>{backgroundOfRequest || 'Not set'}</span>
       </div>
       <div className={styles.summaryRow}>
-        <span>Budget Approved</span>
+        <span>Founder Approval</span>
         <span>{budgetApproved ? 'Yes' : 'No'}</span>
       </div>
+      {!budgetApproved ? (
+        <div className={styles.summaryRow}>
+          <span>Reason for No Founder Approval</span>
+          <span>{founderApprovalReason.trim() || 'Not provided'}</span>
+        </div>
+      ) : null}
       {!isSendForSigningFlow && budgetApproved ? (
         <div className={styles.summaryRow}>
-          <span>Budget Approval Supporting Docs</span>
+          <span>Founder Approval Supporting Docs</span>
           <span>{budgetSupportingFileNames.length > 0 ? budgetSupportingFileNames.join(', ') : 'Not provided'}</span>
         </div>
       ) : null}

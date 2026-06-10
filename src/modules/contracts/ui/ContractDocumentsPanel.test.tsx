@@ -497,7 +497,7 @@ describe('ContractDocumentsPanel', () => {
       />
     )
 
-    expect(screen.getByText('Budget Approval Supporting Documents')).toBeTruthy()
+    expect(screen.getByText('Founder Approval Supporting Documents')).toBeTruthy()
     expect(screen.getByText('Additional Supporting Documents')).toBeTruthy()
 
     const budgetSection = container.querySelector('[data-section="budget-supporting"]')

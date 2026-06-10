@@ -1417,7 +1417,7 @@ describe('ContractUploadService.finalizeAddSupportingDocument', () => {
     expect(contractRepository.addSupportingDocument).toHaveBeenCalledWith(
       expect.objectContaining({
         sectionCategory: 'BUDGET',
-        displayName: 'Budget Approval Supporting Document',
+        displayName: 'Founder Approval Supporting Document',
         counterpartyId: null,
       })
     )

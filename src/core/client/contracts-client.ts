@@ -59,6 +59,7 @@ type ContractRecord = {
   signatoryEmail?: string
   backgroundOfRequest?: string
   budgetApproved?: boolean
+  founderApprovalReason?: string | null
   legalEffectiveDate?: string | null
   legalTerminationDate?: string | null
   legalNoticePeriod?: string | null
@@ -908,6 +909,7 @@ export const contractsClient = {
     backgroundOfRequest?: string
     departmentId?: string
     budgetApproved?: boolean
+    founderApprovalReason?: string | null
     uploadMode?: ContractUploadMode
     bypassHodApproval?: boolean
     bypassReason?: string
@@ -928,6 +930,7 @@ export const contractsClient = {
       backgroundOfRequest: params.backgroundOfRequest,
       departmentId: params.departmentId,
       budgetApproved: params.budgetApproved,
+      founderApprovalReason: params.founderApprovalReason ?? undefined,
       uploadMode: params.uploadMode,
       bypassHodApproval: params.bypassHodApproval,
       bypassReason: params.bypassReason,

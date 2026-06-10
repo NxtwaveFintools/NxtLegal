@@ -291,7 +291,7 @@ describe('Contract action dialogs', () => {
     await userEvent.click(screen.getByRole('button', { name: /Intake Details/i }))
     await waitFor(() => expect(screen.getByText('john@example.com')).toBeTruthy())
     expect(screen.getByText('Background details')).toBeTruthy()
-    expect(screen.getAllByText('Budget Approved').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Founder Approval').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Yes').length).toBeGreaterThan(0)
 
     const statusActionsSelect = screen.getByLabelText('Legal status actions')
@@ -303,7 +303,7 @@ describe('Contract action dialogs', () => {
     await waitFor(() => expect(screen.queryByText('Processing…')).toBeNull())
     expect(screen.getByText('john@example.com')).toBeTruthy()
     expect(screen.getByText('Background details')).toBeTruthy()
-    expect(screen.getAllByText('Budget Approved').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Founder Approval').length).toBeGreaterThan(0)
     expect(screen.getAllByText('Yes').length).toBeGreaterThan(0)
   })
 
@@ -401,7 +401,7 @@ describe('Contract action dialogs', () => {
     // Second counterparty card is rendered (index marker is its own span, not concatenated with signatory/field labels)
     expect(screen.getByText('Counterparty 2')).toBeTruthy()
     expect(screen.getByText('cp2-a@example.com')).toBeTruthy()
-    expect(screen.getAllByText('Budget Approved').length).toBeGreaterThan(0)
+    expect(screen.getAllByText('Founder Approval').length).toBeGreaterThan(0)
   })
 
   it('hides signing link controls once an internal signatory has signed', async () => {

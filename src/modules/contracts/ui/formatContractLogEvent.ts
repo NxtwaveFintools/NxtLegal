@@ -660,7 +660,7 @@ function resolveLogMessage(
       const counterpartyName = getMetadataString(event.metadata, ['counterparty_name'])
       const fileLabel = fileName ? `"${fileName}"` : 'a document'
       if (sectionCategory === 'BUDGET') {
-        return `Uploaded ${fileLabel} to Budget Approval Supporting Documents.`
+        return `Uploaded ${fileLabel} to Founder Approval Supporting Documents.`
       }
       if (sectionCategory === 'ADDITIONAL') {
         return `Uploaded ${fileLabel} to Additional Supporting Documents.`
@@ -671,7 +671,7 @@ function resolveLogMessage(
       return 'Uploaded a supporting document.'
     }
     case 'BUDGET_APPROVED_SET':
-      return 'Marked Budget Approved as Yes via document upload.'
+      return 'Marked Founder Approval as Yes via document upload.'
     default:
       break
   }

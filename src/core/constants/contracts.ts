@@ -155,6 +155,16 @@ export const contractCounterpartyValues = {
   notApplicable: 'NA',
 } as const
 
+export const contractFounderApprovalReason = {
+  minLength: 120,
+  maxLength: 1000,
+} as const
+
+export const contractDescription = {
+  minLength: 120,
+  maxLength: 4000,
+} as const
+
 export const contractSignatoryStatuses = {
   pending: 'PENDING',
   signed: 'SIGNED',
