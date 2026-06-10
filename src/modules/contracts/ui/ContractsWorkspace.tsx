@@ -83,6 +83,7 @@ const baseWorkspaceTabs = [
 ] as const
 
 const signedDocsWorkspaceTab = { id: 'signed-docs', label: 'Signed Docs' } as const
+const founderApprovalWorkspaceTab = { id: 'founder-approval', label: 'Founder Approval' } as const
 const contractWorkspacePreviewTargetId = '__contract_preview__'
 
 const resolveFileExtension = (fileName: string): string => {
@@ -168,7 +169,7 @@ type ContractsWorkspaceProps = {
 }
 
 export default function ContractsWorkspace({ session, initialContractId }: ContractsWorkspaceProps) {
-  type TabId = 'overview' | 'activity' | 'notes' | 'documents' | 'approvals' | 'signed-docs'
+  type TabId = 'overview' | 'activity' | 'notes' | 'documents' | 'approvals' | 'signed-docs' | 'founder-approval'
 
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -265,14 +266,17 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     Boolean(confirmActionItem) &&
     (isHodSession ||
       (confirmActionItem?.action.toLowerCase().includes(contractWorkflowRoles.hod.toLowerCase()) ?? false))
-  const tabs = useMemo(
-    () =>
-      (canViewSignedDocsTab ? [...baseWorkspaceTabs, signedDocsWorkspaceTab] : [...baseWorkspaceTabs]) as Array<{
-        id: TabId
-        label: string
-      }>,
-    [canViewSignedDocsTab]
-  )
+  const showFounderApprovalTab = selectedContract?.budgetApproved === false
+  const tabs = useMemo(() => {
+    const result: Array<{ id: TabId; label: string }> = [...baseWorkspaceTabs]
+    if (showFounderApprovalTab) {
+      result.push(founderApprovalWorkspaceTab)
+    }
+    if (canViewSignedDocsTab) {
+      result.push(signedDocsWorkspaceTab)
+    }
+    return result
+  }, [canViewSignedDocsTab, showFounderApprovalTab])
 
   const PAGE_SIZE = 15
 
@@ -472,6 +476,12 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       setActiveTab('overview')
     }
   }, [activeTab, canViewSignedDocsTab])
+
+  useEffect(() => {
+    if (!showFounderApprovalTab && activeTab === 'founder-approval') {
+      setActiveTab('overview')
+    }
+  }, [activeTab, showFounderApprovalTab])
 
   useEffect(() => {
     selectedContractIdRef.current = selectedContractId
@@ -1758,7 +1768,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
             : '—',
       },
       {
-        label: 'Budget Approved',
+        label: 'Founder Approval',
         value: selectedContract ? (selectedContract.budgetApproved ? 'Yes' : 'No') : '—',
       },
     ]
@@ -2558,7 +2568,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                                 <div className={styles.intakePanel}>
                                   <div className={styles.intakePanelLabel}>Request Snapshot</div>
                                   <div className={styles.intakeFactRow}>
-                                    <span>Budget Approved</span>
+                                    <span>Founder Approval</span>
                                     <strong>
                                       {intakeBudgetApprovedValue === null
                                         ? 'Not provided'
@@ -3014,6 +3024,44 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                         }
                       }}
                     />
+                  )}
+
+                  {activeTab === 'founder-approval' && showFounderApprovalTab && (
+                    <div className={styles.tabSection}>
+                      <div className={styles.card}>
+                        <div className={styles.sectionHeaderRow}>
+                          <div className={styles.sectionTitle}>Founder Approval</div>
+                        </div>
+                        <div className={styles.founderApprovalRow}>
+                          <span className={styles.founderApprovalRowLabel}>Founder Approval</span>
+                          <span
+                            className={`${styles.approvalStatusBadge} ${
+                              intakeBudgetApprovedValue === null
+                                ? styles.approvalStatusNotSent
+                                : intakeBudgetApprovedValue
+                                  ? styles.approvalStatusApproved
+                                  : styles.approvalStatusRejected
+                            }`}
+                          >
+                            {intakeBudgetApprovedValue === null
+                              ? 'Not provided'
+                              : intakeBudgetApprovedValue
+                                ? 'Yes'
+                                : 'No'}
+                          </span>
+                        </div>
+                        {(intakeBudgetApprovedValue === false ||
+                          Boolean(selectedContract?.founderApprovalReason?.trim())) && (
+                          <div className={styles.intakePanel}>
+                            <div className={styles.intakePanelLabel}>Reason</div>
+                            <p className={styles.founderApprovalReasonText}>
+                              {selectedContract?.founderApprovalReason?.trim() ||
+                                'No reason was recorded for this contract.'}
+                            </p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   )}
 
                   {activeTab === 'signed-docs' && canViewSignedDocsTab && (

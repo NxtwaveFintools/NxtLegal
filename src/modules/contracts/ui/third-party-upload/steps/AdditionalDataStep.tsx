@@ -2,7 +2,11 @@
 
 import { useEffect, useState, type KeyboardEvent } from 'react'
 import { contractsClient } from '@/core/client/contracts-client'
-import { contractCounterpartyValues } from '@/core/constants/contracts'
+import {
+  contractCounterpartyValues,
+  contractDescription,
+  contractFounderApprovalReason,
+} from '@/core/constants/contracts'
 import { formatFileSize } from '@/lib/format-file-size'
 import styles from '../third-party-upload.module.css'
 
@@ -20,7 +24,10 @@ type CounterpartyEntry = {
 
 type AdditionalDataStepProps = {
   isSendForSigningFlow?: boolean
+  enforceContentMinimums?: boolean
   mainFileName: string | null
+  contractTitle: string
+  onContractTitleChange: (value: string) => void
   contractType: string
   contractTypes: Array<{ id: string; name: string }>
   counterparties: CounterpartyEntry[]
@@ -29,11 +36,13 @@ type AdditionalDataStepProps = {
   onContractTypeChange: (value: string) => void
   backgroundOfRequest: string
   budgetApproved: boolean
+  founderApprovalReason: string
   budgetSupportingFiles: File[]
   naAdditionalFiles: File[]
   onCounterpartyNameChange: (index: number, value: string) => void
   onBackgroundOfRequestChange: (value: string) => void
   onBudgetApprovedChange: (value: boolean) => void
+  onFounderApprovalReasonChange: (value: string) => void
   onCounterpartySignatoryChange: (
     counterpartyIndex: number,
     signatoryIndex: number,
@@ -69,11 +78,15 @@ type AdditionalDataStepProps = {
 
 export default function AdditionalDataStep({
   isSendForSigningFlow = false,
+  enforceContentMinimums = true,
   mainFileName,
+  contractTitle,
+  onContractTitleChange,
   contractType,
   contractTypes,
   backgroundOfRequest,
   budgetApproved,
+  founderApprovalReason,
   budgetSupportingFiles,
   naAdditionalFiles,
   counterparties,
@@ -82,6 +95,7 @@ export default function AdditionalDataStep({
   onContractTypeChange,
   onBackgroundOfRequestChange,
   onBudgetApprovedChange,
+  onFounderApprovalReasonChange,
   onCounterpartyNameChange,
   onCounterpartySignatoryChange,
   onCounterpartySignatoryAdd,
@@ -238,6 +252,19 @@ export default function AdditionalDataStep({
 
         <div className={styles.rightPanel}>
           <div className={styles.fieldGroup}>
+            <label className={styles.label} htmlFor="contract-title">
+              Contract Title*
+            </label>
+            <input
+              id="contract-title"
+              className={styles.input}
+              value={contractTitle}
+              onChange={(event) => onContractTitleChange(event.target.value)}
+              placeholder="Enter a name for this contract"
+            />
+          </div>
+
+          <div className={styles.fieldGroup}>
             <label className={styles.label} htmlFor="contract-type">
               Contract Type*
             </label>
@@ -288,14 +315,25 @@ export default function AdditionalDataStep({
               className={styles.input}
               value={backgroundOfRequest}
               onChange={(event) => onBackgroundOfRequestChange(event.target.value)}
-              placeholder="Describe the request context"
+              placeholder={
+                enforceContentMinimums
+                  ? `Describe the request context (minimum ${contractDescription.minLength} characters)`
+                  : 'Describe the request context'
+              }
               rows={4}
+              minLength={enforceContentMinimums ? contractDescription.minLength : undefined}
+              maxLength={contractDescription.maxLength}
             />
+            {enforceContentMinimums ? (
+              <div className={styles.helperText}>
+                {backgroundOfRequest.trim().length}/{contractDescription.minLength} characters minimum
+              </div>
+            ) : null}
           </div>
 
           <div className={styles.fieldGroup}>
             <label className={styles.label} htmlFor="budget-approved">
-              Budget Approved*
+              Founder Approval*
             </label>
             <select
               id="budget-approved"
@@ -308,13 +346,40 @@ export default function AdditionalDataStep({
             </select>
           </div>
 
+          {!budgetApproved ? (
+            <div className={styles.fieldGroup}>
+              <label className={styles.label} htmlFor="founder-approval-reason">
+                Reason for No Founder Approval*
+              </label>
+              <textarea
+                id="founder-approval-reason"
+                className={styles.input}
+                value={founderApprovalReason}
+                onChange={(event) => onFounderApprovalReasonChange(event.target.value)}
+                placeholder={
+                  enforceContentMinimums
+                    ? `Explain why founder approval is not in place (minimum ${contractFounderApprovalReason.minLength} characters)`
+                    : 'Explain why founder approval is not in place'
+                }
+                rows={4}
+                minLength={enforceContentMinimums ? contractFounderApprovalReason.minLength : undefined}
+                maxLength={contractFounderApprovalReason.maxLength}
+              />
+              {enforceContentMinimums ? (
+                <div className={styles.helperText}>
+                  {founderApprovalReason.trim().length}/{contractFounderApprovalReason.minLength} characters minimum
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
           {budgetApproved ? (
             <div className={styles.fieldGroup}>
               <label className={styles.label} htmlFor="budget-supporting-docs">
-                Budget Approval Document*
+                Founder Approval Document*
               </label>
               <div className={styles.dropzone}>
-                <span>add budget approval documents</span>
+                <span>add founder approval documents</span>
                 <label className={styles.dropzoneButton} htmlFor="budget-supporting-docs">
                   Add files
                 </label>

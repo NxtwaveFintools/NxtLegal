@@ -8,7 +8,13 @@ import { withAuth } from '@/core/http/with-auth'
 import { errorResponse, okResponse } from '@/core/http/response'
 import { logger } from '@/core/infra/logging/logger'
 import { DatabaseError, isAppError } from '@/core/http/errors'
-import { contractCounterpartyValues, contractUploadModes, contractWorkflowRoles } from '@/core/constants/contracts'
+import {
+  contractCounterpartyValues,
+  contractDescription,
+  contractFounderApprovalReason,
+  contractUploadModes,
+  contractWorkflowRoles,
+} from '@/core/constants/contracts'
 import { z } from 'zod'
 
 // Route segment config — extends the serverless function execution timeout
@@ -55,6 +61,11 @@ const uploadContractFormSchema = z
       .enum(['true', 'false'])
       .optional()
       .transform((value) => (value === undefined ? undefined : value === 'true')),
+    founderApprovalReason: z
+      .string()
+      .trim()
+      .max(contractFounderApprovalReason.maxLength, 'Founder approval reason exceeds maximum length')
+      .optional(),
     uploadMode: z
       .enum([contractUploadModes.default, contractUploadModes.legalSendForSigning])
       .optional()
@@ -233,6 +244,9 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
         : undefined,
       departmentId: String(formData.get('departmentId') ?? ''),
       budgetApproved: formData.get('budgetApproved') ? String(formData.get('budgetApproved')) : undefined,
+      founderApprovalReason: formData.get('founderApprovalReason')
+        ? String(formData.get('founderApprovalReason'))
+        : undefined,
       uploadMode: formData.get('uploadMode') ? String(formData.get('uploadMode')) : undefined,
       bypassHodApproval: formData.get('bypassHodApproval') ? String(formData.get('bypassHodApproval')) : undefined,
       bypassReason: formData.get('bypassReason') ? String(formData.get('bypassReason')) : undefined,
@@ -354,6 +368,10 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
     }))
 
     const isLegalSendForSigningMode = parsedForm.data.uploadMode === contractUploadModes.legalSendForSigning
+    // Legal team / admin uploads get plain free-text fields with no description or
+    // founder-approval-reason minimum-length enforcement.
+    const isLegalActor =
+      session.role === contractWorkflowRoles.legalTeam || session.role === contractWorkflowRoles.admin
     if (
       isLegalSendForSigningMode &&
       session.role !== contractWorkflowRoles.legalTeam &&
@@ -412,6 +430,42 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
       ? (parsedForm.data.budgetApproved ?? false)
       : (parsedForm.data.budgetApproved ?? false)
 
+    if (
+      !isLegalSendForSigningMode &&
+      !isLegalActor &&
+      resolvedBackgroundOfRequest.length < contractDescription.minLength
+    ) {
+      return NextResponse.json(
+        errorResponse(
+          'VALIDATION_ERROR',
+          `A description of at least ${contractDescription.minLength} characters is required`
+        ),
+        {
+          status: 400,
+        }
+      )
+    }
+
+    const trimmedFounderApprovalReason = parsedForm.data.founderApprovalReason?.trim() ?? ''
+    if (
+      !isLegalSendForSigningMode &&
+      !isLegalActor &&
+      !resolvedBudgetApproved &&
+      trimmedFounderApprovalReason.length < contractFounderApprovalReason.minLength
+    ) {
+      return NextResponse.json(
+        errorResponse(
+          'VALIDATION_ERROR',
+          `A reason of at least ${contractFounderApprovalReason.minLength} characters is required when founder approval is No`
+        ),
+        {
+          status: 400,
+        }
+      )
+    }
+
+    const resolvedFounderApprovalReason = resolvedBudgetApproved ? null : trimmedFounderApprovalReason || null
+
     const contractUploadService = getContractUploadService()
     const contract = await contractUploadService.uploadContract({
       tenantId: session.tenantId,
@@ -426,6 +480,7 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
       backgroundOfRequest: resolvedBackgroundOfRequest,
       departmentId: resolvedDepartmentId,
       budgetApproved: resolvedBudgetApproved,
+      founderApprovalReason: resolvedFounderApprovalReason,
       uploadMode: parsedForm.data.uploadMode,
       bypassHodApproval: parsedForm.data.bypassHodApproval,
       bypassReason: parsedForm.data.bypassReason,

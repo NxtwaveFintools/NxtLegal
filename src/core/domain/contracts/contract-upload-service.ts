@@ -47,6 +47,7 @@ export type UploadContractInput = {
   backgroundOfRequest: string
   departmentId: string
   budgetApproved: boolean
+  founderApprovalReason?: string | null
   counterpartyName?: string
   counterparties?: Array<{
     counterpartyName: string
@@ -391,6 +392,7 @@ export class ContractUploadService {
         backgroundOfRequest: input.backgroundOfRequest.trim(),
         departmentId: input.departmentId,
         budgetApproved: input.budgetApproved,
+        founderApprovalReason: input.founderApprovalReason ?? null,
         uploadedByEmployeeId: input.uploadedByEmployeeId,
         uploadedByEmail: input.uploadedByEmail,
         uploadedByRole: input.uploadedByRole,
@@ -467,7 +469,7 @@ export class ContractUploadService {
         const displayNameBase = supportingFile.counterpartyName
           ? `Counterparty Docs - ${supportingFile.counterpartyName}`
           : input.budgetApproved
-            ? 'Budget Approval Supporting Docs'
+            ? 'Founder Approval Supporting Docs'
             : 'Additional Supporting Docs'
 
         await this.contractRepository.createDocument({
@@ -653,6 +655,7 @@ export class ContractUploadService {
       backgroundOfRequest: input.backgroundOfRequest,
       departmentId: input.departmentId,
       budgetApproved: input.budgetApproved,
+      founderApprovalReason: input.founderApprovalReason ?? null,
       uploadedByEmployeeId: input.uploadedByEmployeeId,
       uploadedByEmail: input.uploadedByEmail,
       uploadedByRole: input.uploadedByRole,
@@ -1371,6 +1374,7 @@ export class ContractUploadService {
     backgroundOfRequest: string
     departmentId: string
     budgetApproved: boolean
+    founderApprovalReason?: string | null
     uploadedByEmployeeId: string
     uploadedByEmail: string
     uploadedByRole: string
@@ -1404,6 +1408,7 @@ export class ContractUploadService {
         backgroundOfRequest: params.backgroundOfRequest.trim(),
         departmentId: params.departmentId,
         budgetApproved: params.budgetApproved,
+        founderApprovalReason: params.founderApprovalReason ?? null,
         uploadedByEmployeeId: params.uploadedByEmployeeId,
         uploadedByEmail: params.uploadedByEmail,
         uploadedByRole: params.uploadedByRole,
@@ -1465,7 +1470,7 @@ export class ContractUploadService {
         const displayNameBase = supportingFile.counterpartyName
           ? `Counterparty Docs - ${supportingFile.counterpartyName}`
           : params.budgetApproved
-            ? 'Budget Approval Supporting Docs'
+            ? 'Founder Approval Supporting Docs'
             : 'Additional Supporting Docs'
 
         await this.contractRepository.createDocument({
@@ -1717,7 +1722,7 @@ export class ContractUploadService {
     if (input.sectionCategory === 'ADDITIONAL') {
       return { displayName: 'Additional Supporting Document', counterpartyId: null }
     }
-    return { displayName: 'Budget Approval Supporting Document', counterpartyId: null }
+    return { displayName: 'Founder Approval Supporting Document', counterpartyId: null }
   }
 
   private isAllowedSupportingUpload(fileName: string, mimeType: string): boolean {
@@ -1864,7 +1869,7 @@ export class ContractUploadService {
     if (input.budgetApproved && totalSupportingFileCount === 0) {
       throw new BusinessRuleError(
         'BUDGET_APPROVAL_SUPPORTING_REQUIRED',
-        'Supporting document is required when budget approved is set to yes'
+        'Supporting document is required when founder approval is set to yes'
       )
     }
 

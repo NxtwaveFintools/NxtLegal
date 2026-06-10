@@ -10,7 +10,8 @@ import {
   getIdempotencyService,
 } from '@/core/registry/service-registry'
 import {
-  uploadContractMetadataSchema,
+  buildUploadContractMetadataSchema,
+  isLegalUploadActor,
   resolveUploadContractMetadataInput,
 } from '@/app/api/contracts/upload/upload-metadata-payload'
 
@@ -57,7 +58,9 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
     const payloadRecordSchema = z.object({
       contractId: z.string().trim().uuid('Valid contractId is required'),
     })
-    const parsedMeta = uploadContractMetadataSchema.safeParse(payload)
+    const parsedMeta = buildUploadContractMetadataSchema({
+      enforceContentMinimums: !isLegalUploadActor(session.role),
+    }).safeParse(payload)
     if (!parsedMeta.success) {
       return NextResponse.json(
         errorResponse('VALIDATION_ERROR', parsedMeta.error.issues[0]?.message ?? 'Invalid input'),
@@ -145,8 +148,12 @@ const POSTHandler = withAuth(async (request: NextRequest, { session }) => {
     }
 
     logger.warn('Contract upload finalize failed', {
-      error: String(error),
+      error: error instanceof Error ? error.message : String(error),
       errorCode: isAppError(error) ? error.code : 'INTERNAL_ERROR',
+      // DatabaseError (and friends) wrap the real Supabase/Postgres failure here; without
+      // surfacing it a finalize 500 is opaque in the logs. metadata carries the pg code/details
+      // attached by the repository layer.
+      errorMetadata: isAppError(error) ? error.metadata : undefined,
     })
 
     const status = isAppError(error) ? error.statusCode : 500

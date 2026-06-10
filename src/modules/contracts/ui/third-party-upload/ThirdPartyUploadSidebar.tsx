@@ -6,10 +6,13 @@ import { toast } from 'sonner'
 import { contractsClient, type ContractTypeOption, type DepartmentOption } from '@/core/client/contracts-client'
 import {
   contractCounterpartyValues,
+  contractDescription,
+  contractFounderApprovalReason,
   contractUploadModes,
   contractWorkflowRoles,
   type ContractUploadMode,
 } from '@/core/constants/contracts'
+import { composeContractTitle } from './composeContractTitle'
 import WorkflowSidebar from './WorkflowSidebar'
 import ChooseFilesStep from './steps/ChooseFilesStep'
 import AdditionalDataStep from './steps/AdditionalDataStep'
@@ -78,9 +81,11 @@ export default function ThirdPartyUploadSidebar({
   const [activeStep, setActiveStep] = useState(0)
   const [mainFile, setMainFile] = useState<File | null>(null)
   const [isDragging, setIsDragging] = useState(false)
+  const [contractTitle, setContractTitle] = useState('')
   const [contractType, setContractType] = useState('')
   const [backgroundOfRequest, setBackgroundOfRequest] = useState('')
   const [budgetApproved, setBudgetApproved] = useState(false)
+  const [founderApprovalReason, setFounderApprovalReason] = useState('')
   const [budgetSupportingFiles, setBudgetSupportingFiles] = useState<File[]>([])
   const [counterpartyEntries, setCounterpartyEntries] = useState<CounterpartyEntry[]>([createEmptyCounterpartyEntry()])
   const [departmentId, setDepartmentId] = useState('')
@@ -140,9 +145,11 @@ export default function ThirdPartyUploadSidebar({
   const resetAll = () => {
     setActiveStep(0)
     setMainFile(null)
+    setContractTitle('')
     setContractType('')
     setBackgroundOfRequest('')
     setBudgetApproved(false)
+    setFounderApprovalReason('')
     setBudgetSupportingFiles([])
     setCounterpartyEntries([createEmptyCounterpartyEntry()])
     setDepartmentId('')
@@ -215,6 +222,11 @@ export default function ThirdPartyUploadSidebar({
         }))
         .filter((entry) => entry.counterpartyName.length > 0)
 
+      if (!contractTitle.trim()) {
+        toast.error('Please enter a contract title before continuing.')
+        return
+      }
+
       if (!contractType || normalizedCounterparties.length === 0 || !effectiveDepartmentId) {
         toast.error('Please complete the required fields before continuing.')
         return
@@ -225,8 +237,29 @@ export default function ThirdPartyUploadSidebar({
         return
       }
 
+      if (
+        !isLegalSendForSigningMode &&
+        !isLegalActor &&
+        backgroundOfRequest.trim().length < contractDescription.minLength
+      ) {
+        toast.error(`Please enter at least ${contractDescription.minLength} characters in the description.`)
+        return
+      }
+
       if (budgetApproved && budgetSupportingFiles.length === 0) {
-        toast.error('Please upload a supporting document when budget approved is Yes.')
+        toast.error('Please upload a supporting document when founder approval is Yes.')
+        return
+      }
+
+      if (
+        !isLegalSendForSigningMode &&
+        !isLegalActor &&
+        !budgetApproved &&
+        founderApprovalReason.trim().length < contractFounderApprovalReason.minLength
+      ) {
+        toast.error(
+          `Please enter at least ${contractFounderApprovalReason.minLength} characters explaining why founder approval is No.`
+        )
         return
       }
 
@@ -337,9 +370,11 @@ export default function ThirdPartyUploadSidebar({
       'Counterparty'
 
     const primaryCounterpartyName = effectiveCounterparties[0]?.counterpartyName ?? 'Counterparty'
-    const generatedCounterpartySuffix =
-      effectiveCounterparties.map((entry) => entry.counterpartyName).join(', ') || primaryCounterpartyName
-    const generatedTitle = `${selectedContractTypeName || 'Contract'} - ${generatedCounterpartySuffix}`
+    const generatedTitle = composeContractTitle({
+      contractTitle,
+      contractTypeName: selectedContractTypeName,
+      counterpartyNames: effectiveCounterparties.map((entry) => entry.counterpartyName),
+    })
 
     setUploadSuccess(null)
     setIsSubmitting(true)
@@ -366,8 +401,17 @@ export default function ThirdPartyUploadSidebar({
         bypassReason: undefined,
         backgroundOfRequest: backgroundOfRequest.trim(),
         budgetApproved,
+        founderApprovalReason: budgetApproved ? null : founderApprovalReason.trim(),
         file: mainFile,
-        supportingFiles: isAllNaCounterparties ? naAdditionalFiles : budgetApproved ? budgetSupportingFiles : [],
+        // Founder-approval documents must always be sent when founder approval is Yes —
+        // including for NA counterparties, where the founder-approval doc and the optional
+        // NA additional docs can coexist. Previously the `isAllNaCounterparties` branch won
+        // outright and silently dropped `budgetSupportingFiles`, so the server saw zero
+        // supporting files and rejected the upload with "Supporting document is required".
+        supportingFiles: [
+          ...(budgetApproved ? budgetSupportingFiles : []),
+          ...(isAllNaCounterparties ? naAdditionalFiles : []),
+        ],
         idempotencyKey,
         onProgress: (percent) => setUploadProgress(percent),
         signal: abortController.signal,
@@ -452,11 +496,15 @@ export default function ThirdPartyUploadSidebar({
       return (
         <AdditionalDataStep
           isSendForSigningFlow={isLegalSendForSigningMode}
+          enforceContentMinimums={!isLegalSendForSigningMode && !isLegalActor}
           mainFileName={mainFile?.name || null}
+          contractTitle={contractTitle}
+          onContractTitleChange={setContractTitle}
           contractType={contractType}
           contractTypes={contractTypes}
           backgroundOfRequest={backgroundOfRequest}
           budgetApproved={budgetApproved}
+          founderApprovalReason={founderApprovalReason}
           budgetSupportingFiles={budgetSupportingFiles}
           counterparties={counterpartyEntries}
           counterpartyOptions={[contractCounterpartyValues.notApplicable]}
@@ -471,8 +519,11 @@ export default function ThirdPartyUploadSidebar({
             setBudgetApproved(value)
             if (!value) {
               setBudgetSupportingFiles([])
+            } else {
+              setFounderApprovalReason('')
             }
           }}
+          onFounderApprovalReasonChange={setFounderApprovalReason}
           onCounterpartyNameChange={(index, value) => {
             setCounterpartyEntries((current) =>
               current.map((entry, currentIndex) =>
@@ -636,6 +687,7 @@ export default function ThirdPartyUploadSidebar({
         <ReviewStep
           isSendForSigningFlow={isLegalSendForSigningMode}
           mainFileName={mainFile?.name || null}
+          contractTitle={contractTitle.trim()}
           contractType={selectedContractTypeName}
           counterparties={counterpartyEntries
             .map((entry) => ({
@@ -651,6 +703,7 @@ export default function ThirdPartyUploadSidebar({
             .filter((entry) => entry.counterpartyName.length > 0)}
           backgroundOfRequest={backgroundOfRequest.trim()}
           budgetApproved={budgetApproved}
+          founderApprovalReason={founderApprovalReason.trim()}
           budgetSupportingFileNames={budgetSupportingFiles.map((file) => file.name)}
           naAdditionalFileNames={naAdditionalFiles.map((file) => file.name)}
           departmentName={selectedDepartmentName}

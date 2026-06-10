@@ -585,6 +585,7 @@
 .summaryRow span:last-child {
   text-align: right;
   overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .uploadActions {

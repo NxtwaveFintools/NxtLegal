@@ -793,6 +793,13 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
         ),
       },
       {
+        accessorKey: 'budgetApproved',
+        header: 'Founder Approval',
+        enableSorting: false,
+        cell: ({ row }) =>
+          typeof row.original.budgetApproved === 'boolean' ? (row.original.budgetApproved ? 'Yes' : 'No') : '—',
+      },
+      {
         accessorKey: 'hodApprovedAt',
         enableSorting: false,
         header: () => (
