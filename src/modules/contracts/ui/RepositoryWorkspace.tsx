@@ -46,6 +46,10 @@ const RepositoryWorkspaceTable = dynamic<RepositoryWorkspaceTableProps>(() => im
   ),
 })
 
+const DocxPreview = dynamic(() => import('@/modules/contracts/ui/DocxPreview'), {
+  ssr: false,
+})
+
 type RepositoryWorkspaceProps = {
   session: {
     fullName?: string | null
@@ -271,6 +275,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     fileName: string
     fileMimeType: string
     externalUrl: string
+    isDocx: boolean
   } | null>(null)
   const [isUploadOpen, setIsUploadOpen] = useState(false)
   const [legalTeamMembers, setLegalTeamMembers] = useState<LegalTeamMemberOption[]>([])
@@ -572,18 +577,27 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
       resolvedMimeType.includes('ms-powerpoint') ||
       resolvedMimeType.includes('presentationml')
     const isLegacyDoc = resolvedExtension === 'doc' || resolvedMimeType.includes('application/msword')
-    const renderAsHtml = isDocx || isLegacyDoc || isPresentation || isSpreadsheet || isTextPreview
+    // Word docs are rendered client-side with docx-preview for high fidelity, so they
+    // need the raw binary rather than the server-side HTML conversion.
+    const renderAsHtml = !isDocx && (isLegacyDoc || isPresentation || isSpreadsheet || isTextPreview)
 
-    const previewUrl = contractsClient.previewUrl(contract.id, {
+    const binaryPreviewUrl = contractsClient.previewUrl(contract.id, {
       documentId: contract.currentDocumentId ?? undefined,
-      renderAs: renderAsHtml ? 'html' : 'binary',
+      renderAs: 'binary',
+    })
+    const htmlPreviewUrl = contractsClient.previewUrl(contract.id, {
+      documentId: contract.currentDocumentId ?? undefined,
+      renderAs: 'html',
     })
 
     setActivePreview({
-      url: previewUrl,
+      url: isDocx ? binaryPreviewUrl : renderAsHtml ? htmlPreviewUrl : binaryPreviewUrl,
       fileName: resolvedFileName,
       fileMimeType: resolvedMimeType,
-      externalUrl: response.data.signedUrl,
+      // Route "Open in New Tab" through our preview route (served inline) instead of
+      // the raw Supabase signed URL, which forces a download instead of displaying.
+      externalUrl: isDocx || renderAsHtml ? htmlPreviewUrl : binaryPreviewUrl,
+      isDocx,
     })
   }, [])
 
@@ -1453,7 +1467,9 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
                   </button>
                 </div>
                 <div className={styles.viewerBody}>
-                  {activePreview.fileMimeType.startsWith('image/') ? (
+                  {activePreview.isDocx ? (
+                    <DocxPreview url={activePreview.url} className={styles.viewerFrame} />
+                  ) : activePreview.fileMimeType.startsWith('image/') ? (
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={activePreview.url} alt={activePreview.fileName} className={styles.viewerFrame} />
                   ) : (

@@ -50,6 +50,10 @@ const PrepareForSigningModal = dynamic(() => import('@/modules/contracts/ui/Prep
   loading: () => <div className="animate-pulse">Loading modal...</div>,
 })
 
+const DocxPreview = dynamic(() => import('@/modules/contracts/ui/DocxPreview'), {
+  ssr: false,
+})
+
 const htmlPreviewExtensions = new Set(['doc', 'docx', 'ppt', 'pptx', 'xls', 'xlsx', 'csv', 'tsv', 'txt'])
 const defaultDomain = publicConfig.auth.allowedDomains[0] ?? 'example.com'
 const collaboratorEmailPlaceholder = `legalmember@${defaultDomain}`
@@ -215,7 +219,6 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const [renameDraft, setRenameDraft] = useState('')
   const [isSavingRename, setIsSavingRename] = useState(false)
   const [hodSuggestions, setHodSuggestions] = useState<DepartmentOption[]>([])
-  const [isIntakeOpen, setIsIntakeOpen] = useState(false)
   const [isPrepareForSigningOpen, setIsPrepareForSigningOpen] = useState(false)
   const [expandedLogIds, setExpandedLogIds] = useState<Set<string>>(new Set())
   const [showAllLogs, setShowAllLogs] = useState(false)
@@ -236,6 +239,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
   const [viewerExternalUrl, setViewerExternalUrl] = useState<string | null>(null)
   const [viewerMimeType, setViewerMimeType] = useState<string>('')
   const [viewerFileName, setViewerFileName] = useState<string>('')
+  const [viewerIsDocx, setViewerIsDocx] = useState(false)
   // Pagination state
   const [nextCursor, setNextCursor] = useState<string | null>(null)
   const [hasMore, setHasMore] = useState(false)
@@ -565,7 +569,6 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     setSelectedContractId(contractId)
     setSigningDraftRecipients([])
     setActiveTab('overview')
-    setIsIntakeOpen(false)
     setIsPrepareForSigningOpen(false)
     setExpandedLogIds(new Set())
     setShowAllLogs(false)
@@ -984,6 +987,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
           setViewerExternalUrl(response.data.signedUrl ?? viewUrl)
           setViewerMimeType('application/pdf')
           setViewerFileName(response.data.fileName)
+          setViewerIsDocx(false)
           setIsViewerOpen(true)
           return
         }
@@ -1021,23 +1025,33 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
           resolvedMimeType.includes('ms-powerpoint') ||
           resolvedMimeType.includes('presentationml')
         const isLegacyDoc = resolvedExtension === 'doc' || resolvedMimeType.includes('application/msword')
+        // Word docs are rendered client-side with docx-preview for high fidelity,
+        // so they need the raw binary rather than the server-side HTML conversion.
         const renderAsHtml =
-          isDocx ||
-          isLegacyDoc ||
-          isPresentation ||
-          isSpreadsheet ||
-          isTextPreview ||
-          htmlPreviewExtensions.has(resolvedExtension)
+          !isDocx &&
+          (isLegacyDoc ||
+            isPresentation ||
+            isSpreadsheet ||
+            isTextPreview ||
+            htmlPreviewExtensions.has(resolvedExtension))
 
-        const previewUrl = contractsClient.previewUrl(selectedContractId, {
+        const binaryPreviewUrl = contractsClient.previewUrl(selectedContractId, {
           documentId: document?.id,
-          renderAs: renderAsHtml ? 'html' : 'binary',
+          renderAs: 'binary',
+        })
+        const htmlPreviewUrl = contractsClient.previewUrl(selectedContractId, {
+          documentId: document?.id,
+          renderAs: 'html',
         })
 
-        setViewerUrl(previewUrl)
-        setViewerExternalUrl(response.data.signedUrl)
+        // Always route the viewer (and the "Open in New Tab" fallback) through our
+        // own preview route, which serves with `Content-Disposition: inline`. The raw
+        // Supabase signed URL forces a download instead of displaying in the browser.
+        setViewerUrl(isDocx ? binaryPreviewUrl : renderAsHtml ? htmlPreviewUrl : binaryPreviewUrl)
+        setViewerExternalUrl(isDocx || renderAsHtml ? htmlPreviewUrl : binaryPreviewUrl)
         setViewerMimeType(resolvedMimeType)
         setViewerFileName(resolvedFileName)
+        setViewerIsDocx(isDocx)
         setIsViewerOpen(true)
       } finally {
         setIsPreparingViewer(false)
@@ -1059,6 +1073,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     setViewerExternalUrl(null)
     setViewerMimeType('')
     setViewerFileName('')
+    setViewerIsDocx(false)
   }, [])
 
   const triggerBlobDownload = useCallback((blob: Blob, fileName: string, downloadTab?: Window | null) => {
@@ -2529,150 +2544,120 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                               : (selectedContract.counterpartyName ?? '—')}
                           </span>
                         </div>
-                        <div className={styles.row}>
-                          <span>File Name</span>
-                          <span>{selectedContract.fileName ?? '—'}</span>
-                        </div>
-                        <div className={styles.row}>
-                          <span>File Size</span>
-                          <span>
-                            {typeof selectedContract.fileSizeBytes === 'number'
-                              ? `${Math.round(selectedContract.fileSizeBytes / 1024)} KB`
-                              : '—'}
-                          </span>
-                        </div>
-                        <div className={styles.row}>
-                          <span>File Type</span>
-                          <span>{selectedContract.fileMimeType ?? '—'}</span>
-                        </div>
                       </div>
 
                       <div className={styles.card}>
-                        <button
-                          type="button"
-                          className={styles.accordionTrigger}
-                          aria-expanded={isIntakeOpen}
-                          aria-controls="intake-details-panel"
-                          onClick={() => setIsIntakeOpen((current) => !current)}
-                        >
-                          {isIntakeOpen ? '▾' : '▸'} Intake Details
-                        </button>
-                        {isIntakeOpen ? (
-                          <div id="intake-details-panel" className={styles.accordionBody}>
-                            <div className={styles.intakeLayout}>
-                              <div className={styles.intakeSnapshotGrid}>
-                                <div className={`${styles.intakePanel} ${styles.intakePanelWide}`}>
-                                  <div className={styles.intakePanelLabel}>Background of Request</div>
-                                  <p className={styles.intakeBackgroundText}>{intakeBackgroundText}</p>
+                        <div className={styles.sectionTitle}>Intake Details</div>
+                        <div id="intake-details-panel" className={styles.accordionBody}>
+                          <div className={styles.intakeLayout}>
+                            <div className={styles.intakeSnapshotGrid}>
+                              <div className={`${styles.intakePanel} ${styles.intakePanelWide}`}>
+                                <div className={styles.intakePanelLabel}>Background of Request</div>
+                                <p className={styles.intakeBackgroundText}>{intakeBackgroundText}</p>
+                              </div>
+                              <div className={styles.intakePanel}>
+                                <div className={styles.intakePanelLabel}>Request Snapshot</div>
+                                <div className={styles.intakeFactRow}>
+                                  <span>Founder Approval</span>
+                                  <strong>
+                                    {intakeBudgetApprovedValue === null
+                                      ? 'Not provided'
+                                      : intakeBudgetApprovedValue
+                                        ? 'Yes'
+                                        : 'No'}
+                                  </strong>
                                 </div>
-                                <div className={styles.intakePanel}>
-                                  <div className={styles.intakePanelLabel}>Request Snapshot</div>
-                                  <div className={styles.intakeFactRow}>
-                                    <span>Founder Approval</span>
-                                    <strong>
-                                      {intakeBudgetApprovedValue === null
-                                        ? 'Not provided'
-                                        : intakeBudgetApprovedValue
-                                          ? 'Yes'
-                                          : 'No'}
-                                    </strong>
-                                  </div>
-                                  <div className={styles.intakeFactBlock}>
-                                    <span>Budget Supporting Docs</span>
-                                    {budgetSupportingDocumentNames.length > 0 ? (
-                                      <div className={styles.intakeTagList}>
-                                        {budgetSupportingDocumentNames.map((fileName, fileIndex) => (
-                                          <span
-                                            key={`${fileName}-budget-supporting-${fileIndex}`}
-                                            className={styles.intakeTag}
-                                          >
-                                            {fileName}
-                                          </span>
-                                        ))}
-                                      </div>
-                                    ) : (
-                                      <div className={styles.eventMeta}>Not provided</div>
-                                    )}
-                                  </div>
+                                <div className={styles.intakeFactBlock}>
+                                  <span>Budget Supporting Docs</span>
+                                  {budgetSupportingDocumentNames.length > 0 ? (
+                                    <div className={styles.intakeTagList}>
+                                      {budgetSupportingDocumentNames.map((fileName, fileIndex) => (
+                                        <span
+                                          key={`${fileName}-budget-supporting-${fileIndex}`}
+                                          className={styles.intakeTag}
+                                        >
+                                          {fileName}
+                                        </span>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <div className={styles.eventMeta}>Not provided</div>
+                                  )}
                                 </div>
                               </div>
-
-                              {intakeCounterparties.length === 0 ? (
-                                <div className={styles.intakeEmpty}>
-                                  No counterparty details captured in intake yet.
-                                </div>
-                              ) : (
-                                <div className={styles.intakeCounterpartyStack}>
-                                  {intakeCounterparties.map((counterparty, counterpartyIndex) => (
-                                    <section
-                                      key={`${counterparty.counterpartyName}-${counterpartyIndex}`}
-                                      className={styles.intakeCounterpartyCard}
-                                    >
-                                      <div className={styles.intakeCounterpartyHeader}>
-                                        <span className={styles.intakeCounterpartyIndex}>
-                                          Counterparty {counterpartyIndex + 1}
-                                        </span>
-                                        <h4 className={styles.intakeCounterpartyName}>
-                                          {counterparty.counterpartyName}
-                                        </h4>
-                                      </div>
-
-                                      <div className={styles.intakeCounterpartySection}>
-                                        <div className={styles.intakeSectionLabel}>Supporting Documents</div>
-                                        {counterparty.supportingCount > 0 ? (
-                                          <div className={styles.intakeTagList}>
-                                            {counterparty.supportingFileNames.map((fileName, fileIndex) => (
-                                              <span
-                                                key={`${fileName}-counterparty-${counterpartyIndex}-${fileIndex}`}
-                                                className={styles.intakeTag}
-                                              >
-                                                {fileName}
-                                              </span>
-                                            ))}
-                                          </div>
-                                        ) : (
-                                          <div className={styles.eventMeta}>Not provided</div>
-                                        )}
-                                      </div>
-
-                                      <div className={styles.intakeCounterpartySection}>
-                                        <div className={styles.intakeSectionLabel}>Signatories</div>
-                                        {counterparty.signatories.length === 0 ? (
-                                          <div className={styles.eventMeta}>No signatories added.</div>
-                                        ) : (
-                                          <div className={styles.intakeSignatoryGrid}>
-                                            {counterparty.signatories.map((signatory, signatoryIndex) => (
-                                              <div
-                                                key={`${counterparty.counterpartyName}-${counterpartyIndex}-signatory-${signatoryIndex}`}
-                                                className={styles.intakeSignatoryCard}
-                                              >
-                                                <div className={styles.intakeSignatoryTitle}>
-                                                  Signatory {signatoryIndex + 1}
-                                                </div>
-                                                <div className={styles.intakeSignatoryRow}>
-                                                  <span>Name</span>
-                                                  <span>{signatory.name || '—'}</span>
-                                                </div>
-                                                <div className={styles.intakeSignatoryRow}>
-                                                  <span>Designation</span>
-                                                  <span>{signatory.designation || '—'}</span>
-                                                </div>
-                                                <div className={styles.intakeSignatoryRow}>
-                                                  <span>Email</span>
-                                                  <span>{signatory.email || '—'}</span>
-                                                </div>
-                                              </div>
-                                            ))}
-                                          </div>
-                                        )}
-                                      </div>
-                                    </section>
-                                  ))}
-                                </div>
-                              )}
                             </div>
+
+                            {intakeCounterparties.length === 0 ? (
+                              <div className={styles.intakeEmpty}>No counterparty details captured in intake yet.</div>
+                            ) : (
+                              <div className={styles.intakeCounterpartyStack}>
+                                {intakeCounterparties.map((counterparty, counterpartyIndex) => (
+                                  <section
+                                    key={`${counterparty.counterpartyName}-${counterpartyIndex}`}
+                                    className={styles.intakeCounterpartyCard}
+                                  >
+                                    <div className={styles.intakeCounterpartyHeader}>
+                                      <span className={styles.intakeCounterpartyIndex}>
+                                        Counterparty {counterpartyIndex + 1}
+                                      </span>
+                                      <h4 className={styles.intakeCounterpartyName}>{counterparty.counterpartyName}</h4>
+                                    </div>
+
+                                    <div className={styles.intakeCounterpartySection}>
+                                      <div className={styles.intakeSectionLabel}>Supporting Documents</div>
+                                      {counterparty.supportingCount > 0 ? (
+                                        <div className={styles.intakeTagList}>
+                                          {counterparty.supportingFileNames.map((fileName, fileIndex) => (
+                                            <span
+                                              key={`${fileName}-counterparty-${counterpartyIndex}-${fileIndex}`}
+                                              className={styles.intakeTag}
+                                            >
+                                              {fileName}
+                                            </span>
+                                          ))}
+                                        </div>
+                                      ) : (
+                                        <div className={styles.eventMeta}>Not provided</div>
+                                      )}
+                                    </div>
+
+                                    <div className={styles.intakeCounterpartySection}>
+                                      <div className={styles.intakeSectionLabel}>Signatories</div>
+                                      {counterparty.signatories.length === 0 ? (
+                                        <div className={styles.eventMeta}>No signatories added.</div>
+                                      ) : (
+                                        <div className={styles.intakeSignatoryGrid}>
+                                          {counterparty.signatories.map((signatory, signatoryIndex) => (
+                                            <div
+                                              key={`${counterparty.counterpartyName}-${counterpartyIndex}-signatory-${signatoryIndex}`}
+                                              className={styles.intakeSignatoryCard}
+                                            >
+                                              <div className={styles.intakeSignatoryTitle}>
+                                                Signatory {signatoryIndex + 1}
+                                              </div>
+                                              <div className={styles.intakeSignatoryRow}>
+                                                <span>Name</span>
+                                                <span>{signatory.name || '—'}</span>
+                                              </div>
+                                              <div className={styles.intakeSignatoryRow}>
+                                                <span>Designation</span>
+                                                <span>{signatory.designation || '—'}</span>
+                                              </div>
+                                              <div className={styles.intakeSignatoryRow}>
+                                                <span>Email</span>
+                                                <span>{signatory.email || '—'}</span>
+                                              </div>
+                                            </div>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  </section>
+                                ))}
+                              </div>
+                            )}
                           </div>
-                        ) : null}
+                        </div>
                       </div>
 
                       {canManageLegalWorkSharing && (
@@ -3208,7 +3193,9 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
               </button>
             </div>
             <div className={styles.viewerBody}>
-              {viewerMimeType.startsWith('image/') ? (
+              {viewerIsDocx ? (
+                <DocxPreview url={viewerUrl} className={styles.viewerFrame} />
+              ) : viewerMimeType.startsWith('image/') ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img src={viewerUrl} alt={viewerFileName} className={styles.viewerFrame} />
               ) : viewerMimeType.startsWith('video/') ? (
