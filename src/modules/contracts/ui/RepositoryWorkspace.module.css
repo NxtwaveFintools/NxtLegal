@@ -256,6 +256,17 @@
   padding: 0;
   cursor: pointer;
   text-decoration: none;
+  max-width: 300px;
+}
+
+.contractTitleClamp {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  white-space: normal;
+  word-break: break-word;
+  line-height: 1.45;
 }
 
 .contractTitleAction:hover {
@@ -761,6 +772,21 @@
   border-radius: 50%;
   background: var(--color-accent);
   display: inline-block;
+}
+
+.filterActiveCount {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  color: var(--color-accent-contrast);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
 }
 
 .filterHeaderDropdown {

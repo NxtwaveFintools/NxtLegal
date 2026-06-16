@@ -2,7 +2,7 @@
 
 import dynamic from 'next/dynamic'
 import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { type ColumnDef, type SortingState } from '@tanstack/react-table'
 import { useDebouncedValue } from '@/lib/hooks/use-debounced-value'
 import { toast } from 'sonner'
@@ -32,18 +32,6 @@ import styles from './RepositoryWorkspace.module.css'
 
 const RepositoryWorkspaceTable = dynamic<RepositoryWorkspaceTableProps>(() => import('./RepositoryWorkspaceTable'), {
   ssr: false,
-  loading: () => (
-    <div>
-      {[1, 2, 3, 4, 5].map((item) => (
-        <div key={item} className={styles.shimmerTableRow}>
-          <div className={styles.shimmerCell} style={{ width: `${50 + item * 8}%` }} />
-          <div className={styles.shimmerCell} style={{ width: '70%' }} />
-          <div className={styles.shimmerCell} style={{ width: '65%' }} />
-          <div className={styles.shimmerCell} style={{ width: '50%' }} />
-        </div>
-      ))}
-    </div>
-  ),
 })
 
 const DocxPreview = dynamic(() => import('@/modules/contracts/ui/DocxPreview'), {
@@ -228,6 +216,7 @@ function toFallbackDisplayName(email: string): string {
 
 export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProps) {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const normalizedRole = (session.role ?? '').toUpperCase()
   const isLegalTeamRole = normalizedRole === 'LEGAL_TEAM' || normalizedRole === 'ADMIN'
   const canSeeTatAndAging =
@@ -243,13 +232,19 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
 
   const [contracts, setContracts] = useState<ContractRecord[]>([])
   const [isLoading, setIsLoading] = useState(true)
-  const [search, setSearch] = useState('')
+  const [search, setSearch] = useState(() => searchParams.get('q') ?? '')
   const debouncedSearch = useDebouncedValue(search, 400)
-  const [statusFilter, setStatusFilter] = useState<RepositoryStatusFilter | ''>('')
-  const [dateBasis, setDateBasis] = useState<RepositoryDateBasis>('request_created_at')
-  const [datePreset, setDatePreset] = useState<RepositoryDatePreset | ''>('')
-  const [customFromDate, setCustomFromDate] = useState('')
-  const [customToDate, setCustomToDate] = useState('')
+  const [statusFilter, setStatusFilter] = useState<RepositoryStatusFilter | ''>(
+    () => (searchParams.get('status') ?? '') as RepositoryStatusFilter | ''
+  )
+  const [dateBasis, setDateBasis] = useState<RepositoryDateBasis>(
+    () => (searchParams.get('dateBasis') as RepositoryDateBasis) ?? 'request_created_at'
+  )
+  const [datePreset, setDatePreset] = useState<RepositoryDatePreset | ''>(
+    () => (searchParams.get('datePreset') as RepositoryDatePreset) ?? ''
+  )
+  const [customFromDate, setCustomFromDate] = useState(() => searchParams.get('from') ?? '')
+  const [customToDate, setCustomToDate] = useState(() => searchParams.get('to') ?? '')
   const [sorting, setSorting] = useState<SortingState>([{ id: 'requestDate', desc: true }])
   const [cursorHistory, setCursorHistory] = useState<Array<string | undefined>>([undefined])
   const [nextCursor, setNextCursor] = useState<string | null>(null)
@@ -284,9 +279,15 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
   const [assignmentSavingByContractId, setAssignmentSavingByContractId] = useState<Record<string, boolean>>({})
   const [assignmentErrorByContractId, setAssignmentErrorByContractId] = useState<Record<string, string>>({})
   const [departments, setDepartments] = useState<DepartmentOption[]>([])
-  const [departmentFilter, setDepartmentFilter] = useState<string>('')
-  const [hodApprovalFilter, setHodApprovalFilter] = useState<'yes' | 'no' | ''>('')
-  const [assignedToFilter, setAssignedToFilter] = useState<string>('')
+  const [departmentFilters, setDepartmentFilters] = useState<string[]>(
+    () => searchParams.get('depts')?.split(',').filter(Boolean) ?? []
+  )
+  const [hodApprovalFilter, setHodApprovalFilter] = useState<'yes' | 'no' | ''>(
+    () => (searchParams.get('hod') ?? '') as 'yes' | 'no' | ''
+  )
+  const [assignedToFilters, setAssignedToFilters] = useState<string[]>(
+    () => searchParams.get('assignees')?.split(',').filter(Boolean) ?? []
+  )
   const [openHeaderFilter, setOpenHeaderFilter] = useState<'department' | 'hodApproval' | 'assignedTo' | null>(null)
   const tableWrapRef = useRef<HTMLElement | null>(null)
   const tableAutoScrollFrameRef = useRef<number | null>(null)
@@ -380,9 +381,9 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
         datePreset: datePreset || undefined,
         fromDate: datePreset === 'custom' && customFromDate ? customFromDate : undefined,
         toDate: datePreset === 'custom' && customToDate ? customToDate : undefined,
-        departmentId: departmentFilter || undefined,
+        departmentIds: departmentFilters.length > 0 ? departmentFilters : undefined,
         hodApproval: hodApprovalFilter || undefined,
-        assignedToEmail: assignedToFilter || undefined,
+        assignedToEmails: assignedToFilters.length > 0 ? assignedToFilters : undefined,
         includeReport: canAccessRepositoryReporting,
       })
 
@@ -423,9 +424,9 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     statusFilter,
     sortBy,
     sortDirection,
-    departmentFilter,
+    departmentFilters,
     hodApprovalFilter,
-    assignedToFilter,
+    assignedToFilters,
     rowsPerPage,
   ])
 
@@ -501,10 +502,35 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     statusFilter,
     sortBy,
     sortDirection,
-    departmentFilter,
+    departmentFilters,
     hodApprovalFilter,
-    assignedToFilter,
+    assignedToFilters,
     rowsPerPage,
+  ])
+
+  useEffect(() => {
+    const params = new URLSearchParams()
+    if (search) params.set('q', search)
+    if (statusFilter) params.set('status', statusFilter)
+    if (departmentFilters.length > 0) params.set('depts', departmentFilters.join(','))
+    if (hodApprovalFilter) params.set('hod', hodApprovalFilter)
+    if (assignedToFilters.length > 0) params.set('assignees', assignedToFilters.join(','))
+    if (dateBasis !== 'request_created_at') params.set('dateBasis', dateBasis)
+    if (datePreset) params.set('datePreset', datePreset)
+    if (customFromDate) params.set('from', customFromDate)
+    if (customToDate) params.set('to', customToDate)
+    const qs = params.toString()
+    window.history.replaceState(null, '', qs ? `/repository?${qs}` : '/repository')
+  }, [
+    search,
+    statusFilter,
+    departmentFilters,
+    hodApprovalFilter,
+    assignedToFilters,
+    dateBasis,
+    datePreset,
+    customFromDate,
+    customToDate,
   ])
 
   const handleStatusFilterChange = useCallback((value: RepositoryStatusFilter | '') => {
@@ -712,6 +738,11 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     [assignmentSavingByContractId, contracts, isLegalTeamRole, resolveContractCollaboratorEmails]
   )
 
+  const handleOpenContractInNewTab = useCallback((contractId: string) => {
+    const url = contractsClient.resolveProtectedContractPath(contractId, { from: 'repository' })
+    window.open(url, '_blank', 'noopener,noreferrer')
+  }, [])
+
   const columns = useMemo<ColumnDef<ContractRecord>[]>(
     () => [
       {
@@ -725,16 +756,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
       {
         accessorKey: 'creator',
         header: 'Creator',
-        cell: ({ row }) => {
-          const creatorName = row.original.creatorName?.trim()
-          const creatorEmail = row.original.uploadedByEmail?.trim()
-
-          if (creatorName && creatorEmail) {
-            return `${creatorName} (${creatorEmail})`
-          }
-
-          return creatorName || creatorEmail || '—'
-        },
+        cell: ({ row }) => row.original.creatorName?.trim() || row.original.uploadedByEmail?.trim() || '—',
       },
       {
         accessorKey: 'department',
@@ -743,45 +765,49 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
           <div className={styles.filterHeader} data-repository-header-filter>
             <button
               type="button"
-              className={`${styles.filterHeaderTrigger} ${departmentFilter ? styles.filterHeaderTriggerActive : ''}`}
+              className={`${styles.filterHeaderTrigger} ${departmentFilters.length > 0 ? styles.filterHeaderTriggerActive : ''}`}
               onClick={() => setOpenHeaderFilter((current) => (current === 'department' ? null : 'department'))}
             >
               <span>Department</span>
-              {departmentFilter ? <span className={styles.filterActiveDot} /> : null}
+              {departmentFilters.length > 0 ? (
+                <span className={styles.filterActiveCount}>{departmentFilters.length}</span>
+              ) : null}
               <span className={styles.filterHeaderCaret}>{openHeaderFilter === 'department' ? '▴' : '▾'}</span>
             </button>
             {openHeaderFilter === 'department' ? (
               <div className={styles.filterHeaderDropdown}>
                 <button
                   type="button"
-                  className={`${styles.filterHeaderOption} ${!departmentFilter ? styles.filterHeaderOptionSelected : ''}`}
+                  className={`${styles.filterHeaderOption} ${departmentFilters.length === 0 ? styles.filterHeaderOptionSelected : ''}`}
                   onClick={() => {
-                    setDepartmentFilter('')
+                    setDepartmentFilters([])
                     setOpenHeaderFilter(null)
                   }}
                 >
                   <span>All departments</span>
-                  {!departmentFilter ? <span className={styles.filterHeaderOptionCheck}>✓</span> : null}
+                  {departmentFilters.length === 0 ? <span className={styles.filterHeaderOptionCheck}>✓</span> : null}
                 </button>
                 {departments.length === 0 ? (
                   <div className={styles.filterHeaderEmpty}>No departments available</div>
                 ) : (
-                  departments.map((dept) => (
-                    <button
-                      key={dept.id}
-                      type="button"
-                      className={`${styles.filterHeaderOption} ${
-                        departmentFilter === dept.id ? styles.filterHeaderOptionSelected : ''
-                      }`}
-                      onClick={() => {
-                        setDepartmentFilter(dept.id)
-                        setOpenHeaderFilter(null)
-                      }}
-                    >
-                      <span>{dept.name}</span>
-                      {departmentFilter === dept.id ? <span className={styles.filterHeaderOptionCheck}>✓</span> : null}
-                    </button>
-                  ))
+                  departments.map((dept) => {
+                    const isSelected = departmentFilters.includes(dept.id)
+                    return (
+                      <button
+                        key={dept.id}
+                        type="button"
+                        className={`${styles.filterHeaderOption} ${isSelected ? styles.filterHeaderOptionSelected : ''}`}
+                        onClick={() => {
+                          setDepartmentFilters((current) =>
+                            isSelected ? current.filter((id) => id !== dept.id) : [...current, dept.id]
+                          )
+                        }}
+                      >
+                        <span>{dept.name}</span>
+                        {isSelected ? <span className={styles.filterHeaderOptionCheck}>✓</span> : null}
+                      </button>
+                    )
+                  })
                 )}
               </div>
             ) : null}
@@ -798,11 +824,15 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
             className={styles.contractTitleAction}
             onClick={(event) => {
               event.stopPropagation()
-              void handleOpenCurrentDocument(row.original)
+              if (event.ctrlKey || event.metaKey) {
+                handleOpenContractInNewTab(row.original.id)
+              } else {
+                void handleOpenCurrentDocument(row.original)
+              }
             }}
-            title="Open current document"
+            title={row.original.title}
           >
-            {row.original.title}
+            <span className={styles.contractTitleClamp}>{row.original.title}</span>
           </button>
         ),
       },
@@ -938,32 +968,34 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
             <div className={styles.filterHeader} data-repository-header-filter>
               <button
                 type="button"
-                className={`${styles.filterHeaderTrigger} ${assignedToFilter ? styles.filterHeaderTriggerActive : ''}`}
+                className={`${styles.filterHeaderTrigger} ${assignedToFilters.length > 0 ? styles.filterHeaderTriggerActive : ''}`}
                 onClick={() => setOpenHeaderFilter((current) => (current === 'assignedTo' ? null : 'assignedTo'))}
               >
                 <span>Assigned To</span>
-                {assignedToFilter ? <span className={styles.filterActiveDot} /> : null}
+                {assignedToFilters.length > 0 ? (
+                  <span className={styles.filterActiveCount}>{assignedToFilters.length}</span>
+                ) : null}
                 <span className={styles.filterHeaderCaret}>{openHeaderFilter === 'assignedTo' ? '▴' : '▾'}</span>
               </button>
               {openHeaderFilter === 'assignedTo' ? (
                 <div className={styles.filterHeaderDropdown}>
                   <button
                     type="button"
-                    className={`${styles.filterHeaderOption} ${!assignedToFilter ? styles.filterHeaderOptionSelected : ''}`}
+                    className={`${styles.filterHeaderOption} ${assignedToFilters.length === 0 ? styles.filterHeaderOptionSelected : ''}`}
                     onClick={() => {
-                      setAssignedToFilter('')
+                      setAssignedToFilters([])
                       setOpenHeaderFilter(null)
                     }}
                   >
                     <span>All assignees</span>
-                    {!assignedToFilter ? <span className={styles.filterHeaderOptionCheck}>✓</span> : null}
+                    {assignedToFilters.length === 0 ? <span className={styles.filterHeaderOptionCheck}>✓</span> : null}
                   </button>
                   {legalTeamMembers.length === 0 ? (
                     <div className={styles.filterHeaderEmpty}>No legal team members</div>
                   ) : (
                     legalTeamMembers.map((member) => {
                       const memberEmail = member.email.toLowerCase()
-                      const isSelected = assignedToFilter === memberEmail
+                      const isSelected = assignedToFilters.includes(memberEmail)
                       const memberDisplayName = member.fullName?.trim() || toFallbackDisplayName(member.email)
 
                       return (
@@ -972,8 +1004,9 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
                           type="button"
                           className={`${styles.filterHeaderOption} ${isSelected ? styles.filterHeaderOptionSelected : ''}`}
                           onClick={() => {
-                            setAssignedToFilter(memberEmail)
-                            setOpenHeaderFilter(null)
+                            setAssignedToFilters((current) =>
+                              isSelected ? current.filter((e) => e !== memberEmail) : [...current, memberEmail]
+                            )
                           }}
                         >
                           <span>{memberDisplayName}</span>
@@ -1127,6 +1160,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
       assignmentErrorByContractId,
       assignmentSavingByContractId,
       handleContractAssignmentChange,
+      handleOpenContractInNewTab,
       handleOpenCurrentDocument,
       isLegalTeamRole,
       canSeeTatAndAging,
@@ -1137,9 +1171,9 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
       resolveContractCollaboratorEmails,
       resolveEmailDisplayName,
       departments,
-      departmentFilter,
+      departmentFilters,
       hodApprovalFilter,
-      assignedToFilter,
+      assignedToFilters,
       openHeaderFilter,
     ]
   )
@@ -1163,9 +1197,9 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
         datePreset: datePreset || undefined,
         fromDate: datePreset === 'custom' && customFromDate ? customFromDate : undefined,
         toDate: datePreset === 'custom' && customToDate ? customToDate : undefined,
-        departmentId: departmentFilter || undefined,
+        departmentIds: departmentFilters.length > 0 ? departmentFilters : undefined,
         hodApproval: hodApprovalFilter || undefined,
-        assignedToEmail: assignedToFilter || undefined,
+        assignedToEmails: assignedToFilters.length > 0 ? assignedToFilters : undefined,
         format,
         columns: selectedExportColumns,
       })
@@ -1181,9 +1215,9 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
       debouncedSearch,
       selectedExportColumns,
       statusFilter,
-      departmentFilter,
+      departmentFilters,
       hodApprovalFilter,
-      assignedToFilter,
+      assignedToFilters,
     ]
   )
 
@@ -1443,6 +1477,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
               onSortingChange={handleSortingChange}
               isLoading={isLoading}
               onOpenContract={handleOpenContract}
+              onOpenContractInNewTab={handleOpenContractInNewTab}
               canSeeTatAndAging={canSeeTatAndAging}
             />
           </section>

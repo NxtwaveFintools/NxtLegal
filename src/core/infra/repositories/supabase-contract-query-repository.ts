@@ -1015,9 +1015,9 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     datePreset?: RepositoryDatePreset
     fromDate?: string
     toDate?: string
-    departmentId?: string
+    departmentIds?: string[]
     hodApproval?: 'yes' | 'no'
-    assignedToEmail?: string
+    assignedToEmails?: string[]
   }): Promise<{ items: ContractListItem[]; nextCursor?: string; total: number }> {
     const startedAt = Date.now()
     try {
@@ -1037,9 +1037,9 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         ? repositoryStatusToWorkflowStatuses[params.repositoryStatus]
         : null
 
-      const normalizedAssignedToEmail = params.assignedToEmail?.trim().toLowerCase() || undefined
-      const assignedToContractIdSet = normalizedAssignedToEmail
-        ? await this.resolveContractIdsAssignedToEmail(params.tenantId, normalizedAssignedToEmail)
+      const assignedToEmails = params.assignedToEmails?.length ? params.assignedToEmails : undefined
+      const assignedToContractIdSet = assignedToEmails
+        ? await this.resolveContractIdsForEmails(params.tenantId, assignedToEmails)
         : null
 
       if (assignedToContractIdSet && assignedToContractIdSet.size === 0) {
@@ -1113,8 +1113,8 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
           query = query.in('department_id', visibilityFilter.hodDepartmentIds)
         }
 
-        if (params.departmentId) {
-          query = query.eq('department_id', params.departmentId)
+        if (params.departmentIds && params.departmentIds.length > 0) {
+          query = query.in('department_id', params.departmentIds)
         }
 
         if (params.hodApproval === 'yes') {
@@ -1172,8 +1172,8 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
           totalQuery = totalQuery.in('department_id', visibilityFilter.hodDepartmentIds)
         }
 
-        if (params.departmentId) {
-          totalQuery = totalQuery.eq('department_id', params.departmentId)
+        if (params.departmentIds && params.departmentIds.length > 0) {
+          totalQuery = totalQuery.in('department_id', params.departmentIds)
         }
 
         if (params.hodApproval === 'yes') {
@@ -1492,9 +1492,9 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     datePreset?: RepositoryDatePreset
     fromDate?: string
     toDate?: string
-    departmentId?: string
+    departmentIds?: string[]
     hodApproval?: 'yes' | 'no'
-    assignedToEmail?: string
+    assignedToEmails?: string[]
     columns: RepositoryExportColumn[]
   }): Promise<RepositoryExportRow[]> {
     const rows: RepositoryExportRow[] = []
@@ -1532,9 +1532,9 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     datePreset?: RepositoryDatePreset
     fromDate?: string
     toDate?: string
-    departmentId?: string
+    departmentIds?: string[]
     hodApproval?: 'yes' | 'no'
-    assignedToEmail?: string
+    assignedToEmails?: string[]
     columns: RepositoryExportColumn[]
   }): Promise<RepositoryExportRowsChunk> {
     const result = await this.listRepositoryContracts({
@@ -1552,9 +1552,9 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       datePreset: params.datePreset,
       fromDate: params.fromDate,
       toDate: params.toDate,
-      departmentId: params.departmentId,
+      departmentIds: params.departmentIds,
       hodApproval: params.hodApproval,
-      assignedToEmail: params.assignedToEmail,
+      assignedToEmails: params.assignedToEmails,
     })
 
     const selectedColumns =
@@ -6571,6 +6571,17 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     }
 
     return contextMap
+  }
+
+  private async resolveContractIdsForEmails(tenantId: string, emails: string[]): Promise<Set<string>> {
+    const sets = await Promise.all(emails.map((email) => this.resolveContractIdsAssignedToEmail(tenantId, email)))
+    const result = new Set<string>()
+    for (const set of sets) {
+      for (const id of set) {
+        result.add(id)
+      }
+    }
+    return result
   }
 
   private async resolveContractIdsAssignedToEmail(tenantId: string, email: string): Promise<Set<string>> {

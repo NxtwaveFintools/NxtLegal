@@ -1944,7 +1944,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     }
 
     if (source === 'repository') {
-      router.push('/repository')
+      router.back()
       return
     }
 
@@ -2151,6 +2151,16 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                 <div className={styles.shimmerLine} style={{ width: '35%', height: 10 }} />
               </div>
             ))}
+          </div>
+        ) : contracts.length === 0 ? (
+          <div className={styles.emptyState}>
+            <div className={styles.emptyStateIcon}>
+              <FileText size={20} aria-hidden="true" />
+            </div>
+            <div style={{ fontWeight: 600 }}>No contracts found</div>
+            <div className={styles.itemMeta}>
+              You may not have access to any contracts, or none match your current filters.
+            </div>
           </div>
         ) : (
           <div className={styles.list}>
