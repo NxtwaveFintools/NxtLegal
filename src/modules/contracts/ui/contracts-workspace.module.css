@@ -4,8 +4,8 @@
   display: grid;
   grid-template-columns: 304px minmax(0, 1fr);
   gap: 0;
-  height: 100vh;
-  min-height: 100dvh;
+  height: calc(100vh - var(--dashboard-topbar-height, 0px));
+  min-height: calc(100dvh - var(--dashboard-topbar-height, 0px));
   width: 100%;
   max-width: 100%;
   overflow: hidden;
@@ -17,7 +17,7 @@
 }
 
 .layoutCollapsed {
-  grid-template-columns: 72px minmax(0, 1fr);
+  grid-template-columns: 0 minmax(0, 1fr);
 }
 
 /* ── Sidebar Panel ── */
@@ -32,41 +32,11 @@
 }
 
 .sidebarCollapsed {
-  width: 72px;
-  opacity: 1;
+  width: 0;
   overflow: hidden;
-}
-
-.sidebarCollapsed .sidebarTitle,
-.sidebarCollapsed .sidebarCount {
-  display: none;
-}
-
-.sidebarCollapsed .sidebarHeader {
-  padding: 16px;
-}
-
-.sidebarCollapsed .sidebarHeaderRow {
-  justify-content: center;
-  gap: 0;
-}
-
-.sidebarCollapsed .sidebarHeaderRow > div {
-  display: none;
-}
-
-.sidebarCollapsed .sidebarTitle {
-  display: none;
-}
-
-.sidebarCollapsed .menuButton {
-  width: 38px;
-  height: 38px;
-  padding: 0;
-}
-
-.sidebarCollapsed .list {
-  display: none;
+  border-right: none;
+  opacity: 0;
+  pointer-events: none;
 }
 
 .sidebarHeader {
@@ -78,7 +48,7 @@
 .sidebarHeaderRow {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 10px;
 }
 
@@ -1916,6 +1886,10 @@
   line-height: 1.45;
   padding: 10px 12px;
   white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  max-height: 120px;
+  overflow-y: auto;
 }
 
 .actionContextLabel {

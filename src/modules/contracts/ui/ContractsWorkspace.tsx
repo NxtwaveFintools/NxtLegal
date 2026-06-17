@@ -2123,24 +2123,10 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
               <span className={styles.sidebarTitle}>Contracts</span>
               {!isLoading && (
                 <span className={styles.sidebarCountBadge}>
-                  {contracts.length}
-                  {totalContracts > 0 ? ` / ${totalContracts}` : ''}
+                  {totalContracts > 0 ? totalContracts : contracts.length}
                 </span>
               )}
             </div>
-            <button
-              type="button"
-              className={styles.menuButton}
-              aria-label={isSidebarOpen ? 'Hide contracts list' : 'Show contracts list'}
-              aria-expanded={isSidebarOpen}
-              onClick={() => setIsSidebarOpen((current) => !current)}
-            >
-              {isSidebarOpen ? (
-                <PanelLeftClose size={16} aria-hidden="true" />
-              ) : (
-                <PanelLeftOpen size={16} aria-hidden="true" />
-              )}
-            </button>
           </div>
         </div>
         {isLoading ? (
@@ -2187,7 +2173,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                 disabled={isLoadingMore}
                 onClick={() => void loadMore()}
               >
-                {isLoadingMore ? 'Loading…' : `Load More (${contracts.length} of ${totalContracts})`}
+                {isLoadingMore ? 'Loading…' : `Load more (${totalContracts - contracts.length} remaining)`}
               </button>
             )}
           </div>
@@ -2198,6 +2184,19 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       <section className={styles.detail}>
         <ErrorBoundary sectionLabel="contract details" resetKey={selectedContractId}>
           <div className={styles.headerRow}>
+            <button
+              type="button"
+              className={styles.menuButton}
+              aria-label={isSidebarOpen ? 'Hide contracts list' : 'Show contracts list'}
+              aria-expanded={isSidebarOpen}
+              onClick={() => setIsSidebarOpen((current) => !current)}
+            >
+              {isSidebarOpen ? (
+                <PanelLeftClose size={16} aria-hidden="true" />
+              ) : (
+                <PanelLeftOpen size={16} aria-hidden="true" />
+              )}
+            </button>
             <button type="button" className={styles.backButton} onClick={handleBackNavigation}>
               <ArrowLeft size={14} aria-hidden="true" />
               <span>Back</span>
