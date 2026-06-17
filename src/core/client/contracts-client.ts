@@ -661,9 +661,9 @@ export const contractsClient = {
     datePreset?: RepositoryDatePreset
     fromDate?: string
     toDate?: string
-    departmentId?: string
+    departmentIds?: string[]
     hodApproval?: 'yes' | 'no'
-    assignedToEmail?: string
+    assignedToEmails?: string[]
     /** When true, the response will include reporting aggregates; avoids a separate repositoryReport call. */
     includeReport?: boolean
   }): Promise<ApiResponse<RepositoryListResponse>> {
@@ -713,16 +713,16 @@ export const contractsClient = {
       query.set('toDate', params.toDate)
     }
 
-    if (params?.departmentId) {
-      query.set('departmentId', params.departmentId)
+    if (params?.departmentIds && params.departmentIds.length > 0) {
+      query.set('departmentIds', params.departmentIds.join(','))
     }
 
     if (params?.hodApproval) {
       query.set('hodApproval', params.hodApproval)
     }
 
-    if (params?.assignedToEmail) {
-      query.set('assignedToEmail', params.assignedToEmail)
+    if (params?.assignedToEmails && params.assignedToEmails.length > 0) {
+      query.set('assignedToEmails', params.assignedToEmails.join(','))
     }
 
     if (params?.includeReport) {
@@ -792,9 +792,9 @@ export const contractsClient = {
     datePreset?: RepositoryDatePreset
     fromDate?: string
     toDate?: string
-    departmentId?: string
+    departmentIds?: string[]
     hodApproval?: 'yes' | 'no'
-    assignedToEmail?: string
+    assignedToEmails?: string[]
     format?: RepositoryExportFormat
     columns?: RepositoryExportColumn[]
   }): string {
@@ -828,16 +828,16 @@ export const contractsClient = {
       query.set('toDate', params.toDate)
     }
 
-    if (params?.departmentId) {
-      query.set('departmentId', params.departmentId)
+    if (params?.departmentIds && params.departmentIds.length > 0) {
+      query.set('departmentIds', params.departmentIds.join(','))
     }
 
     if (params?.hodApproval) {
       query.set('hodApproval', params.hodApproval)
     }
 
-    if (params?.assignedToEmail) {
-      query.set('assignedToEmail', params.assignedToEmail)
+    if (params?.assignedToEmails && params.assignedToEmails.length > 0) {
+      query.set('assignedToEmails', params.assignedToEmails.join(','))
     }
 
     if (params?.format) {

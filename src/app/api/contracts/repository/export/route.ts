@@ -110,9 +110,9 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
       datePreset,
       fromDate,
       toDate,
-      departmentId,
+      departmentIds,
       hodApproval,
-      assignedToEmail,
+      assignedToEmails,
       format,
       columns,
     } = repositoryExportQuerySchema.parse(queryParams)
@@ -159,9 +159,9 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
                 datePreset,
                 fromDate,
                 toDate,
-                departmentId,
+                departmentIds,
                 hodApproval,
-                assignedToEmail,
+                assignedToEmails,
                 columns: selectedColumns,
               })
 
@@ -224,9 +224,9 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
       datePreset,
       fromDate,
       toDate,
-      departmentId,
+      departmentIds,
       hodApproval,
-      assignedToEmail,
+      assignedToEmails,
       columns: selectedColumns,
     })
 
