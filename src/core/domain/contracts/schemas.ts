@@ -109,9 +109,27 @@ export const repositoryContractsQuerySchema = z.object({
   datePreset: z.enum(repositoryDatePresetValues).optional(),
   fromDate: z.string().date().optional(),
   toDate: z.string().date().optional(),
-  departmentId: z.string().uuid().optional(),
+  departmentIds: z.preprocess(
+    (val) =>
+      typeof val === 'string' && val
+        ? val
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : undefined,
+    z.array(z.string().uuid()).max(20).optional()
+  ),
   hodApproval: z.enum(repositoryHodApprovalValues).optional(),
-  assignedToEmail: z.string().trim().toLowerCase().email().optional(),
+  assignedToEmails: z.preprocess(
+    (val) =>
+      typeof val === 'string' && val
+        ? val
+            .split(',')
+            .map((s) => s.trim().toLowerCase())
+            .filter(Boolean)
+        : undefined,
+    z.array(z.string().email()).max(10).optional()
+  ),
   // When true, the response also includes the reporting aggregates (avoids a second round-trip).
   includeReport: z.coerce.boolean().optional().default(false),
 })
