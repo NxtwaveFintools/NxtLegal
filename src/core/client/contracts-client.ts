@@ -104,6 +104,7 @@ type DashboardContractsFilter =
   | 'ON_HOLD'
   | 'REJECTED'
   | 'ASSIGNED_TO_ME'
+  | 'ALL_ASSIGNED'
 type DashboardContractsScope = 'default' | 'personal'
 
 type RepositorySortBy = 'title' | 'created_at' | 'hod_approved_at' | 'status' | 'tat_deadline_at'

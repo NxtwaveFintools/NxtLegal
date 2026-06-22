@@ -571,9 +571,18 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         statusFilter = contractStatuses.hodPending
       }
 
+      const nonPendingStatuses = [
+        contractStatuses.completed,
+        contractStatuses.executed,
+        contractStatuses.void,
+        contractStatuses.rejected,
+      ]
+      const shouldExcludeNonPending = resolvedFilter === 'ASSIGNED_TO_ME' && !shouldUsePersonalScope
+
       const decodedCursor = this.decodeTimestampIdCursor(params.cursor)
       const supabase = createServiceSupabase()
-      const shouldFilterAssignedToMe = resolvedFilter === 'ASSIGNED_TO_ME' && !shouldUsePersonalScope
+      const shouldFilterAssignedToMe =
+        (resolvedFilter === 'ASSIGNED_TO_ME' || resolvedFilter === 'ALL_ASSIGNED') && !shouldUsePersonalScope
       const actorEmailPromise = shouldUsePersonalScope
         ? this.getEmployeeEmail(params.tenantId, params.employeeId)
         : Promise.resolve<string | null>(null)
@@ -592,6 +601,8 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
             if (statusFilter) {
               assigneeQuery = assigneeQuery.eq('status', statusFilter)
+            } else if (shouldExcludeNonPending) {
+              assigneeQuery = assigneeQuery.not('status', 'in', `(${nonPendingStatuses.join(',')})`)
             }
 
             return assigneeQuery
@@ -644,6 +655,12 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
             if (statusFilter) {
               collaboratorContractQuery = collaboratorContractQuery.eq('status', statusFilter)
+            } else if (shouldExcludeNonPending) {
+              collaboratorContractQuery = collaboratorContractQuery.not(
+                'status',
+                'in',
+                `(${nonPendingStatuses.join(',')})`
+              )
             }
 
             const { data: collaboratorContractRows, error: collaboratorContractError } = await collaboratorContractQuery
@@ -701,6 +718,8 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
         if (statusFilter) {
           query = query.eq('status', statusFilter)
+        } else if (shouldExcludeNonPending) {
+          query = query.not('status', 'in', `(${nonPendingStatuses.join(',')})`)
         }
 
         if (decodedCursor) {
@@ -739,6 +758,8 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
             if (statusFilter) {
               totalQuery = totalQuery.eq('status', statusFilter)
+            } else if (shouldExcludeNonPending) {
+              totalQuery = totalQuery.not('status', 'in', `(${nonPendingStatuses.join(',')})`)
             }
 
             if (assignedContractIds) {
@@ -856,8 +877,17 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       statusFilter = contractStatuses.hodPending
     }
 
+    const nonPendingStatuses = [
+      contractStatuses.completed,
+      contractStatuses.executed,
+      contractStatuses.void,
+      contractStatuses.rejected,
+    ]
+    const shouldExcludeNonPending = resolvedFilter === 'ASSIGNED_TO_ME' && !shouldUsePersonalScope
+
     const supabase = createServiceSupabase()
-    const shouldFilterAssignedToMe = resolvedFilter === 'ASSIGNED_TO_ME' && !shouldUsePersonalScope
+    const shouldFilterAssignedToMe =
+      (resolvedFilter === 'ASSIGNED_TO_ME' || resolvedFilter === 'ALL_ASSIGNED') && !shouldUsePersonalScope
 
     // For personal-scope counts we need the actor email to match the assignee.
     const actorEmail = shouldUsePersonalScope ? await this.getEmployeeEmail(params.tenantId, params.employeeId) : null
@@ -876,7 +906,11 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
             .select('id')
             .eq('tenant_id', params.tenantId)
             .eq('current_assignee_employee_id', params.employeeId)
-          if (statusFilter) q = q.eq('status', statusFilter)
+          if (statusFilter) {
+            q = q.eq('status', statusFilter)
+          } else if (shouldExcludeNonPending) {
+            q = q.not('status', 'in', `(${nonPendingStatuses.join(',')})`)
+          }
           return q
         })(),
         supabase
@@ -917,7 +951,15 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
             .select('id')
             .eq('tenant_id', params.tenantId)
             .in('id', collaboratorContractIds)
-          if (statusFilter) collaboratorContractQuery = collaboratorContractQuery.eq('status', statusFilter)
+          if (statusFilter) {
+            collaboratorContractQuery = collaboratorContractQuery.eq('status', statusFilter)
+          } else if (shouldExcludeNonPending) {
+            collaboratorContractQuery = collaboratorContractQuery.not(
+              'status',
+              'in',
+              `(${nonPendingStatuses.join(',')})`
+            )
+          }
 
           const { data: collaboratorContractRows, error: collaboratorContractError } = await collaboratorContractQuery
 
@@ -966,6 +1008,8 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
     if (statusFilter) {
       countQuery = countQuery.eq('status', statusFilter)
+    } else if (shouldExcludeNonPending) {
+      countQuery = countQuery.not('status', 'in', `(${nonPendingStatuses.join(',')})`)
     }
 
     if (assignedContractIds) {
@@ -5262,7 +5306,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
   }
 
   private resolveDashboardStatusFromFilter(filter: DashboardContractFilter): ContractStatus | null {
-    if (filter === 'ALL' || filter === 'ASSIGNED_TO_ME') {
+    if (filter === 'ALL' || filter === 'ASSIGNED_TO_ME' || filter === 'ALL_ASSIGNED') {
       return null
     }
 
