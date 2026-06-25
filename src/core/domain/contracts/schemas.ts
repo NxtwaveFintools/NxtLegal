@@ -39,6 +39,7 @@ export const dashboardContractsFilterValues = [
   'ON_HOLD',
   'REJECTED',
   'ASSIGNED_TO_ME',
+  'ALL_ASSIGNED',
 ] as const
 
 export const dashboardContractsQuerySchema = z.object({

@@ -206,6 +206,7 @@ function getRoleConfig(role?: string): DashboardRoleConfig {
         { value: 'UNDER_REVIEW', label: 'Under Review' },
         { value: 'COMPLETED', label: 'Completed' },
         { value: 'ON_HOLD', label: 'On Hold' },
+        { value: 'ALL_ASSIGNED', label: 'All My Contracts' },
       ],
     }
   }
@@ -219,6 +220,7 @@ function getRoleConfig(role?: string): DashboardRoleConfig {
         { value: 'HOD_PENDING', label: 'HOD Pending' },
         { value: 'COMPLETED', label: 'Completed' },
         { value: 'ON_HOLD', label: 'On Hold' },
+        { value: 'ALL_ASSIGNED', label: 'All My Contracts' },
       ],
     }
   }
