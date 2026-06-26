@@ -302,7 +302,7 @@ export default function ApprovalsTab({
             >
               <span className={styles.buttonContent}>
                 {isSubmittingCurrentReminder ? <Spinner size={14} /> : null}
-                {isSubmittingCurrentReminder ? 'Reminding…' : 'Remind Current Blocker'}
+                {isSubmittingCurrentReminder ? 'Reminding…' : 'Remind Approver'}
               </span>
             </button>
           ) : null}
