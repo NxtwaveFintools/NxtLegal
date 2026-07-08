@@ -47,7 +47,7 @@ A matching rollback file restores the original holiday-aware behavior if ever ne
 - `CREATE OR REPLACE FUNCTION public.business_day_add(...)` — original holiday-aware body.
 - `CREATE OR REPLACE FUNCTION public.business_day_diff(...)` — original holiday-aware body.
 
-Neither file is applied to any database as part of this work — they are written to the repo only, for the user to review and apply separately.
+Neither file is applied to any database as part of this work — they are written to the repo only, for the user to review and apply separately. The migration file has no explicit `BEGIN`/`COMMIT`, so its "DROP only takes effect if both function rewrites succeeded" guarantee relies on the applying tool wrapping it in a transaction (true for Supabase's `apply_migration`/`db push`); apply it through Supabase migration tooling rather than `psql -f` in autocommit mode.
 
 ## Verification (for whoever applies the migration later)
 
