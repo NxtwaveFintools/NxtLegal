@@ -103,8 +103,10 @@ DROP TABLE IF EXISTS "public"."holidays";
 
 - [ ] **Step 3: Verify the holiday check was fully removed from both function bodies**
 
-Run: `grep -c "holidays" "supabase/migrations/20260708120000_drop_holidays_weekends_only_tat.sql"`
-Expected: `1` (the only occurrence is the `DROP TABLE` line itself)
+The header comment block (lines 1-10) legitimately mentions "holidays" in prose (e.g. "Drop public.holidays", "holidays table is empty") — exclude comment lines so the count reflects only executable SQL.
+
+Run: `grep -v "^--" "supabase/migrations/20260708120000_drop_holidays_weekends_only_tat.sql" | grep -c "holidays"`
+Expected: `1` (the only occurrence in executable SQL is the `DROP TABLE` line itself)
 
 - [ ] **Step 4: Verify the DROP TABLE statement is present and targets the right table**
 
@@ -113,7 +115,9 @@ Expected: one matching line number printed, no error
 
 - [ ] **Step 5: Verify DROP TABLE is the last statement in the file (comes after both CREATE OR REPLACE FUNCTION blocks)**
 
-Run: `grep -n "CREATE OR REPLACE FUNCTION\|DROP TABLE IF EXISTS" "supabase/migrations/20260708120000_drop_holidays_weekends_only_tat.sql"`
+The "Idempotent" comment line also contains the literal text "DROP TABLE IF EXISTS" in prose — exclude comment lines so only executable statements are matched.
+
+Run: `grep -v "^--" "supabase/migrations/20260708120000_drop_holidays_weekends_only_tat.sql" | grep -n "CREATE OR REPLACE FUNCTION\|DROP TABLE IF EXISTS"`
 Expected: three lines in this order — `business_day_add` CREATE, `business_day_diff` CREATE, then `DROP TABLE IF EXISTS "public"."holidays";` last
 
 - [ ] **Step 6: Commit**
@@ -238,7 +242,9 @@ Expected: `1`
 
 - [ ] **Step 4: Verify both functions have the holiday-aware `NOT EXISTS` clause restored**
 
-Run: `grep -c "NOT EXISTS" "supabase/rollbacks/20260708120000_drop_holidays_weekends_only_tat_rollback.sql"`
+The `CREATE TABLE IF NOT EXISTS` statement also contains the substring "NOT EXISTS" — match `"NOT EXISTS ("` (with the opening paren) so only the two function-body anti-join clauses count.
+
+Run: `grep -c "NOT EXISTS (" "supabase/rollbacks/20260708120000_drop_holidays_weekends_only_tat_rollback.sql"`
 Expected: `2` (one in `business_day_add`, one in `business_day_diff`)
 
 - [ ] **Step 5: Verify the empty-table warning comment is present**
