@@ -288,7 +288,7 @@ describe('Contract action dialogs', () => {
     await waitFor(() => expect(screen.getByText('Board Meeting Documents - NA')).toBeTruthy())
     await waitFor(() => expect(screen.getByLabelText('Legal status actions')).toBeTruthy())
 
-    await userEvent.click(screen.getByRole('button', { name: /Intake Details/i }))
+    await waitFor(() => expect(screen.getByText('Intake Details')).toBeTruthy())
     await waitFor(() => expect(screen.getByText('john@example.com')).toBeTruthy())
     expect(screen.getByText('Background details')).toBeTruthy()
     expect(screen.getAllByText('Founder Approval').length).toBeGreaterThan(0)
@@ -396,7 +396,7 @@ describe('Contract action dialogs', () => {
 
     await waitFor(() => expect(screen.getByText('Board Meeting Documents - NA')).toBeTruthy())
     await waitFor(() => expect(screen.getByLabelText('Legal status actions')).toBeTruthy())
-    await userEvent.click(screen.getByRole('button', { name: /Intake Details/i }))
+    await waitFor(() => expect(screen.getByText('Intake Details')).toBeTruthy())
 
     // Second counterparty card is rendered (index marker is its own span, not concatenated with signatory/field labels)
     expect(screen.getByText('Counterparty 2')).toBeTruthy()

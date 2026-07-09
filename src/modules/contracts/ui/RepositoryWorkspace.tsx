@@ -234,8 +234,8 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
   const [isLoading, setIsLoading] = useState(true)
   const [search, setSearch] = useState(() => searchParams.get('q') ?? '')
   const debouncedSearch = useDebouncedValue(search, 400)
-  const [statusFilter, setStatusFilter] = useState<RepositoryStatusFilter | ''>(
-    () => (searchParams.get('status') ?? '') as RepositoryStatusFilter | ''
+  const [statusFilters, setStatusFilters] = useState<RepositoryStatusFilter[]>(
+    () => (searchParams.get('statuses')?.split(',').filter(Boolean) ?? []) as RepositoryStatusFilter[]
   )
   const [dateBasis, setDateBasis] = useState<RepositoryDateBasis>(
     () => (searchParams.get('dateBasis') as RepositoryDateBasis) ?? 'request_created_at'
@@ -246,8 +246,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
   const [customFromDate, setCustomFromDate] = useState(() => searchParams.get('from') ?? '')
   const [customToDate, setCustomToDate] = useState(() => searchParams.get('to') ?? '')
   const [sorting, setSorting] = useState<SortingState>([{ id: 'requestDate', desc: true }])
-  const [cursorHistory, setCursorHistory] = useState<Array<string | undefined>>([undefined])
-  const [nextCursor, setNextCursor] = useState<string | null>(null)
+  const [page, setPage] = useState<number>(1)
   const [totalCount, setTotalCount] = useState<number>(0)
   const [rowsPerPage, setRowsPerPage] = useState<number>(15)
   const [reportMetrics, setReportMetrics] = useState<{
@@ -285,10 +284,15 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
   const [hodApprovalFilter, setHodApprovalFilter] = useState<'yes' | 'no' | ''>(
     () => (searchParams.get('hod') ?? '') as 'yes' | 'no' | ''
   )
+  const [founderApprovalFilter, setFounderApprovalFilter] = useState<'yes' | 'no' | ''>(
+    () => (searchParams.get('founderApproval') ?? '') as 'yes' | 'no' | ''
+  )
   const [assignedToFilters, setAssignedToFilters] = useState<string[]>(
     () => searchParams.get('assignees')?.split(',').filter(Boolean) ?? []
   )
-  const [openHeaderFilter, setOpenHeaderFilter] = useState<'department' | 'hodApproval' | 'assignedTo' | null>(null)
+  const [openHeaderFilter, setOpenHeaderFilter] = useState<
+    'department' | 'hodApproval' | 'founderApproval' | 'assignedTo' | 'status' | 'statusColumn' | null
+  >(null)
   const tableWrapRef = useRef<HTMLElement | null>(null)
   const tableAutoScrollFrameRef = useRef<number | null>(null)
   const tableAutoScrollVelocityRef = useRef(0)
@@ -355,15 +359,16 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     [runTableAutoScroll, stopTableAutoScroll]
   )
 
-  const activeCursor = cursorHistory[cursorHistory.length - 1]
-
   const activeSort = sorting[0]
   const sortBy = sortableColumnMap[activeSort?.id ?? 'requestDate'] ?? 'created_at'
   const sortDirection = activeSort?.desc ? 'desc' : 'asc'
+  const totalPages = totalCount > 0 ? Math.max(1, Math.ceil(totalCount / rowsPerPage)) : 1
+  const requestIdRef = useRef(0)
 
   // Fires list and report as two *parallel* browser requests rather than a single
   // combined server-side request.  The server's Promise.all approach caused internal
   const loadContractsAndReport = useCallback(async () => {
+    const requestId = ++requestIdRef.current
     setIsLoading(true)
     if (canAccessRepositoryReporting) {
       setIsReportLoading(true)
@@ -371,68 +376,100 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
 
     try {
       const response = await contractsClient.repositoryList({
-        cursor: activeCursor,
+        page,
         limit: rowsPerPage,
         sortBy,
         sortDirection,
         search: debouncedSearch,
-        repositoryStatus: statusFilter || undefined,
+        repositoryStatuses: statusFilters.length > 0 ? statusFilters : undefined,
         dateBasis,
         datePreset: datePreset || undefined,
         fromDate: datePreset === 'custom' && customFromDate ? customFromDate : undefined,
         toDate: datePreset === 'custom' && customToDate ? customToDate : undefined,
         departmentIds: departmentFilters.length > 0 ? departmentFilters : undefined,
         hodApproval: hodApprovalFilter || undefined,
+        founderApproval: founderApprovalFilter || undefined,
         assignedToEmails: assignedToFilters.length > 0 ? assignedToFilters : undefined,
         includeReport: canAccessRepositoryReporting,
       })
 
+      // A newer request has since been issued; ignore this now-stale response.
+      if (requestIdRef.current !== requestId) {
+        return
+      }
+
       if (!response.ok || !response.data) {
         setContracts([])
-        setNextCursor(null)
+        setTotalCount(0)
         toast.error(response.error?.message ?? 'Failed to load repository contracts')
         return
       }
 
       setContracts(response.data.contracts)
-      setNextCursor(response.data.pagination.cursor)
-      // API only computes total on the first page (cursor=undefined); preserve it across subsequent pages
-      if (!activeCursor) {
-        setTotalCount(response.data.pagination.total)
-      }
+      setTotalCount(response.data.pagination.total)
 
       if (canAccessRepositoryReporting) {
         setReportMetrics(response.data.report ?? null)
       }
     } catch (error) {
+      if (requestIdRef.current !== requestId) {
+        return
+      }
       const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred'
       toast.error(errorMessage)
     } finally {
-      setIsLoading(false)
-      if (canAccessRepositoryReporting) {
-        setIsReportLoading(false)
+      if (requestIdRef.current === requestId) {
+        setIsLoading(false)
+        if (canAccessRepositoryReporting) {
+          setIsReportLoading(false)
+        }
       }
     }
   }, [
     canAccessRepositoryReporting,
-    activeCursor,
+    page,
     customFromDate,
     customToDate,
     dateBasis,
     datePreset,
     debouncedSearch,
-    statusFilter,
+    statusFilters,
     sortBy,
     sortDirection,
     departmentFilters,
     hodApprovalFilter,
+    founderApprovalFilter,
     assignedToFilters,
     rowsPerPage,
   ])
 
+  const filterSignature = JSON.stringify([
+    customFromDate,
+    customToDate,
+    dateBasis,
+    datePreset,
+    debouncedSearch,
+    statusFilters,
+    sortBy,
+    sortDirection,
+    departmentFilters,
+    hodApprovalFilter,
+    founderApprovalFilter,
+    assignedToFilters,
+    rowsPerPage,
+  ])
+  const prevFilterSignatureRef = useRef(filterSignature)
+
   useEffect(() => {
+    if (prevFilterSignatureRef.current !== filterSignature) {
+      prevFilterSignatureRef.current = filterSignature
+      if (page !== 1) {
+        setPage(1)
+        return
+      }
+    }
     void loadContractsAndReport()
-  }, [loadContractsAndReport])
+  }, [loadContractsAndReport, filterSignature, page])
 
   useEffect(() => {
     if (!isLegalTeamRole) {
@@ -492,28 +529,12 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
   }, [openHeaderFilter])
 
   useEffect(() => {
-    setCursorHistory([undefined])
-  }, [
-    customFromDate,
-    customToDate,
-    dateBasis,
-    datePreset,
-    debouncedSearch,
-    statusFilter,
-    sortBy,
-    sortDirection,
-    departmentFilters,
-    hodApprovalFilter,
-    assignedToFilters,
-    rowsPerPage,
-  ])
-
-  useEffect(() => {
     const params = new URLSearchParams()
     if (search) params.set('q', search)
-    if (statusFilter) params.set('status', statusFilter)
+    if (statusFilters.length > 0) params.set('statuses', statusFilters.join(','))
     if (departmentFilters.length > 0) params.set('depts', departmentFilters.join(','))
     if (hodApprovalFilter) params.set('hod', hodApprovalFilter)
+    if (founderApprovalFilter) params.set('founderApproval', founderApprovalFilter)
     if (assignedToFilters.length > 0) params.set('assignees', assignedToFilters.join(','))
     if (dateBasis !== 'request_created_at') params.set('dateBasis', dateBasis)
     if (datePreset) params.set('datePreset', datePreset)
@@ -523,9 +544,10 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     window.history.replaceState(null, '', qs ? `/repository?${qs}` : '/repository')
   }, [
     search,
-    statusFilter,
+    statusFilters,
     departmentFilters,
     hodApprovalFilter,
+    founderApprovalFilter,
     assignedToFilters,
     dateBasis,
     datePreset,
@@ -533,8 +555,10 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     customToDate,
   ])
 
-  const handleStatusFilterChange = useCallback((value: RepositoryStatusFilter | '') => {
-    setStatusFilter(value)
+  const toggleStatusFilter = useCallback((value: RepositoryStatusFilter) => {
+    setStatusFilters((current) =>
+      current.includes(value) ? current.filter((status) => status !== value) : [...current, value]
+    )
   }, [])
 
   const handleDateBasisChange = useCallback((value: RepositoryDateBasis) => {
@@ -838,8 +862,59 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
       },
       {
         accessorKey: 'budgetApproved',
-        header: 'Founder Approval',
         enableSorting: false,
+        header: () => (
+          <div className={styles.filterHeader} data-repository-header-filter>
+            <button
+              type="button"
+              className={`${styles.filterHeaderTrigger} ${founderApprovalFilter ? styles.filterHeaderTriggerActive : ''}`}
+              onClick={() =>
+                setOpenHeaderFilter((current) => (current === 'founderApproval' ? null : 'founderApproval'))
+              }
+            >
+              <span>Founder Approval</span>
+              {founderApprovalFilter ? <span className={styles.filterActiveDot} /> : null}
+              <span className={styles.filterHeaderCaret}>{openHeaderFilter === 'founderApproval' ? '▴' : '▾'}</span>
+            </button>
+            {openHeaderFilter === 'founderApproval' ? (
+              <div className={styles.filterHeaderDropdown}>
+                <button
+                  type="button"
+                  className={`${styles.filterHeaderOption} ${!founderApprovalFilter ? styles.filterHeaderOptionSelected : ''}`}
+                  onClick={() => {
+                    setFounderApprovalFilter('')
+                    setOpenHeaderFilter(null)
+                  }}
+                >
+                  <span>All</span>
+                  {!founderApprovalFilter ? <span className={styles.filterHeaderOptionCheck}>✓</span> : null}
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.filterHeaderOption} ${founderApprovalFilter === 'yes' ? styles.filterHeaderOptionSelected : ''}`}
+                  onClick={() => {
+                    setFounderApprovalFilter('yes')
+                    setOpenHeaderFilter(null)
+                  }}
+                >
+                  <span>Yes</span>
+                  {founderApprovalFilter === 'yes' ? <span className={styles.filterHeaderOptionCheck}>✓</span> : null}
+                </button>
+                <button
+                  type="button"
+                  className={`${styles.filterHeaderOption} ${founderApprovalFilter === 'no' ? styles.filterHeaderOptionSelected : ''}`}
+                  onClick={() => {
+                    setFounderApprovalFilter('no')
+                    setOpenHeaderFilter(null)
+                  }}
+                >
+                  <span>No</span>
+                  {founderApprovalFilter === 'no' ? <span className={styles.filterHeaderOptionCheck}>✓</span> : null}
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ),
         cell: ({ row }) =>
           typeof row.original.budgetApproved === 'boolean' ? (row.original.budgetApproved ? 'Yes' : 'No') : '—',
       },
@@ -936,7 +1011,51 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
         : []),
       {
         accessorKey: 'status',
-        header: 'Status',
+        enableSorting: false,
+        header: () => (
+          <div className={styles.filterHeader} data-repository-header-filter>
+            <button
+              type="button"
+              className={`${styles.filterHeaderTrigger} ${statusFilters.length > 0 ? styles.filterHeaderTriggerActive : ''}`}
+              onClick={() => setOpenHeaderFilter((current) => (current === 'statusColumn' ? null : 'statusColumn'))}
+            >
+              <span>Status</span>
+              {statusFilters.length > 0 ? (
+                <span className={styles.filterActiveCount}>{statusFilters.length}</span>
+              ) : null}
+              <span className={styles.filterHeaderCaret}>{openHeaderFilter === 'statusColumn' ? '▴' : '▾'}</span>
+            </button>
+            {openHeaderFilter === 'statusColumn' ? (
+              <div className={styles.filterHeaderDropdown}>
+                <button
+                  type="button"
+                  className={`${styles.filterHeaderOption} ${statusFilters.length === 0 ? styles.filterHeaderOptionSelected : ''}`}
+                  onClick={() => {
+                    setStatusFilters([])
+                    setOpenHeaderFilter(null)
+                  }}
+                >
+                  <span>All statuses</span>
+                  {statusFilters.length === 0 ? <span className={styles.filterHeaderOptionCheck}>✓</span> : null}
+                </button>
+                {Object.entries(contractRepositoryStatusLabels).map(([value, label]) => {
+                  const isSelected = statusFilters.includes(value as RepositoryStatusFilter)
+                  return (
+                    <button
+                      key={value}
+                      type="button"
+                      className={`${styles.filterHeaderOption} ${isSelected ? styles.filterHeaderOptionSelected : ''}`}
+                      onClick={() => toggleStatusFilter(value as RepositoryStatusFilter)}
+                    >
+                      <span>{label}</span>
+                      {isSelected ? <span className={styles.filterHeaderOptionCheck}>✓</span> : null}
+                    </button>
+                  )
+                })}
+              </div>
+            ) : null}
+          </div>
+        ),
         cell: ({ row }) => {
           const daysInStatus = getDaysInStatus(row.original.updatedAt)
           const shouldShowStuckBadge = stuckStateStatuses.has(row.original.status) && typeof daysInStatus === 'number'
@@ -1173,6 +1292,9 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
       departments,
       departmentFilters,
       hodApprovalFilter,
+      founderApprovalFilter,
+      statusFilters,
+      toggleStatusFilter,
       assignedToFilters,
       openHeaderFilter,
     ]
@@ -1192,13 +1314,14 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     (format: 'csv' | 'excel' | 'pdf') => {
       const exportUrl = contractsClient.repositoryExportUrl({
         search: debouncedSearch,
-        repositoryStatus: statusFilter || undefined,
+        repositoryStatuses: statusFilters.length > 0 ? statusFilters : undefined,
         dateBasis,
         datePreset: datePreset || undefined,
         fromDate: datePreset === 'custom' && customFromDate ? customFromDate : undefined,
         toDate: datePreset === 'custom' && customToDate ? customToDate : undefined,
         departmentIds: departmentFilters.length > 0 ? departmentFilters : undefined,
         hodApproval: hodApprovalFilter || undefined,
+        founderApproval: founderApprovalFilter || undefined,
         assignedToEmails: assignedToFilters.length > 0 ? assignedToFilters : undefined,
         format,
         columns: selectedExportColumns,
@@ -1214,9 +1337,10 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
       datePreset,
       debouncedSearch,
       selectedExportColumns,
-      statusFilter,
+      statusFilters,
       departmentFilters,
       hodApprovalFilter,
+      founderApprovalFilter,
       assignedToFilters,
     ]
   )
@@ -1241,16 +1365,12 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
   )
 
   const handlePreviousPage = useCallback(() => {
-    setCursorHistory((previous) => previous.slice(0, previous.length - 1))
+    setPage((current) => Math.max(1, current - 1))
   }, [])
 
   const handleNextPage = useCallback(() => {
-    if (!nextCursor) {
-      return
-    }
-
-    setCursorHistory((previous) => [...previous, nextCursor])
-  }, [nextCursor])
+    setPage((current) => (current < totalPages ? current + 1 : current))
+  }, [totalPages])
 
   return (
     <ProtectedAppShell
@@ -1283,18 +1403,45 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
                   setSearch(event.target.value)
                 }}
               />
-              <select
-                className={styles.statusSelect}
-                value={statusFilter}
-                onChange={(event) => handleStatusFilterChange(event.target.value as RepositoryStatusFilter | '')}
-              >
-                <option value="">All statuses</option>
-                {Object.entries(contractRepositoryStatusLabels).map(([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                ))}
-              </select>
+              <div className={styles.filterHeader} data-repository-header-filter>
+                <button
+                  type="button"
+                  className={`${styles.statusFilterTrigger} ${statusFilters.length > 0 ? styles.filterHeaderTriggerActive : ''}`}
+                  onClick={() => setOpenHeaderFilter((current) => (current === 'status' ? null : 'status'))}
+                >
+                  <span>{statusFilters.length > 0 ? `Status (${statusFilters.length})` : 'All statuses'}</span>
+                  <span className={styles.filterHeaderCaret}>{openHeaderFilter === 'status' ? '▴' : '▾'}</span>
+                </button>
+                {openHeaderFilter === 'status' ? (
+                  <div className={styles.filterHeaderDropdown}>
+                    <button
+                      type="button"
+                      className={`${styles.filterHeaderOption} ${statusFilters.length === 0 ? styles.filterHeaderOptionSelected : ''}`}
+                      onClick={() => {
+                        setStatusFilters([])
+                        setOpenHeaderFilter(null)
+                      }}
+                    >
+                      <span>All statuses</span>
+                      {statusFilters.length === 0 ? <span className={styles.filterHeaderOptionCheck}>✓</span> : null}
+                    </button>
+                    {Object.entries(contractRepositoryStatusLabels).map(([value, label]) => {
+                      const isSelected = statusFilters.includes(value as RepositoryStatusFilter)
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          className={`${styles.filterHeaderOption} ${isSelected ? styles.filterHeaderOptionSelected : ''}`}
+                          onClick={() => toggleStatusFilter(value as RepositoryStatusFilter)}
+                        >
+                          <span>{label}</span>
+                          {isSelected ? <span className={styles.filterHeaderOptionCheck}>✓</span> : null}
+                        </button>
+                      )
+                    })}
+                  </div>
+                ) : null}
+              </div>
               <select
                 className={styles.statusSelect}
                 value={dateBasis}
@@ -1434,17 +1581,11 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
           ) : null}
 
           <section className={styles.pagination}>
-            <button
-              type="button"
-              className={styles.pageButton}
-              disabled={cursorHistory.length <= 1}
-              onClick={handlePreviousPage}
-            >
+            <button type="button" className={styles.pageButton} disabled={page <= 1} onClick={handlePreviousPage}>
               ← Previous
             </button>
             <span className={styles.paginationInfo}>
-              Page {cursorHistory.length} of {totalCount > 0 ? Math.ceil(totalCount / rowsPerPage) : 1} · {totalCount}{' '}
-              total
+              Page {page} of {totalPages} · {totalCount} total
             </span>
             <label className={styles.rowsPerPageLabel}>
               Rows
@@ -1459,7 +1600,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
                 <option value={50}>50</option>
               </select>
             </label>
-            <button type="button" className={styles.pageButton} disabled={!nextCursor} onClick={handleNextPage}>
+            <button type="button" className={styles.pageButton} disabled={page >= totalPages} onClick={handleNextPage}>
               Next →
             </button>
           </section>

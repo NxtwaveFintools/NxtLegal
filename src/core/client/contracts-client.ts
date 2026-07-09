@@ -320,7 +320,14 @@ type DashboardCountsResponse = {
   counts: Partial<Record<DashboardContractsFilter, number>>
 }
 
-type RepositoryListResponse = ContractListResponse & {
+type RepositoryListResponse = {
+  contracts: ContractRecord[]
+  pagination: {
+    page: number
+    limit: number
+    total: number
+    totalPages: number
+  }
   /** Present only when includeReport=true was requested. */
   report?: RepositoryReportResponse['report']
 }
@@ -651,11 +658,11 @@ export const contractsClient = {
   },
 
   async repositoryList(params?: {
-    cursor?: string
+    page?: number
     limit?: number
     search?: string
     status?: string
-    repositoryStatus?: RepositoryStatusFilter
+    repositoryStatuses?: RepositoryStatusFilter[]
     sortBy?: RepositorySortBy
     sortDirection?: RepositorySortDirection
     dateBasis?: RepositoryDateBasis
@@ -664,14 +671,15 @@ export const contractsClient = {
     toDate?: string
     departmentIds?: string[]
     hodApproval?: 'yes' | 'no'
+    founderApproval?: 'yes' | 'no'
     assignedToEmails?: string[]
     /** When true, the response will include reporting aggregates; avoids a separate repositoryReport call. */
     includeReport?: boolean
   }): Promise<ApiResponse<RepositoryListResponse>> {
     const query = new URLSearchParams()
 
-    if (params?.cursor) {
-      query.set('cursor', params.cursor)
+    if (params?.page) {
+      query.set('page', String(params.page))
     }
 
     if (params?.limit) {
@@ -686,8 +694,8 @@ export const contractsClient = {
       query.set('status', params.status)
     }
 
-    if (params?.repositoryStatus) {
-      query.set('repositoryStatus', params.repositoryStatus)
+    if (params?.repositoryStatuses && params.repositoryStatuses.length > 0) {
+      query.set('repositoryStatuses', params.repositoryStatuses.join(','))
     }
 
     if (params?.sortBy) {
@@ -722,6 +730,10 @@ export const contractsClient = {
       query.set('hodApproval', params.hodApproval)
     }
 
+    if (params?.founderApproval) {
+      query.set('founderApproval', params.founderApproval)
+    }
+
     if (params?.assignedToEmails && params.assignedToEmails.length > 0) {
       query.set('assignedToEmails', params.assignedToEmails.join(','))
     }
@@ -741,11 +753,12 @@ export const contractsClient = {
   async repositoryReport(params?: {
     search?: string
     status?: string
-    repositoryStatus?: RepositoryStatusFilter
+    repositoryStatuses?: RepositoryStatusFilter[]
     dateBasis?: RepositoryDateBasis
     datePreset?: RepositoryDatePreset
     fromDate?: string
     toDate?: string
+    founderApproval?: 'yes' | 'no'
   }): Promise<ApiResponse<RepositoryReportResponse>> {
     const query = new URLSearchParams()
 
@@ -757,8 +770,8 @@ export const contractsClient = {
       query.set('status', params.status)
     }
 
-    if (params?.repositoryStatus) {
-      query.set('repositoryStatus', params.repositoryStatus)
+    if (params?.repositoryStatuses && params.repositoryStatuses.length > 0) {
+      query.set('repositoryStatuses', params.repositoryStatuses.join(','))
     }
 
     if (params?.dateBasis) {
@@ -777,6 +790,10 @@ export const contractsClient = {
       query.set('toDate', params.toDate)
     }
 
+    if (params?.founderApproval) {
+      query.set('founderApproval', params.founderApproval)
+    }
+
     const url =
       query.size > 0
         ? `${routeRegistry.api.contracts.repositoryReport}?${query.toString()}`
@@ -788,13 +805,14 @@ export const contractsClient = {
   repositoryExportUrl(params?: {
     search?: string
     status?: string
-    repositoryStatus?: RepositoryStatusFilter
+    repositoryStatuses?: RepositoryStatusFilter[]
     dateBasis?: RepositoryDateBasis
     datePreset?: RepositoryDatePreset
     fromDate?: string
     toDate?: string
     departmentIds?: string[]
     hodApproval?: 'yes' | 'no'
+    founderApproval?: 'yes' | 'no'
     assignedToEmails?: string[]
     format?: RepositoryExportFormat
     columns?: RepositoryExportColumn[]
@@ -809,8 +827,8 @@ export const contractsClient = {
       query.set('status', params.status)
     }
 
-    if (params?.repositoryStatus) {
-      query.set('repositoryStatus', params.repositoryStatus)
+    if (params?.repositoryStatuses && params.repositoryStatuses.length > 0) {
+      query.set('repositoryStatuses', params.repositoryStatuses.join(','))
     }
 
     if (params?.dateBasis) {
@@ -835,6 +853,10 @@ export const contractsClient = {
 
     if (params?.hodApproval) {
       query.set('hodApproval', params.hodApproval)
+    }
+
+    if (params?.founderApproval) {
+      query.set('founderApproval', params.founderApproval)
     }
 
     if (params?.assignedToEmails && params.assignedToEmails.length > 0) {

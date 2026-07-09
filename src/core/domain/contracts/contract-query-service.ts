@@ -119,11 +119,11 @@ export class ContractQueryService {
     tenantId: string
     employeeId: string
     role?: string
-    cursor?: string
+    page: number
     limit: number
     search?: string
     status?: ContractStatus
-    repositoryStatus?: ContractRepositoryStatus
+    repositoryStatuses?: ContractRepositoryStatus[]
     sortBy?: RepositorySortBy
     sortDirection?: RepositorySortDirection
     dateBasis?: RepositoryDateBasis
@@ -132,8 +132,9 @@ export class ContractQueryService {
     toDate?: string
     departmentIds?: string[]
     hodApproval?: 'yes' | 'no'
+    founderApproval?: 'yes' | 'no'
     assignedToEmails?: string[]
-  }): Promise<{ items: ContractListItem[]; nextCursor?: string; total: number }> {
+  }): Promise<{ items: ContractListItem[]; total: number }> {
     return this.contractRepository.listRepositoryContracts(params)
   }
 
@@ -143,11 +144,12 @@ export class ContractQueryService {
     role?: string
     search?: string
     status?: ContractStatus
-    repositoryStatus?: ContractRepositoryStatus
+    repositoryStatuses?: ContractRepositoryStatus[]
     dateBasis?: RepositoryDateBasis
     datePreset?: RepositoryDatePreset
     fromDate?: string
     toDate?: string
+    founderApproval?: 'yes' | 'no'
   }): Promise<RepositoryReport> {
     return this.contractRepository.getRepositoryReport(params)
   }
@@ -158,13 +160,14 @@ export class ContractQueryService {
     role?: string
     search?: string
     status?: ContractStatus
-    repositoryStatus?: ContractRepositoryStatus
+    repositoryStatuses?: ContractRepositoryStatus[]
     dateBasis?: RepositoryDateBasis
     datePreset?: RepositoryDatePreset
     fromDate?: string
     toDate?: string
     departmentIds?: string[]
     hodApproval?: 'yes' | 'no'
+    founderApproval?: 'yes' | 'no'
     assignedToEmails?: string[]
     columns: RepositoryExportColumn[]
   }): Promise<RepositoryExportRow[]> {
@@ -179,13 +182,14 @@ export class ContractQueryService {
     limit: number
     search?: string
     status?: ContractStatus
-    repositoryStatus?: ContractRepositoryStatus
+    repositoryStatuses?: ContractRepositoryStatus[]
     dateBasis?: RepositoryDateBasis
     datePreset?: RepositoryDatePreset
     fromDate?: string
     toDate?: string
     departmentIds?: string[]
     hodApproval?: 'yes' | 'no'
+    founderApproval?: 'yes' | 'no'
     assignedToEmails?: string[]
     columns: RepositoryExportColumn[]
   }): Promise<RepositoryExportRowsChunk> {

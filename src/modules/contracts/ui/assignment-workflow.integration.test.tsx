@@ -202,7 +202,7 @@ describe('Assignment workflow integration', () => {
             assignedToUsers: [...state.collaborators],
           },
         ],
-        pagination: { cursor: null, limit: 15, total: 1 },
+        pagination: { page: 1, limit: 15, total: 1, totalPages: 1 },
       },
     }))
 

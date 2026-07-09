@@ -1048,11 +1048,11 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     tenantId: string
     employeeId: string
     role?: string
-    cursor?: string
+    page: number
     limit: number
     search?: string
     status?: ContractStatus
-    repositoryStatus?: ContractRepositoryStatus
+    repositoryStatuses?: ContractRepositoryStatus[]
     sortBy?: RepositorySortBy
     sortDirection?: RepositorySortDirection
     dateBasis?: RepositoryDateBasis
@@ -1061,12 +1061,12 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     toDate?: string
     departmentIds?: string[]
     hodApproval?: 'yes' | 'no'
+    founderApproval?: 'yes' | 'no'
     assignedToEmails?: string[]
-  }): Promise<{ items: ContractListItem[]; nextCursor?: string; total: number }> {
+  }): Promise<{ items: ContractListItem[]; total: number }> {
     const startedAt = Date.now()
     try {
       const supabase = createServiceSupabase()
-      const decodedCursor = this.decodeTimestampIdCursor(params.cursor)
       const sortBy = params.sortBy ?? 'created_at'
       const sortDirection = params.sortDirection ?? 'desc'
       const dateFilter = this.resolveRepositoryDateFilter({
@@ -1077,8 +1077,8 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       })
 
       const visibilityFilter = await this.getVisibilityFilter(params.tenantId, params.role, params.employeeId)
-      const workflowStatusesForRepositoryStatus = params.repositoryStatus
-        ? repositoryStatusToWorkflowStatuses[params.repositoryStatus]
+      const workflowStatusesForRepositoryStatus = params.repositoryStatuses?.length
+        ? Array.from(new Set(params.repositoryStatuses.flatMap((status) => repositoryStatusToWorkflowStatuses[status])))
         : null
 
       const assignedToEmails = params.assignedToEmails?.length ? params.assignedToEmails : undefined
@@ -1087,17 +1087,29 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         : null
 
       if (assignedToContractIdSet && assignedToContractIdSet.size === 0) {
-        return { items: [], nextCursor: undefined, total: 0 }
+        return { items: [], total: 0 }
       }
 
       const assignedToContractIds = assignedToContractIdSet ? Array.from(assignedToContractIdSet) : null
+
+      const founderApprovalContractIdSet = params.founderApproval
+        ? await this.resolveContractIdsForBudgetApproval(params.tenantId, params.founderApproval === 'yes')
+        : null
+
+      if (founderApprovalContractIdSet && founderApprovalContractIdSet.size === 0) {
+        return { items: [], total: 0 }
+      }
+
+      const founderApprovalContractIds = founderApprovalContractIdSet ? Array.from(founderApprovalContractIdSet) : null
+
+      const offset = (params.page - 1) * params.limit
 
       const buildLegacyListQuery = (source: 'contracts_repository_view' | 'contracts', selectColumns: string) => {
         let query = supabase
           .from(source)
           .select(selectColumns)
           .eq('tenant_id', params.tenantId)
-          .limit(params.limit + 1)
+          .range(offset, offset + params.limit - 1)
 
         if (source === 'contracts') {
           query = query.is('deleted_at', null)
@@ -1145,10 +1157,6 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
           query = query.order('created_at', { ascending: sortDirection === 'asc' }).order('id', { ascending: false })
         }
 
-        if (decodedCursor && sortBy === 'created_at' && sortDirection === 'desc') {
-          query = query.lt('created_at', decodedCursor.createdAt)
-        }
-
         if (visibilityFilter?.filter) {
           query = query.or(visibilityFilter.filter)
         }
@@ -1169,6 +1177,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
         if (assignedToContractIds) {
           query = query.in('id', assignedToContractIds)
+        }
+
+        if (founderApprovalContractIds) {
+          query = query.in('id', founderApprovalContractIds)
         }
 
         return query
@@ -1230,16 +1242,20 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
           totalQuery = totalQuery.in('id', assignedToContractIds)
         }
 
+        if (founderApprovalContractIds) {
+          totalQuery = totalQuery.in('id', founderApprovalContractIds)
+        }
+
         return totalQuery
       }
 
       // Avoid the failed join attempt penalty; use direct manual enrichment path.
-      const totalQueryPromise = params.cursor ? null : buildLegacyTotalQuery('contracts_repository_view')
+      const totalQueryPromise = buildLegacyTotalQuery('contracts_repository_view')
       const listQueryPromise = buildLegacyListQuery('contracts_repository_view', repositoryContractsSelectMinimal)
       const [totalResultOrNull, initialListResult] = await Promise.all([totalQueryPromise, listQueryPromise])
 
       let totalCount = 0
-      if (!params.cursor && totalResultOrNull) {
+      {
         let totalResult = totalResultOrNull
         if (totalResult.error && this.isViewQueryCompatibilityError(totalResult.error, 'contracts_repository_view')) {
           totalResult = await buildLegacyTotalQuery('contracts')
@@ -1302,8 +1318,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         })
       }
 
-      const hasNext = validLegacyRows.length > params.limit
-      const legacyRowsForPage = validLegacyRows.slice(0, params.limit)
+      const legacyRowsForPage = validLegacyRows
       const pageContractIds = legacyRowsForPage.map((row) => row.id)
       const departmentIds = Array.from(
         new Set(legacyRowsForPage.map((row) => row.department_id).filter((value): value is string => Boolean(value)))
@@ -1386,19 +1401,15 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       )
 
       const items = await this.attachActorContractSignals(params.tenantId, params.employeeId, mappedItems, params.role)
-      const nextCursor =
-        sortBy === 'created_at' && sortDirection === 'desc' && hasNext
-          ? this.encodeTimestampIdCursor(items[items.length - 1]?.createdAt ?? '', items[items.length - 1]?.id ?? '')
-          : undefined
 
-      return { items, nextCursor, total: totalCount }
+      return { items, total: totalCount }
     } finally {
       logger.info('Repository list contracts completed', {
         operation: 'contracts.repository.list',
         tenantId: params.tenantId,
         role: params.role,
         durationMs: Date.now() - startedAt,
-        hasCursor: Boolean(params.cursor),
+        page: params.page,
         limit: params.limit,
       })
     }
@@ -1410,11 +1421,12 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     role?: string
     search?: string
     status?: ContractStatus
-    repositoryStatus?: ContractRepositoryStatus
+    repositoryStatuses?: ContractRepositoryStatus[]
     dateBasis?: RepositoryDateBasis
     datePreset?: RepositoryDatePreset
     fromDate?: string
     toDate?: string
+    founderApproval?: 'yes' | 'no'
   }): Promise<RepositoryReport> {
     const contracts = await this.collectRepositoryContractsForReporting(params)
 
@@ -1531,13 +1543,14 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     role?: string
     search?: string
     status?: ContractStatus
-    repositoryStatus?: ContractRepositoryStatus
+    repositoryStatuses?: ContractRepositoryStatus[]
     dateBasis?: RepositoryDateBasis
     datePreset?: RepositoryDatePreset
     fromDate?: string
     toDate?: string
     departmentIds?: string[]
     hodApproval?: 'yes' | 'no'
+    founderApproval?: 'yes' | 'no'
     assignedToEmails?: string[]
     columns: RepositoryExportColumn[]
   }): Promise<RepositoryExportRow[]> {
@@ -1571,25 +1584,29 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     limit: number
     search?: string
     status?: ContractStatus
-    repositoryStatus?: ContractRepositoryStatus
+    repositoryStatuses?: ContractRepositoryStatus[]
     dateBasis?: RepositoryDateBasis
     datePreset?: RepositoryDatePreset
     fromDate?: string
     toDate?: string
     departmentIds?: string[]
     hodApproval?: 'yes' | 'no'
+    founderApproval?: 'yes' | 'no'
     assignedToEmails?: string[]
     columns: RepositoryExportColumn[]
   }): Promise<RepositoryExportRowsChunk> {
+    // The export flow walks the full matching dataset via an opaque cursor; internally that
+    // cursor is just the page number for listRepositoryContracts's offset pagination.
+    const page = params.cursor ? Number(params.cursor) : 1
     const result = await this.listRepositoryContracts({
       tenantId: params.tenantId,
       employeeId: params.employeeId,
       role: params.role,
-      cursor: params.cursor,
+      page,
       limit: params.limit,
       search: params.search,
       status: params.status,
-      repositoryStatus: params.repositoryStatus,
+      repositoryStatuses: params.repositoryStatuses,
       sortBy: 'created_at',
       sortDirection: 'desc',
       dateBasis: params.dateBasis,
@@ -1598,6 +1615,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       toDate: params.toDate,
       departmentIds: params.departmentIds,
       hodApproval: params.hodApproval,
+      founderApproval: params.founderApproval,
       assignedToEmails: params.assignedToEmails,
     })
 
@@ -1606,9 +1624,11 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         ? params.columns
         : (Object.keys(contractRepositoryExportColumnLabels) as RepositoryExportColumn[])
 
+    const hasNextPage = page * params.limit < result.total
+
     return {
       items: result.items.map((contract) => this.mapRepositoryExportRow(contract, selectedColumns)),
-      nextCursor: result.nextCursor,
+      nextCursor: hasNextPage ? String(page + 1) : undefined,
     }
   }
 
@@ -6628,6 +6648,24 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     return result
   }
 
+  private async resolveContractIdsForBudgetApproval(tenantId: string, budgetApproved: boolean): Promise<Set<string>> {
+    const supabase = createServiceSupabase()
+    const { data, error } = await supabase
+      .from('contracts')
+      .select('id')
+      .eq('tenant_id', tenantId)
+      .eq('budget_approved', budgetApproved)
+      .is('deleted_at', null)
+
+    if (error) {
+      throw new DatabaseError('Failed to resolve contracts for founder approval filter', new Error(error.message), {
+        code: error.code,
+      })
+    }
+
+    return new Set((data ?? []).map((row) => (row as { id: string }).id))
+  }
+
   private async resolveContractIdsAssignedToEmail(tenantId: string, email: string): Promise<Set<string>> {
     const supabase = createServiceSupabase()
     const contractIds = new Set<string>()
@@ -6877,11 +6915,12 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     role?: string
     search?: string
     status?: ContractStatus
-    repositoryStatus?: ContractRepositoryStatus
+    repositoryStatuses?: ContractRepositoryStatus[]
     dateBasis?: RepositoryDateBasis
     datePreset?: RepositoryDatePreset
     fromDate?: string
     toDate?: string
+    founderApproval?: 'yes' | 'no'
   }): Promise<
     Array<{
       status: ContractStatus
@@ -6899,9 +6938,19 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       toDate: params.toDate,
     })
     const visibilityFilter = await this.getVisibilityFilter(params.tenantId, params.role, params.employeeId)
-    const workflowStatusesForRepositoryStatus = params.repositoryStatus
-      ? repositoryStatusToWorkflowStatuses[params.repositoryStatus]
+    const workflowStatusesForRepositoryStatus = params.repositoryStatuses?.length
+      ? Array.from(new Set(params.repositoryStatuses.flatMap((status) => repositoryStatusToWorkflowStatuses[status])))
       : null
+
+    const founderApprovalContractIdSet = params.founderApproval
+      ? await this.resolveContractIdsForBudgetApproval(params.tenantId, params.founderApproval === 'yes')
+      : null
+
+    if (founderApprovalContractIdSet && founderApprovalContractIdSet.size === 0) {
+      return []
+    }
+
+    const founderApprovalContractIds = founderApprovalContractIdSet ? Array.from(founderApprovalContractIdSet) : null
 
     let query = supabase
       .from('contracts_repository_view')
@@ -6935,6 +6984,10 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
 
     if (visibilityFilter?.hodDepartmentIds && visibilityFilter.hodDepartmentIds.length > 0) {
       query = query.in('department_id', visibilityFilter.hodDepartmentIds)
+    }
+
+    if (founderApprovalContractIds) {
+      query = query.in('id', founderApprovalContractIds)
     }
 
     const { data, error } = await query
