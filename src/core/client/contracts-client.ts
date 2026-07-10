@@ -1614,6 +1614,12 @@ export const contractsClient = {
     return query.size > 0 ? `${path}?${query.toString()}` : path
   },
 
+  previewFinalSignedArtifactUrl(contractId: string, artifact: FinalSigningArtifactType): string {
+    const path = resolveContractPath(routeRegistry.api.contracts.finalSignedArtifactPreview, contractId)
+    const query = new URLSearchParams({ artifact })
+    return `${path}?${query.toString()}`
+  },
+
   resolveProtectedContractPath,
 }
 
