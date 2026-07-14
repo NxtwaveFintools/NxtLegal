@@ -23,7 +23,7 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
     }
 
     const queryParams = Object.fromEntries(request.nextUrl.searchParams.entries())
-    const { search, status, repositoryStatus, dateBasis, datePreset, fromDate, toDate } =
+    const { search, status, repositoryStatuses, dateBasis, datePreset, fromDate, toDate, founderApproval } =
       repositoryReportingQuerySchema.parse(queryParams)
 
     const contractQueryService = getContractQueryService()
@@ -33,11 +33,12 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
       role: session.role,
       search,
       status,
-      repositoryStatus,
+      repositoryStatuses,
       dateBasis,
       datePreset,
       fromDate,
       toDate,
+      founderApproval,
     })
 
     return NextResponse.json(okResponse({ report }), {

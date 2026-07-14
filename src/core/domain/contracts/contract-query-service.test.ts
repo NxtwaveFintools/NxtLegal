@@ -40,6 +40,7 @@ const createRepositoryMock = (): jest.Mocked<ContractQueryRepository> => ({
   getAdditionalApproverDecisionHistory: jest.fn(),
   listRepositoryContracts: jest.fn(),
   getRepositoryReport: jest.fn(),
+  updateTitle: jest.fn(),
   listRepositoryExportRows: jest.fn(),
   listRepositoryExportRowsChunk: jest.fn(),
   getById: jest.fn(),
@@ -336,7 +337,6 @@ describe('ContractQueryService', () => {
 
     repository.listRepositoryContracts.mockResolvedValue({
       items: [baseContract],
-      nextCursor: undefined,
       total: 24,
     })
 
@@ -344,6 +344,7 @@ describe('ContractQueryService', () => {
       tenantId: 'tenant-1',
       employeeId: 'legal-1',
       role: 'LEGAL_TEAM',
+      page: 1,
       limit: 20,
       sortBy: 'created_at',
       sortDirection: 'desc',

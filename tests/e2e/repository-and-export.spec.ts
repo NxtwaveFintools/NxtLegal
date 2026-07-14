@@ -63,7 +63,7 @@ test.describe('Repository: Navigation, Filters, and Export', () => {
 
   test('3. Status filter — COMPLETED contracts can be selected', async ({ page }) => {
     await loginViaAPI(page, 'legal')
-    await page.goto(`${ROUTES.repository}?status=COMPLETED`)
+    await page.goto(`${ROUTES.repository}?statuses=COMPLETED`)
     await page.waitForLoadState('networkidle')
 
     // Page renders without errors regardless of result count
@@ -73,7 +73,7 @@ test.describe('Repository: Navigation, Filters, and Export', () => {
 
   test('4. Status filter — EXECUTED contracts can be selected', async ({ page }) => {
     await loginViaAPI(page, 'legal')
-    await page.goto(`${ROUTES.repository}?status=EXECUTED`)
+    await page.goto(`${ROUTES.repository}?statuses=EXECUTED`)
     await page.waitForLoadState('networkidle')
 
     await expect(page).not.toHaveTitle(/500|error/i)
@@ -91,7 +91,7 @@ test.describe('Repository: Navigation, Filters, and Export', () => {
 
   test('6. Combined filter — status + search renders without error', async ({ page }) => {
     await loginViaAPI(page, 'legal')
-    await page.goto(`${ROUTES.repository}?status=COMPLETED&search=nda`)
+    await page.goto(`${ROUTES.repository}?statuses=COMPLETED&search=nda`)
     await page.waitForLoadState('networkidle')
 
     await expect(page).not.toHaveTitle(/500|error/i)

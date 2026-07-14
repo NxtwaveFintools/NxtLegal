@@ -977,8 +977,15 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
             toast.error(response.error?.message ?? 'Failed to generate document view link')
             return
           }
-          const viewUrl =
-            response.data.signedUrl ?? (response.data.blob ? URL.createObjectURL(response.data.blob) : null)
+          // A raw storage signed URL is cross-origin and browsers refuse to render it inside
+          // our <iframe> ("This content is blocked"). Route the in-app viewer through our own
+          // same-origin preview proxy instead; the raw signed URL is still fine for direct
+          // top-level navigation, so it's kept as the "Open in New Tab" fallback.
+          const viewUrl = response.data.signedUrl
+            ? contractsClient.previewFinalSignedArtifactUrl(selectedContractId, 'merged_pdf')
+            : response.data.blob
+              ? URL.createObjectURL(response.data.blob)
+              : null
           if (!viewUrl) {
             toast.error('Failed to generate document view link')
             return

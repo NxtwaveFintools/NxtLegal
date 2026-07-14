@@ -64,7 +64,6 @@ const makeRequest = (searchParams: Record<string, string> = {}): GetRequestArg =
 
 const defaultListResult = {
   items: [{ id: 'c1', title: 'MSA', status: 'COMPLETED' }],
-  nextCursor: undefined,
   total: 1,
 }
 
@@ -119,24 +118,24 @@ describe('GET /api/contracts/repository', () => {
     )
   })
 
-  it('returns null cursor when there is no next page', async () => {
+  it('returns page 1 of 1 when there is only one page', async () => {
     const response = await GET(makeRequest())
     const body = await response.json()
 
-    expect(body.data.pagination.cursor).toBeNull()
+    expect(body.data.pagination.page).toBe(1)
+    expect(body.data.pagination.totalPages).toBe(1)
   })
 
-  it('returns next cursor when more pages are available', async () => {
+  it('returns the correct totalPages when more pages are available', async () => {
     mockContractQueryService.listRepositoryContracts.mockResolvedValue({
       items: [],
-      nextCursor: 'cursor-xyz',
       total: 100,
     })
 
     const response = await GET(makeRequest())
     const body = await response.json()
 
-    expect(body.data.pagination.cursor).toBe('cursor-xyz')
+    expect(body.data.pagination.totalPages).toBe(5)
   })
 
   // ──────────────────────── Filters ────────────────────────────────────────────
@@ -157,12 +156,10 @@ describe('GET /api/contracts/repository', () => {
     )
   })
 
-  it('forwards cursor for page continuation', async () => {
-    await GET(makeRequest({ cursor: 'some-cursor' }))
+  it('forwards page for page continuation', async () => {
+    await GET(makeRequest({ page: '2' }))
 
-    expect(mockContractQueryService.listRepositoryContracts).toHaveBeenCalledWith(
-      expect.objectContaining({ cursor: 'some-cursor' })
-    )
+    expect(mockContractQueryService.listRepositoryContracts).toHaveBeenCalledWith(expect.objectContaining({ page: 2 }))
   })
 
   // ──────────────────────── includeReport ─────────────────────────────────────
