@@ -99,11 +99,20 @@ export const repositoryDatePresetValues = ['week', 'month', 'multiple_months', '
 export const repositoryHodApprovalValues = ['yes', 'no'] as const
 
 export const repositoryContractsQuerySchema = z.object({
-  cursor: z.string().optional(),
+  page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(limits.paginationPageSize).default(20),
   search: z.string().trim().max(200).optional(),
   status: z.nativeEnum(contractStatuses).optional(),
-  repositoryStatus: z.nativeEnum(contractRepositoryStatuses).optional(),
+  repositoryStatuses: z.preprocess(
+    (val) =>
+      typeof val === 'string' && val
+        ? val
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : undefined,
+    z.array(z.nativeEnum(contractRepositoryStatuses)).max(11).optional()
+  ),
   sortBy: z.enum(repositorySortByValues).default('created_at'),
   sortDirection: z.enum(repositorySortDirectionValues).default('desc'),
   dateBasis: z.enum(repositoryDateBasisValues).optional(),
@@ -121,6 +130,7 @@ export const repositoryContractsQuerySchema = z.object({
     z.array(z.string().uuid()).max(20).optional()
   ),
   hodApproval: z.enum(repositoryHodApprovalValues).optional(),
+  founderApproval: z.enum(repositoryHodApprovalValues).optional(),
   assignedToEmails: z.preprocess(
     (val) =>
       typeof val === 'string' && val
@@ -146,7 +156,7 @@ const repositoryExportFormatValues = Object.values(contractRepositoryExportForma
 ]
 
 export const repositoryReportingQuerySchema = repositoryContractsQuerySchema.omit({
-  cursor: true,
+  page: true,
   limit: true,
   sortBy: true,
   sortDirection: true,

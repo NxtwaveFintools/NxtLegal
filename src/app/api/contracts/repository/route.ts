@@ -16,11 +16,11 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
 
     const queryParams = Object.fromEntries(request.nextUrl.searchParams.entries())
     const {
-      cursor,
+      page,
       limit,
       search,
       status,
-      repositoryStatus,
+      repositoryStatuses,
       sortBy,
       sortDirection,
       dateBasis,
@@ -29,6 +29,7 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
       toDate,
       departmentIds,
       hodApproval,
+      founderApproval,
       assignedToEmails,
       includeReport,
     } = repositoryContractsQuerySchema.parse(queryParams)
@@ -41,11 +42,11 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
           tenantId: session.tenantId,
           employeeId: session.employeeId,
           role: session.role,
-          cursor,
+          page,
           limit,
           search,
           status,
-          repositoryStatus,
+          repositoryStatuses,
           sortBy,
           sortDirection,
           dateBasis,
@@ -54,6 +55,7 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
           toDate,
           departmentIds,
           hodApproval,
+          founderApproval,
           assignedToEmails,
         }),
         contractQueryService.getRepositoryReport({
@@ -62,11 +64,12 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
           role: session.role,
           search,
           status,
-          repositoryStatus,
+          repositoryStatuses,
           dateBasis,
           datePreset,
           fromDate,
           toDate,
+          founderApproval,
         }),
       ])
 
@@ -74,9 +77,10 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
         okResponse({
           contracts: result.items,
           pagination: {
-            cursor: result.nextCursor ?? null,
+            page,
             limit,
             total: result.total,
+            totalPages: Math.max(1, Math.ceil(result.total / limit)),
           },
           report,
         }),
@@ -92,11 +96,11 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
       tenantId: session.tenantId,
       employeeId: session.employeeId,
       role: session.role,
-      cursor,
+      page,
       limit,
       search,
       status,
-      repositoryStatus,
+      repositoryStatuses,
       sortBy,
       sortDirection,
       dateBasis,
@@ -105,6 +109,7 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
       toDate,
       departmentIds,
       hodApproval,
+      founderApproval,
       assignedToEmails,
     })
 
@@ -112,9 +117,10 @@ const GETHandler = withAuth(async (request: NextRequest, { session }) => {
       okResponse({
         contracts: result.items,
         pagination: {
-          cursor: result.nextCursor ?? null,
+          page,
           limit,
           total: result.total,
+          totalPages: Math.max(1, Math.ceil(result.total / limit)),
         },
       }),
       {
