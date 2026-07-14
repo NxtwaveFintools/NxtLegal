@@ -14,7 +14,6 @@ export default function ProtectedRouteLoading({ title, mode = 'dashboard' }: Pro
   return (
     <div className={styles.page} aria-busy="true" aria-live="polite" aria-label={title}>
       <aside className={styles.sidebar}>
-        <div className={styles.logoPulse} />
         <div className={styles.navStack}>
           <div className={`${styles.navDot} ${styles.navDotActive}`} />
           <div className={styles.navDot} />

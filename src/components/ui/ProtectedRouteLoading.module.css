@@ -295,7 +295,6 @@
   gap: 8px;
 }
 
-.logoPulse,
 .navDot,
 .avatarDot,
 .circle,
@@ -330,12 +329,6 @@
   );
   background-size: 800px 100%;
   animation: loadingShimmer 1.6s ease-in-out infinite;
-}
-
-.logoPulse {
-  width: 38px;
-  height: 38px;
-  border-radius: var(--radius-md);
 }
 
 .navDot {
