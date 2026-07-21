@@ -218,6 +218,62 @@
   white-space: nowrap;
 }
 
+.globalSearch {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  flex: 0 1 340px;
+  min-width: 0;
+  padding: 0 10px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  transition:
+    border-color 0.25s ease,
+    box-shadow 0.25s ease;
+}
+
+.globalSearch:focus-within {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 24%, transparent);
+}
+
+.globalSearchIcon {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}
+
+.globalSearchInput {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: var(--color-text);
+  font-size: 13px;
+  outline: none;
+}
+
+.globalSearchInput::placeholder {
+  color: var(--color-text-muted);
+}
+
+.globalSearchHint {
+  flex-shrink: 0;
+  padding: 2px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: var(--color-surface-muted);
+  color: var(--color-text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
 .topbarTools {
   display: flex;
   align-items: center;
@@ -1496,6 +1552,10 @@
     flex-wrap: wrap;
   }
 
+  .globalSearch {
+    flex: 1 1 100%;
+  }
+
   .topbarTools {
     width: 100%;
     justify-content: space-between;
@@ -1606,6 +1666,10 @@
 
   .topbarTitle {
     font-size: 20px;
+  }
+
+  .globalSearchHint {
+    display: none;
   }
 
   .topbarTools {

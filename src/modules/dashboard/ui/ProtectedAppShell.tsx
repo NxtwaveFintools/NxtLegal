@@ -5,6 +5,7 @@ import { useMemo } from 'react'
 import Link from 'next/link'
 import LogoutButton from '@/components/auth/LogoutButton'
 import ThemeToggle from '@/components/theme/ThemeToggle'
+import GlobalSearchBar from './GlobalSearchBar'
 import { routeRegistry } from '@/core/config/route-registry'
 import styles from './dashboard.module.css'
 
@@ -16,6 +17,15 @@ type ProtectedAppShellProps = {
     role?: string | null
   }
   activeNav: 'home' | 'repository' | 'admin' | 'approver-history'
+  /**
+   * Set by pages that render their own search input, so the topbar does not
+   * show a second one pointing at it.
+   *
+   * This is deliberately separate from `activeNav`: a contract opened from the
+   * repository reports `activeNav="repository"` to keep the sidebar
+   * highlighted, but has no search of its own and still wants the topbar bar.
+   */
+  hideGlobalSearch?: boolean
   canAccessApproverHistory?: boolean
   quickAction?: {
     ariaLabel: string
@@ -49,6 +59,7 @@ const organizationName = 'NxtWave Disruptive Technologies Private Limited'
 export default function ProtectedAppShell({
   session,
   activeNav,
+  hideGlobalSearch = false,
   canAccessApproverHistory = false,
   quickAction,
   children,
@@ -229,6 +240,7 @@ export default function ProtectedAppShell({
         <header className={styles.topbar}>
           <div className={styles.topbarLeft}>
             <span className={styles.topbarTitle}>{activePage.title}</span>
+            {hideGlobalSearch ? null : <GlobalSearchBar />}
           </div>
           <div className={styles.topbarRight}>
             <div className={styles.topbarTools}>

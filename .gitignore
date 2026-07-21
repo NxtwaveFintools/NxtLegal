@@ -103,4 +103,3 @@ coverage/
 supabase/migrations/20260512123000_seed_test_accounts_mcp.sql
 .agents
 .claude
-GLOBAL_CONTRACT_SEARCH_PLAN.md
