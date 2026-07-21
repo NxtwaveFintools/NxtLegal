@@ -91,6 +91,8 @@ type ContractDocument = {
   counterpartyName?: string | null
   displayName: string
   fileName: string
+  /** User-facing filename. Derived per request; never persisted. */
+  downloadFileName: string
   fileSizeBytes: number
   fileMimeType: string
   createdAt: string
@@ -105,6 +107,7 @@ type DashboardContractsFilter =
   | 'REJECTED'
   | 'ASSIGNED_TO_ME'
   | 'ALL_ASSIGNED'
+  | 'EXECUTED'
 type DashboardContractsScope = 'default' | 'personal'
 
 type RepositorySortBy = 'title' | 'created_at' | 'hod_approved_at' | 'status' | 'tat_deadline_at'
@@ -242,6 +245,36 @@ type ContractSignatory = {
   zohoSignEnvelopeId: string
   zohoSignRecipientId: string
   createdAt: string
+}
+
+type ContractRowPreviewApprover = {
+  id: string
+  email: string
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'SKIPPED' | 'BYPASSED'
+  approvedAt: string | null
+  sequenceOrder: number
+}
+
+type ContractRowPreviewSigner = {
+  id: string
+  email: string
+  status: 'PENDING' | 'SIGNED'
+  signedAt: string | null
+  routingOrder: number
+  recipientType: 'INTERNAL' | 'EXTERNAL' | 'VIEWER'
+}
+
+type ContractRowPreview = {
+  contractId: string
+  description: string | null
+  counterparties: string[]
+  hodApprovedAt: string | null
+  additionalApprovers: ContractRowPreviewApprover[]
+  signatories: ContractRowPreviewSigner[]
+  approvedCount: number
+  totalApprovers: number
+  signedCount: number
+  totalSigners: number
 }
 
 type FinalSigningArtifactType = 'signed_document' | 'completion_certificate' | 'merged_pdf'
@@ -884,6 +917,30 @@ export const contractsClient = {
     return fetchGetJson<{ events: ContractTimelineEvent[] }>(
       `${resolveContractPath(routeRegistry.api.contracts.timeline, contractId)}?limit=20`
     )
+  },
+
+  async summary(
+    contractId: string,
+    options?: { signal?: AbortSignal }
+  ): Promise<ApiResponse<{ preview: ContractRowPreview }>> {
+    const url = resolveContractPath(routeRegistry.api.contracts.summary, contractId)
+
+    try {
+      const response = await fetch(url, {
+        method: 'GET',
+        credentials: 'include',
+        cache: 'no-store',
+        signal: options?.signal,
+      })
+
+      return (await response.json()) as ApiResponse<{ preview: ContractRowPreview }>
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        throw error
+      }
+
+      return networkErrorResponse<{ preview: ContractRowPreview }>()
+    }
   },
 
   async addActivityMessage(contractId: string, payload: { messageText: string }) {
@@ -1637,6 +1694,9 @@ export type {
   ContractApproverReminderResponse,
   ContractLegalCollaborator,
   ContractSignatory,
+  ContractRowPreview,
+  ContractRowPreviewApprover,
+  ContractRowPreviewSigner,
   FinalSigningArtifactType,
   ContractSigningPreparationDraft,
   AdditionalApproverDecisionHistoryRecord,

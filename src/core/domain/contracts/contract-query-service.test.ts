@@ -655,3 +655,277 @@ describe('ContractQueryService', () => {
     expect(repository.saveSigningPreparationDraft).not.toHaveBeenCalled()
   })
 })
+
+describe('getContractRowPreview', () => {
+  const buildService = () => {
+    const repository = createRepositoryMock()
+    repository.getById.mockResolvedValue(baseContract)
+    repository.canAccessContract.mockResolvedValue(true)
+    repository.getCounterparties.mockResolvedValue([])
+    repository.getAdditionalApprovers.mockResolvedValue([])
+    repository.getSignatories.mockResolvedValue([])
+    repository.getTimeline.mockResolvedValue([])
+    const service = new ContractQueryService(repository)
+    return { repository, service }
+  }
+
+  const params = {
+    tenantId: 'tenant-1',
+    contractId: 'contract-1',
+    employeeId: 'employee-1',
+    role: 'LEGAL_TEAM',
+  }
+
+  it('throws AuthorizationError when the actor cannot access the contract', async () => {
+    const { repository, service } = buildService()
+    repository.canAccessContract.mockResolvedValue(false)
+
+    await expect(service.getContractRowPreview(params)).rejects.toThrow(AuthorizationError)
+  })
+
+  it('does not query approvers or signers when access is denied', async () => {
+    const { repository, service } = buildService()
+    repository.canAccessContract.mockResolvedValue(false)
+
+    await expect(service.getContractRowPreview(params)).rejects.toThrow(AuthorizationError)
+    expect(repository.getAdditionalApprovers).not.toHaveBeenCalled()
+    expect(repository.getSignatories).not.toHaveBeenCalled()
+  })
+
+  it('does not fetch the timeline', async () => {
+    const { repository, service } = buildService()
+
+    await service.getContractRowPreview(params)
+
+    expect(repository.getTimeline).not.toHaveBeenCalled()
+  })
+
+  it('maps the description from the contract entity', async () => {
+    const { service } = buildService()
+
+    const preview = await service.getContractRowPreview(params)
+
+    expect(preview.description).toBe('Office fitout contract')
+    expect(preview.hodApprovedAt).toBeNull()
+  })
+
+  it('returns empty collections and zero counts when nothing is attached', async () => {
+    const { service } = buildService()
+
+    const preview = await service.getContractRowPreview(params)
+
+    expect(preview.additionalApprovers).toEqual([])
+    expect(preview.signatories).toEqual([])
+    expect(preview.totalApprovers).toBe(0)
+    expect(preview.totalSigners).toBe(0)
+  })
+
+  it('counts approved approvers and excludes SKIPPED from the total', async () => {
+    const { repository, service } = buildService()
+    repository.getAdditionalApprovers.mockResolvedValue([
+      {
+        id: 'a1',
+        approverEmployeeId: 'e1',
+        approverEmail: 'anil@nxtwave.co.in',
+        sequenceOrder: 1,
+        status: 'APPROVED',
+        approvedAt: '2026-07-08T00:00:00.000Z',
+      },
+      {
+        id: 'a2',
+        approverEmployeeId: 'e2',
+        approverEmail: 'meera@nxtwave.co.in',
+        sequenceOrder: 2,
+        status: 'PENDING',
+        approvedAt: null,
+      },
+      {
+        id: 'a3',
+        approverEmployeeId: 'e3',
+        approverEmail: 'skipped@nxtwave.co.in',
+        sequenceOrder: 3,
+        status: 'SKIPPED',
+        approvedAt: null,
+      },
+    ])
+
+    const preview = await service.getContractRowPreview(params)
+
+    expect(preview.approvedCount).toBe(1)
+    expect(preview.totalApprovers).toBe(2)
+    expect(preview.additionalApprovers).toHaveLength(3)
+    expect(preview.additionalApprovers.map((approver) => approver.id)).toEqual(['a1', 'a2', 'a3'])
+  })
+
+  it('preserves distinct ids when the same person approves more than once', async () => {
+    const { repository, service } = buildService()
+    repository.getAdditionalApprovers.mockResolvedValue([
+      {
+        id: 'a1',
+        approverEmployeeId: 'e1',
+        approverEmail: 'repeat@nxtwave.co.in',
+        sequenceOrder: 1,
+        status: 'APPROVED',
+        approvedAt: '2026-05-26T00:00:00.000Z',
+      },
+      {
+        id: 'a2',
+        approverEmployeeId: 'e1',
+        approverEmail: 'repeat@nxtwave.co.in',
+        sequenceOrder: 2,
+        status: 'PENDING',
+        approvedAt: null,
+      },
+    ])
+
+    const preview = await service.getContractRowPreview(params)
+
+    const ids = preview.additionalApprovers.map((approver) => approver.id)
+    expect(new Set(ids).size).toBe(2)
+  })
+
+  it('counts signed signatories', async () => {
+    const { repository, service } = buildService()
+    repository.getSignatories.mockResolvedValue([
+      {
+        id: 's1',
+        signatoryEmail: 'priya@nxtwave.co.in',
+        recipientType: 'INTERNAL',
+        routingOrder: 1,
+        fieldConfig: [],
+        status: 'SIGNED',
+        signedAt: '2026-07-14T00:00:00.000Z',
+        zohoSignEnvelopeId: 'env-1',
+        zohoSignRecipientId: 'rec-1',
+        createdAt: '2026-07-10T00:00:00.000Z',
+      },
+      {
+        id: 's2',
+        signatoryEmail: 'cfo@acme.com',
+        recipientType: 'EXTERNAL',
+        routingOrder: 2,
+        fieldConfig: [],
+        status: 'PENDING',
+        signedAt: null,
+        zohoSignEnvelopeId: 'env-1',
+        zohoSignRecipientId: 'rec-2',
+        createdAt: '2026-07-10T00:00:00.000Z',
+      },
+    ])
+
+    const preview = await service.getContractRowPreview(params)
+
+    expect(preview.signedCount).toBe(1)
+    expect(preview.totalSigners).toBe(2)
+    expect(preview.signatories[0].email).toBe('priya@nxtwave.co.in')
+    expect(preview.signatories.map((signer) => signer.id)).toEqual(['s1', 's2'])
+  })
+
+  it('maps counterparty names in sequence order', async () => {
+    const { repository, service } = buildService()
+    repository.getCounterparties.mockResolvedValue([
+      { id: 'c1', counterpartyName: 'Acme Corp', sequenceOrder: 1 },
+      { id: 'c2', counterpartyName: 'Beta Ltd', sequenceOrder: 2 },
+    ])
+
+    const preview = await service.getContractRowPreview(params)
+
+    expect(preview.counterparties).toEqual(['Acme Corp', 'Beta Ltd'])
+  })
+})
+
+describe('getContractDetail downloadFileName', () => {
+  const documents = [
+    {
+      id: 'doc-primary',
+      documentKind: 'PRIMARY' as const,
+      displayName: 'Contract',
+      fileName: 'MSA_Acme.docx',
+      fileSizeBytes: 1024,
+      fileMimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      createdAt: '2026-07-01T10:00:00.000Z',
+    },
+    {
+      id: 'doc-executed',
+      documentKind: 'EXECUTED_CONTRACT' as const,
+      displayName: 'Executed Contract',
+      fileName: 'executed-envelope-123.pdf',
+      fileSizeBytes: 2048,
+      fileMimeType: 'application/pdf',
+      createdAt: '2026-07-20T10:00:00.000Z',
+    },
+    {
+      id: 'doc-certificate',
+      documentKind: 'AUDIT_CERTIFICATE' as const,
+      displayName: 'Zoho Sign Completion Certificate',
+      fileName: 'audit-certificate-envelope-123.pdf',
+      fileSizeBytes: 512,
+      fileMimeType: 'application/pdf',
+      createdAt: '2026-07-20T10:00:00.000Z',
+    },
+  ]
+
+  const allSigned = [
+    { status: 'SIGNED', signedAt: '2026-07-19T10:00:00.000Z' },
+    { status: 'SIGNED', signedAt: '2026-07-20T09:30:00.000Z' },
+  ]
+
+  const partiallySigned = [
+    { status: 'SIGNED', signedAt: '2026-07-19T10:00:00.000Z' },
+    { status: 'PENDING', signedAt: null },
+  ]
+
+  // Returns the decorated documents from getContractDetail, with the contract
+  // titled 'MSA - Acme Corp' and the given signatory set.
+  const loadDocuments = async (signatories: Array<{ status: string; signedAt: string | null }>) => {
+    const repository = createRepositoryMock()
+    const service = new ContractQueryService(repository)
+
+    repository.getById.mockResolvedValue({ ...baseContract, title: 'MSA - Acme Corp' })
+    repository.canAccessContract.mockResolvedValue(true)
+    repository.getDocuments.mockResolvedValue(documents)
+    repository.getSignatories.mockResolvedValue(signatories as never)
+    repository.getAvailableActions.mockResolvedValue([])
+    repository.getAdditionalApprovers.mockResolvedValue([])
+    repository.getLegalCollaborators.mockResolvedValue([])
+    repository.getCounterparties.mockResolvedValue([])
+
+    const view = await service.getContractDetail({
+      tenantId: 'tenant-1',
+      contractId: 'contract-1',
+      employeeId: 'emp-1',
+      role: 'LEGAL_TEAM',
+    })
+
+    return view.documents
+  }
+
+  it('gives signing artifacts a friendly download filename', async () => {
+    const result = await loadDocuments(allSigned)
+
+    expect(result.find((d) => d.id === 'doc-executed')?.downloadFileName).toBe(
+      'MSA - Acme Corp - Signed - 20-07-2026.pdf'
+    )
+    expect(result.find((d) => d.id === 'doc-certificate')?.downloadFileName).toBe(
+      'MSA - Acme Corp - Completion Certificate - 20-07-2026.pdf'
+    )
+  })
+
+  it('leaves the storage fileName untouched', async () => {
+    const result = await loadDocuments(allSigned)
+
+    expect(result.find((d) => d.id === 'doc-executed')?.fileName).toBe('executed-envelope-123.pdf')
+  })
+
+  it('falls back to the uploaded filename for primary documents', async () => {
+    const result = await loadDocuments(allSigned)
+
+    expect(result.find((d) => d.id === 'doc-primary')?.downloadFileName).toBe('MSA_Acme.docx')
+  })
+
+  it('omits the date while signatures are still outstanding', async () => {
+    const result = await loadDocuments(partiallySigned)
+
+    expect(result.find((d) => d.id === 'doc-executed')?.downloadFileName).toBe('MSA - Acme Corp - Signed.pdf')
+  })
+})

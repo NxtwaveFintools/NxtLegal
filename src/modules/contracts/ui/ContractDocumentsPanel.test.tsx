@@ -12,29 +12,78 @@ jest.mock('sonner', () => ({
   },
 }))
 
-const makeDoc = (overrides: Partial<ContractDocument> = {}): ContractDocument => ({
-  id: 'doc-1',
-  documentKind: 'PRIMARY',
-  versionNumber: 1,
-  displayName: 'Primary Contract',
-  fileName: 'contract-v1.docx',
-  fileSizeBytes: 2048,
-  fileMimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  createdAt: '2026-02-24T10:00:00.000Z',
-  ...overrides,
-})
+// Primary and supporting documents keep the uploader's own filename, so
+// downloadFileName tracks fileName unless a test sets it explicitly.
+const makeDoc = (overrides: Partial<ContractDocument> = {}): ContractDocument => {
+  const fileName = overrides.fileName ?? 'contract-v1.docx'
 
-const makeSupportingDoc = (overrides: Partial<ContractDocument> = {}): ContractDocument => ({
-  id: 'supporting-doc-1',
-  documentKind: 'COUNTERPARTY_SUPPORTING',
-  displayName: 'Counterparty Docs - Acme Corp (1)',
-  counterpartyId: 'counterparty-1',
-  counterpartyName: 'Acme Corp',
-  fileName: 'acme-supporting-v1.pdf',
-  fileSizeBytes: 1024,
-  fileMimeType: 'application/pdf',
-  createdAt: '2026-02-24T11:00:00.000Z',
-  ...overrides,
+  return {
+    id: 'doc-1',
+    documentKind: 'PRIMARY',
+    versionNumber: 1,
+    displayName: 'Primary Contract',
+    fileName,
+    downloadFileName: fileName,
+    fileSizeBytes: 2048,
+    fileMimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    createdAt: '2026-02-24T10:00:00.000Z',
+    ...overrides,
+  }
+}
+
+const makeSupportingDoc = (overrides: Partial<ContractDocument> = {}): ContractDocument => {
+  const fileName = overrides.fileName ?? 'acme-supporting-v1.pdf'
+
+  return {
+    id: 'supporting-doc-1',
+    documentKind: 'COUNTERPARTY_SUPPORTING',
+    displayName: 'Counterparty Docs - Acme Corp (1)',
+    counterpartyId: 'counterparty-1',
+    counterpartyName: 'Acme Corp',
+    fileName,
+    downloadFileName: fileName,
+    fileSizeBytes: 1024,
+    fileMimeType: 'application/pdf',
+    createdAt: '2026-02-24T11:00:00.000Z',
+    ...overrides,
+  }
+}
+
+describe('ContractDocumentsPanel filenames', () => {
+  const executedDoc = makeDoc({
+    id: 'doc-executed',
+    documentKind: 'EXECUTED_CONTRACT',
+    displayName: 'Executed Contract',
+    fileName: 'executed-envelope-123.pdf',
+    downloadFileName: 'MSA - Acme Corp - Signed - 20-07-2026.pdf',
+    fileMimeType: 'application/pdf',
+  })
+
+  const renderWithExecutedDoc = () =>
+    render(
+      <ContractDocumentsPanel
+        contractId="contract-1"
+        contractStatus="COMPLETED"
+        userRole="LEGAL_TEAM"
+        currentDocumentId="doc-1"
+        documents={[makeDoc(), executedDoc]}
+        onPreviewDocument={jest.fn()}
+        onDownloadDocument={jest.fn()}
+        onRefreshDocuments={async () => undefined}
+      />
+    )
+
+  it('renders the friendly filename for execution artifacts', () => {
+    renderWithExecutedDoc()
+
+    expect(screen.getByText('MSA - Acme Corp - Signed - 20-07-2026.pdf')).toBeTruthy()
+  })
+
+  it('never renders an internal storage filename', () => {
+    const { container } = renderWithExecutedDoc()
+
+    expect(container.textContent).not.toMatch(/executed-|audit-certificate-|completion-certificate-and-signed-/)
+  })
 })
 
 describe('ContractDocumentsPanel', () => {

@@ -32,7 +32,7 @@ import type {
   ContractActivityReadState,
   ContractActionMutationResult,
   ContractCounterparty,
-  ContractDocument,
+  StoredContractDocument,
   ContractNotificationDeliverySummary,
   ContractNotificationFailure,
   DashboardContractFilter,
@@ -2038,7 +2038,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
     }
   }
 
-  async getDocuments(tenantId: string, contractId: string): Promise<ContractDocument[]> {
+  async getDocuments(tenantId: string, contractId: string): Promise<StoredContractDocument[]> {
     const supabase = createServiceSupabase()
 
     const { data, error } = await supabase
@@ -5346,7 +5346,19 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       return contractStatuses.rejected
     }
 
-    return contractStatuses.onHold
+    if (filter === 'EXECUTED') {
+      return contractStatuses.executed
+    }
+
+    if (filter === 'ON_HOLD') {
+      return contractStatuses.onHold
+    }
+
+    // Exhaustiveness guard: a new DashboardContractFilter value must add a branch above.
+    // Without this the function silently fell through to ON_HOLD, so a new filter would
+    // list the wrong contracts with no compile error and no runtime failure.
+    const unhandledFilter: never = filter
+    throw new Error(`Unhandled dashboard filter: ${String(unhandledFilter)}`)
   }
 
   private async getEmployeeEmail(tenantId: string, employeeId: string): Promise<string | null> {

@@ -62,6 +62,7 @@ export type DashboardContractFilter =
   | 'REJECTED'
   | 'ASSIGNED_TO_ME'
   | 'ALL_ASSIGNED'
+  | 'EXECUTED'
 
 export type DashboardContractScope = 'default' | 'personal'
 
@@ -165,7 +166,8 @@ export type ContractCounterparty = {
   sequenceOrder: number
 }
 
-export type ContractDocument = {
+/** A document exactly as persisted. `fileName` is the storage name and is never rendered. */
+export type StoredContractDocument = {
   id: string
   documentKind: 'PRIMARY' | 'COUNTERPARTY_SUPPORTING' | 'EXECUTED_CONTRACT' | 'AUDIT_CERTIFICATE'
   versionNumber?: number
@@ -176,6 +178,15 @@ export type ContractDocument = {
   fileSizeBytes: number
   fileMimeType: string
   createdAt: string
+}
+
+/**
+ * A stored document decorated with its user-facing name. Only `getContractDetail`
+ * produces this shape, so the friendly name has exactly one origin.
+ */
+export type ContractDocument = StoredContractDocument & {
+  /** User-facing filename. Derived per request; never persisted. */
+  downloadFileName: string
 }
 
 export type ContractTimelineEvent = {
@@ -294,6 +305,36 @@ export type ContractDetailView = {
   additionalApprovers: ContractAdditionalApprover[]
   legalCollaborators: ContractLegalCollaborator[]
   signatories: ContractSignatory[]
+}
+
+export type ContractRowPreviewApprover = {
+  id: string
+  email: string
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'SKIPPED' | 'BYPASSED'
+  approvedAt: string | null
+  sequenceOrder: number
+}
+
+export type ContractRowPreviewSigner = {
+  id: string
+  email: string
+  status: ContractSignatoryStatus
+  signedAt: string | null
+  routingOrder: number
+  recipientType: ContractSignatoryRecipientType
+}
+
+export type ContractRowPreview = {
+  contractId: string
+  description: string | null
+  counterparties: string[]
+  hodApprovedAt: string | null
+  additionalApprovers: ContractRowPreviewApprover[]
+  signatories: ContractRowPreviewSigner[]
+  approvedCount: number
+  totalApprovers: number
+  signedCount: number
+  totalSigners: number
 }
 
 export type ContractActionMutationResult = {
@@ -456,7 +497,7 @@ export interface ContractQueryRepository {
   }): Promise<RepositoryExportRowsChunk>
   getById(tenantId: string, contractId: string): Promise<ContractDetail | null>
   getCounterparties(tenantId: string, contractId: string): Promise<ContractCounterparty[]>
-  getDocuments(tenantId: string, contractId: string): Promise<ContractDocument[]>
+  getDocuments(tenantId: string, contractId: string): Promise<StoredContractDocument[]>
   getTimeline(tenantId: string, contractId: string, limit: number): Promise<ContractTimelineEvent[]>
   getAdditionalApprovers(tenantId: string, contractId: string): Promise<ContractAdditionalApprover[]>
   getLegalCollaborators(tenantId: string, contractId: string): Promise<ContractLegalCollaborator[]>

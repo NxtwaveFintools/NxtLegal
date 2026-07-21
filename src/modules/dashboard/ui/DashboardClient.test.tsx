@@ -702,3 +702,68 @@ describe('DashboardClient HOD bulk approve feature', () => {
     })
   })
 })
+
+describe('DashboardClient Executed tab', () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+
+    jest.spyOn(contractsClient, 'dashboardContracts').mockResolvedValue({
+      ok: true,
+      data: {
+        contracts: [],
+        pagination: { cursor: null, limit: 10, total: 0 },
+        filter: 'EXECUTED',
+        additionalApproverSections: { actionableContracts: [] },
+      },
+    } as never)
+  })
+
+  it.each([
+    ['legal team', contractWorkflowRoles.legalTeam],
+    ['admin', contractWorkflowRoles.admin],
+    ['hod', contractWorkflowRoles.hod],
+    ['poc', contractWorkflowRoles.poc],
+  ])('renders the Executed tab with its count for %s', async (_label, role) => {
+    jest.spyOn(contractsClient, 'dashboardCounts').mockResolvedValue({
+      ok: true,
+      data: {
+        counts: { ALL: 0, HOD_PENDING: 0, UNDER_REVIEW: 0, COMPLETED: 0, ON_HOLD: 0, ASSIGNED_TO_ME: 0, EXECUTED: 10 },
+      },
+    } as never)
+
+    render(
+      <DashboardClient session={{ employeeId: 'employee-1', fullName: 'User', email: 'user@nxtwave.co.in', role }} />
+    )
+
+    expect(await screen.findByRole('button', { name: 'Executed (10)' })).toBeTruthy()
+  })
+
+  it('requests the EXECUTED filter when the tab is clicked', async () => {
+    jest.spyOn(contractsClient, 'dashboardCounts').mockResolvedValue({
+      ok: true,
+      data: {
+        counts: { ALL: 0, HOD_PENDING: 0, UNDER_REVIEW: 0, COMPLETED: 0, ON_HOLD: 0, ASSIGNED_TO_ME: 0, EXECUTED: 10 },
+      },
+    } as never)
+
+    render(
+      <DashboardClient
+        session={{
+          employeeId: 'employee-1',
+          fullName: 'Legal User',
+          email: 'legal@nxtwave.co.in',
+          role: contractWorkflowRoles.legalTeam,
+        }}
+      />
+    )
+
+    const executedTab = await screen.findByRole('button', { name: 'Executed (10)' })
+
+    await act(async () => {
+      fireEvent.click(executedTab)
+      await Promise.resolve()
+    })
+
+    expect(mockReplace).toHaveBeenCalledWith('/dashboard?filter=EXECUTED', { scroll: false })
+  })
+})

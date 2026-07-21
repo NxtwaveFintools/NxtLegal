@@ -16,6 +16,7 @@ import {
   contractSignatoryRecipientTypes,
   contractStatuses,
 } from '@/core/constants/contracts'
+import { buildSignedArtifactFileName, resolveExecutedAt } from '@/core/domain/contracts/signed-document-filename'
 import { buildMasterTemplate } from '@/lib/email/master-template'
 import type { ContractDetailView } from '@/core/domain/contracts/contract-query-repository'
 import type { ContractRepository } from '@/core/domain/contracts/contract-repository'
@@ -29,6 +30,7 @@ type ContractDocumentDownloadService = {
     requestorEmployeeId: string
     requestorRole: string
     documentId?: string
+    downloadFileName?: string
   }): Promise<{ signedUrl: string; fileName: string }>
 }
 
@@ -662,6 +664,14 @@ export class ContractSignatoryService {
       throw new BusinessRuleError('SIGNATORY_DOCUMENT_NOT_AVAILABLE', 'Envelope is not available for this contract')
     }
 
+    // The single user-facing name for this artifact, derived once so every
+    // return path below agrees.
+    const downloadFileName = buildSignedArtifactFileName({
+      title: contractView.contract.title,
+      artifact: params.artifact,
+      executedAt: resolveExecutedAt(contractView.signatories),
+    })
+
     if (params.artifact === 'merged_pdf') {
       return this.downloadMergedSigningArtifact({
         tenantId: params.tenantId,
@@ -670,6 +680,7 @@ export class ContractSignatoryService {
         actorRole: params.actorRole,
         envelopeId,
         contractView,
+        downloadFileName,
         elapsedMs,
       })
     }
@@ -713,6 +724,7 @@ export class ContractSignatoryService {
           requestorEmployeeId: params.actorEmployeeId,
           requestorRole: params.actorRole,
           documentId: localDocument.id,
+          downloadFileName,
         })
         const createSignedUrlMs = Date.now() - createSignedUrlStartedAt
         this.logger.info('FINAL_ARTIFACT_DOWNLOAD_TRACE', {
@@ -729,7 +741,7 @@ export class ContractSignatoryService {
         })
 
         return {
-          fileName: localDownload.fileName,
+          fileName: downloadFileName,
           contentType: 'application/pdf',
           signedUrl: localDownload.signedUrl,
         }
@@ -831,7 +843,7 @@ export class ContractSignatoryService {
       })
 
       return {
-        fileName: targetFileName,
+        fileName: downloadFileName,
         contentType: 'application/pdf',
         fileBytes,
       }
@@ -862,12 +874,12 @@ export class ContractSignatoryService {
     actorRole: string
     envelopeId: string
     contractView: ContractDetailView
+    downloadFileName: string
     elapsedMs: () => number
   }): Promise<
     | { fileName: string; contentType: string; signedUrl: string }
     | { fileName: string; contentType: string; fileBytes: Uint8Array }
   > {
-    const mergedFileName = `completion-certificate-and-signed-${params.envelopeId}.pdf`
     const mergedFilePath = this.resolveMergedArtifactPath({
       tenantId: params.tenantId,
       contractId: params.contractId,
@@ -885,7 +897,8 @@ export class ContractSignatoryService {
     try {
       const mergedSignedUrl = await this.contractStorageRepository.createSignedDownloadUrl(
         mergedFilePath,
-        contractStorage.signedUrlExpirySeconds
+        contractStorage.signedUrlExpirySeconds,
+        params.downloadFileName
       )
       this.logger.info('FINAL_ARTIFACT_DOWNLOAD_TRACE', {
         phase: 'served_merged_from_storage_signed_url',
@@ -898,7 +911,7 @@ export class ContractSignatoryService {
       })
 
       return {
-        fileName: mergedFileName,
+        fileName: params.downloadFileName,
         contentType: 'application/pdf',
         signedUrl: mergedSignedUrl,
       }
@@ -970,11 +983,11 @@ export class ContractSignatoryService {
         })
 
         return {
-          fileName: mergedFileName,
+          fileName: params.downloadFileName,
           contentType: 'application/pdf',
           ...(await this.resolveMergedDownloadResult({
             mergedFilePath,
-            mergedFileName,
+            downloadFileName: params.downloadFileName,
             mergedPdfBytes,
           })),
         }
@@ -1026,11 +1039,11 @@ export class ContractSignatoryService {
       })
 
       return {
-        fileName: mergedFileName,
+        fileName: params.downloadFileName,
         contentType: 'application/pdf',
         ...(await this.resolveMergedDownloadResult({
           mergedFilePath,
-          mergedFileName,
+          downloadFileName: params.downloadFileName,
           mergedPdfBytes,
         })),
       }
@@ -1882,13 +1895,14 @@ export class ContractSignatoryService {
 
   private async resolveMergedDownloadResult(params: {
     mergedFilePath: string
-    mergedFileName: string
+    downloadFileName: string
     mergedPdfBytes: Uint8Array
   }): Promise<{ signedUrl: string } | { fileBytes: Uint8Array }> {
     try {
       const mergedSignedUrl = await this.contractStorageRepository.createSignedDownloadUrl(
         params.mergedFilePath,
-        contractStorage.signedUrlExpirySeconds
+        contractStorage.signedUrlExpirySeconds,
+        params.downloadFileName
       )
       return { signedUrl: mergedSignedUrl }
     } catch {

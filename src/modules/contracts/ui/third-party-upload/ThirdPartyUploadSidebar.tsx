@@ -13,6 +13,7 @@ import {
   type ContractUploadMode,
 } from '@/core/constants/contracts'
 import { composeContractTitle } from './composeContractTitle'
+import { resolvePostUploadDestination } from './resolvePostUploadDestination'
 import WorkflowSidebar from './WorkflowSidebar'
 import ChooseFilesStep from './steps/ChooseFilesStep'
 import AdditionalDataStep from './steps/AdditionalDataStep'
@@ -434,7 +435,12 @@ export default function ThirdPartyUploadSidebar({
 
       onClose()
       resetAll()
-      router.push('/dashboard')
+      router.push(
+        resolvePostUploadDestination({
+          actorRole,
+          contractId: response.data.contract.id,
+        })
+      )
       router.refresh()
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'An unexpected error occurred'

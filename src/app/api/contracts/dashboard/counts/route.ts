@@ -18,6 +18,7 @@ type DashboardContractsFilter =
   | 'REJECTED'
   | 'ASSIGNED_TO_ME'
   | 'ALL_ASSIGNED'
+  | 'EXECUTED'
 type DashboardContractsScope = 'default' | 'personal'
 
 /**

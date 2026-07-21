@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent as R
 import { useRouter, useSearchParams } from 'next/navigation'
 import { type ColumnDef, type SortingState } from '@tanstack/react-table'
 import { useDebouncedValue } from '@/lib/hooks/use-debounced-value'
+import { useFocusHotkey } from '@/lib/hooks/use-focus-hotkey'
 import { toast } from 'sonner'
 import ContractStatusBadge from '@/modules/contracts/ui/ContractStatusBadge'
 import ThirdPartyUploadSidebar from '@/modules/contracts/ui/third-party-upload/ThirdPartyUploadSidebar'
@@ -160,6 +161,19 @@ function formatOverdueLabel(record: ContractRecord): string | null {
   return `Overdue by ${overdueDays} day${overdueDays === 1 ? '' : 's'}`
 }
 
+function formatTatSummary(record: ContractRecord): string | null {
+  const overdueLabel = formatOverdueLabel(record)
+  if (overdueLabel) {
+    return overdueLabel
+  }
+
+  if (typeof record.agingBusinessDays === 'number') {
+    return `${record.agingBusinessDays} day${record.agingBusinessDays === 1 ? '' : 's'} aging`
+  }
+
+  return null
+}
+
 function formatLegalDate(value?: string | null): string {
   if (!value) {
     return '-'
@@ -234,6 +248,10 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
   const [isLoading, setIsLoading] = useState(true)
   const [search, setSearch] = useState(() => searchParams.get('q') ?? '')
   const debouncedSearch = useDebouncedValue(search, 400)
+  // The global topbar search bar is hidden on this page, so Cmd/Ctrl+K is
+  // wired to this page's own search input instead.
+  const searchInputRef = useRef<HTMLInputElement>(null)
+  useFocusHotkey(searchInputRef)
   const [statusFilters, setStatusFilters] = useState<RepositoryStatusFilter[]>(
     () => (searchParams.get('statuses')?.split(',').filter(Boolean) ?? []) as RepositoryStatusFilter[]
   )
@@ -846,6 +864,8 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
           <button
             type="button"
             className={styles.contractTitleAction}
+            // stopPropagation keeps the row's "open request in a new tab" handler from firing:
+            // the title opens the document preview instead.
             onClick={(event) => {
               event.stopPropagation()
               if (event.ctrlKey || event.metaKey) {
@@ -1353,17 +1373,6 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     [sorting]
   )
 
-  const handleOpenContract = useCallback(
-    (contractId: string) => {
-      router.push(
-        contractsClient.resolveProtectedContractPath(contractId, {
-          from: 'repository',
-        })
-      )
-    },
-    [router]
-  )
-
   const handlePreviousPage = useCallback(() => {
     setPage((current) => Math.max(1, current - 1))
   }, [])
@@ -1376,6 +1385,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     <ProtectedAppShell
       session={{ fullName: session.fullName, email: session.email, team: session.team, role: session.role }}
       activeNav="repository"
+      hideGlobalSearch
       canAccessApproverHistory={session.canAccessApproverHistory}
       quickAction={
         normalizedRole === 'HOD'
@@ -1396,6 +1406,7 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
             </div>
             <div className={styles.controls}>
               <input
+                ref={searchInputRef}
                 className={styles.searchInput}
                 placeholder="Search by contract name"
                 value={search}
@@ -1617,9 +1628,10 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
               sorting={sorting}
               onSortingChange={handleSortingChange}
               isLoading={isLoading}
-              onOpenContract={handleOpenContract}
               onOpenContractInNewTab={handleOpenContractInNewTab}
               canSeeTatAndAging={canSeeTatAndAging}
+              suppressRowPreview={openAssignmentDropdownContractId !== null}
+              resolveTatLabel={formatTatSummary}
             />
           </section>
 
