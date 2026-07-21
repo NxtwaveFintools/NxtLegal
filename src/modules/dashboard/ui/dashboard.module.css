@@ -1212,6 +1212,7 @@
 .actionDialogSubtitle {
   font-size: 12px;
   color: var(--color-text-muted);
+  overflow-wrap: anywhere;
 }
 
 .actionDialogContext {
@@ -1223,6 +1224,12 @@
   line-height: 1.45;
   padding: 10px 12px;
   white-space: pre-wrap;
+  /* Free-text field: break unbroken strings instead of stretching the dialog, and cap
+     the height so a long background scrolls rather than pushing the actions offscreen. */
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  max-height: 180px;
+  overflow-y: auto;
 }
 
 .actionDialogContextLabel {
