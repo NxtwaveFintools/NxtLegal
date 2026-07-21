@@ -863,3 +863,161 @@
   color: var(--color-text-muted);
   font-size: 11px;
 }
+
+.rowPreviewCard {
+  position: fixed;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-xl);
+  background: var(--color-surface);
+  box-shadow:
+    var(--shadow-card),
+    0 12px 32px rgba(15, 23, 42, 0.14);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-text);
+  pointer-events: auto;
+  animation: rowPreviewFade 120ms ease-out;
+}
+
+@keyframes rowPreviewFade {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.rowPreviewHeader {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.rowPreviewTitle {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.rowPreviewCounterparties {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.rowPreviewHeaderMeta {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 4px;
+  font-weight: 500;
+}
+
+.rowPreviewTat {
+  color: var(--color-text-muted);
+}
+
+.rowPreviewDescription {
+  margin: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 7;
+  line-clamp: 7;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  color: var(--color-text-muted);
+}
+
+.rowPreviewSection {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border);
+}
+
+.rowPreviewSectionHead {
+  display: flex;
+  justify-content: space-between;
+  color: var(--color-text-muted);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+}
+
+.rowPreviewListRow {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.rowPreviewListMeta {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}
+
+.rowPreviewMore,
+.rowPreviewMessage {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+/* Sits directly beneath the header, which already supplies the divider. */
+.rowPreviewHodApproval {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-weight: 500;
+}
+
+.rowPreviewSkeletonGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.rowPreviewSkeletonLine {
+  height: 10px;
+  border-radius: var(--radius-md);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--color-border) 40%, transparent) 25%,
+    var(--color-border) 50%,
+    color-mix(in srgb, var(--color-border) 40%, transparent) 75%
+  );
+  background-size: 200% 100%;
+  animation: rowPreviewShimmer 1.2s infinite;
+}
+
+.rowPreviewSkeletonLine:nth-child(2) {
+  width: 80%;
+}
+
+.rowPreviewSkeletonLine:nth-child(3) {
+  width: 60%;
+}
+
+@keyframes rowPreviewShimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rowPreviewCard {
+    animation: none;
+  }
+
+  .rowPreviewSkeletonLine {
+    animation: none;
+  }
+}

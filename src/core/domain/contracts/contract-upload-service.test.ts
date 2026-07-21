@@ -54,9 +54,12 @@ describe('ContractUploadService signing source regression', () => {
       contractId: 'contract-1',
       documentId: 'doc-active-2',
     })
+    // The generic download path passes no friendly name, so Content-Disposition
+    // keeps reflecting the stored file.
     expect(contractStorageRepository.createSignedDownloadUrl).toHaveBeenCalledWith(
       'tenant-1/contract-1/versions/v2.docx',
-      expect.any(Number)
+      expect.any(Number),
+      undefined
     )
     expect(result).toEqual({
       signedUrl: 'https://signed.example/v2',

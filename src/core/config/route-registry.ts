@@ -57,6 +57,7 @@ export const routeRegistry = {
       addSupportingDocumentFinalize: '/api/contracts/:contractId/supporting-document/finalize',
       download: '/api/contracts/:contractId/download',
       preview: '/api/contracts/:contractId/preview',
+      summary: '/api/contracts/:contractId/summary',
       timeline: '/api/contracts/:contractId/timeline',
       activity: '/api/contracts/:contractId/activity',
       activityReadState: '/api/contracts/:contractId/activity/read-state',

@@ -987,6 +987,53 @@ describe('supabaseContractQueryRepository action permissions', () => {
     expect(countBuilder.in).toHaveBeenCalledWith('department_id', ['dept-finance'])
   })
 
+  // Guards the unguarded fallthrough in resolveDashboardStatusFromFilter: before EXECUTED
+  // had its own branch, this filter silently resolved to ON_HOLD and the tab listed the
+  // wrong contracts. TypeScript cannot catch that regression, so it is pinned here.
+  it('resolves the EXECUTED dashboard filter to the EXECUTED status', async () => {
+    const countBuilder = {
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      in: jest.fn().mockReturnThis(),
+      or: jest.fn().mockReturnThis(),
+    }
+    countBuilder.select.mockReturnValue(countBuilder)
+    countBuilder.eq.mockReturnValue(countBuilder)
+    countBuilder.in.mockReturnValue(countBuilder)
+    countBuilder.or.mockResolvedValue({ count: 10, error: null })
+
+    const from = jest.fn().mockReturnValue(countBuilder)
+    ;(createServiceSupabase as jest.Mock).mockReturnValue({ from })
+
+    const getVisibilityFilterSpy = jest.spyOn(
+      supabaseContractQueryRepository as unknown as {
+        getVisibilityFilter: (
+          tenantId: string,
+          role: string | undefined,
+          employeeId: string
+        ) => Promise<{ filter: string | null; actionableContractIds: string[]; hodDepartmentIds?: string[] }>
+      },
+      'getVisibilityFilter'
+    )
+    getVisibilityFilterSpy.mockResolvedValue({
+      filter: 'current_assignee_employee_id.eq.legal-1',
+      actionableContractIds: [],
+      hodDepartmentIds: [],
+    })
+
+    const count = await supabaseContractQueryRepository.getDashboardFilterCount({
+      tenantId: 'tenant-1',
+      employeeId: 'legal-1',
+      role: 'LEGAL_TEAM',
+      filter: 'EXECUTED',
+      scope: 'default',
+    })
+
+    expect(count).toBe(10)
+    expect(countBuilder.eq).toHaveBeenCalledWith('status', 'EXECUTED')
+    expect(countBuilder.eq).not.toHaveBeenCalledWith('status', 'ON_HOLD')
+  })
+
   it('shows legal.void action for uploader POC while contract is HOD_PENDING', async () => {
     const transitionsSpy = jest.spyOn(
       supabaseContractQueryRepository as unknown as {

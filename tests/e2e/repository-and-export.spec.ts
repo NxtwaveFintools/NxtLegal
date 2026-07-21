@@ -220,4 +220,30 @@ test.describe('Repository: Navigation, Filters, and Export', () => {
 
     expect([401, 403]).toContain(response.status())
   })
+
+  // ─────────────────────────────────────────────────────────────────────────
+  //  PHASE 6: Row hover preview
+  // ─────────────────────────────────────────────────────────────────────────
+
+  test('16. Hovering a contract row opens the preview card', async ({ page }) => {
+    await loginViaAPI(page, 'legal')
+    await page.goto(ROUTES.repository)
+    await page.waitForLoadState('networkidle')
+
+    const firstRow = page.locator('tbody tr').first()
+
+    // The seeded repository may legitimately be empty; nothing to hover in that case.
+    const rowCount = await page.locator('tbody tr').count()
+    test.skip(rowCount === 0, 'No contracts in repository to hover')
+
+    await firstRow.hover()
+
+    // The card opens only after the 400ms dwell delay.
+    const card = page.getByRole('tooltip')
+    await expect(card).toBeVisible({ timeout: 15_000 })
+
+    // Moving away closes it after the grace delay.
+    await page.mouse.move(0, 0)
+    await expect(card).toBeHidden({ timeout: 15_000 })
+  })
 })

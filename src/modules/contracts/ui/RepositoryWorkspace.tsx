@@ -160,6 +160,19 @@ function formatOverdueLabel(record: ContractRecord): string | null {
   return `Overdue by ${overdueDays} day${overdueDays === 1 ? '' : 's'}`
 }
 
+function formatTatSummary(record: ContractRecord): string | null {
+  const overdueLabel = formatOverdueLabel(record)
+  if (overdueLabel) {
+    return overdueLabel
+  }
+
+  if (typeof record.agingBusinessDays === 'number') {
+    return `${record.agingBusinessDays} day${record.agingBusinessDays === 1 ? '' : 's'} aging`
+  }
+
+  return null
+}
+
 function formatLegalDate(value?: string | null): string {
   if (!value) {
     return '-'
@@ -846,6 +859,8 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
           <button
             type="button"
             className={styles.contractTitleAction}
+            // stopPropagation keeps the row's "open request in a new tab" handler from firing:
+            // the title opens the document preview instead.
             onClick={(event) => {
               event.stopPropagation()
               if (event.ctrlKey || event.metaKey) {
@@ -1353,17 +1368,6 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
     [sorting]
   )
 
-  const handleOpenContract = useCallback(
-    (contractId: string) => {
-      router.push(
-        contractsClient.resolveProtectedContractPath(contractId, {
-          from: 'repository',
-        })
-      )
-    },
-    [router]
-  )
-
   const handlePreviousPage = useCallback(() => {
     setPage((current) => Math.max(1, current - 1))
   }, [])
@@ -1617,9 +1621,10 @@ export default function RepositoryWorkspace({ session }: RepositoryWorkspaceProp
               sorting={sorting}
               onSortingChange={handleSortingChange}
               isLoading={isLoading}
-              onOpenContract={handleOpenContract}
               onOpenContractInNewTab={handleOpenContractInNewTab}
               canSeeTatAndAging={canSeeTatAndAging}
+              suppressRowPreview={openAssignmentDropdownContractId !== null}
+              resolveTatLabel={formatTatSummary}
             />
           </section>
 
