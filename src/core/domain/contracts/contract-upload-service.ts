@@ -1104,6 +1104,7 @@ export class ContractUploadService {
     requestorEmployeeId: string
     requestorRole: string
     documentId?: string
+    downloadFileName?: string
   }): Promise<{ signedUrl: string; fileName: string }> {
     const contract = await this.contractRepository.getForAccess(params.contractId, params.tenantId)
 
@@ -1146,7 +1147,8 @@ export class ContractUploadService {
 
       const signedUrl = await this.contractStorageRepository.createSignedDownloadUrl(
         document.filePath,
-        contractStorage.signedUrlExpirySeconds
+        contractStorage.signedUrlExpirySeconds,
+        params.downloadFileName
       )
 
       return {
@@ -1171,7 +1173,8 @@ export class ContractUploadService {
 
     const signedUrl = await this.contractStorageRepository.createSignedDownloadUrl(
       activeDocument.filePath,
-      contractStorage.signedUrlExpirySeconds
+      contractStorage.signedUrlExpirySeconds,
+      params.downloadFileName
     )
 
     return {

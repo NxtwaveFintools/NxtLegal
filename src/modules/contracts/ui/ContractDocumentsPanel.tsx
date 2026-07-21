@@ -106,7 +106,7 @@ const ActiveVersionCard = (props: {
       <div className={workspaceStyles.sectionTitle}>{`Active Version ${getVersionLabel(props.document)}`}</div>
       <div className={workspaceStyles.row}>
         <span>File name</span>
-        <span>{props.document.fileName}</span>
+        <span>{props.document.downloadFileName}</span>
       </div>
       <div className={workspaceStyles.row}>
         <span>File type</span>
@@ -189,7 +189,7 @@ const VersionHistoryTable = (props: {
                 <div className={workspaceStyles.eventActor}>
                   {getVersionLabel(document)} {isCurrent ? '· Current' : ''}
                 </div>
-                <div className={workspaceStyles.itemMeta}>{document.fileName}</div>
+                <div className={workspaceStyles.itemMeta}>{document.downloadFileName}</div>
                 <div className={workspaceStyles.itemMeta}>{formatType(document.fileMimeType)}</div>
                 <div className={workspaceStyles.itemMeta}>{`${uploaderRole} · ${uploaderNameOrEmail}`}</div>
                 <div className={workspaceStyles.itemMeta}>{formatDate(document.createdAt)}</div>
@@ -632,7 +632,7 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
                 <div key={document.id} className={workspaceStyles.documentRow}>
                   <div className={workspaceStyles.documentMeta}>
                     <div className={workspaceStyles.eventActor}>{artifactLabel}</div>
-                    <div className={workspaceStyles.itemMeta}>{document.fileName}</div>
+                    <div className={workspaceStyles.itemMeta}>{document.downloadFileName}</div>
                     <div className={workspaceStyles.itemMeta}>{formatDate(document.createdAt)}</div>
                   </div>
                   <div className={workspaceStyles.actions}>
@@ -760,7 +760,7 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
                         return (
                           <div key={document.id} className={workspaceStyles.documentRow}>
                             <div className={workspaceStyles.documentMeta}>
-                              <div className={workspaceStyles.itemMeta}>{document.fileName}</div>
+                              <div className={workspaceStyles.itemMeta}>{document.downloadFileName}</div>
                               <div className={workspaceStyles.itemMeta}>{formatDate(document.createdAt)}</div>
                             </div>
                             <div className={workspaceStyles.actions}>

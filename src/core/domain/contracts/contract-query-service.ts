@@ -8,6 +8,7 @@ import type {
   ContractStatus,
 } from '@/core/constants/contracts'
 import { contractStatuses, contractWorkflowRoles } from '@/core/constants/contracts'
+import { resolveDocumentDownloadFileName, resolveExecutedAt } from '@/core/domain/contracts/signed-document-filename'
 import type {
   AdditionalApproverDecisionHistoryItem,
   ContractActivityReadState,
@@ -17,7 +18,7 @@ import type {
   ContractSigningPreparationDraftField,
   ContractSigningPreparationDraftRecipient,
   ContractSignatoryField,
-  ContractDocument,
+  StoredContractDocument,
   DashboardContractFilter,
   DashboardContractScope,
   ContractDetail,
@@ -25,6 +26,9 @@ import type {
   ContractLegalMetadata,
   ContractListItem,
   ContractQueryRepository,
+  ContractRowPreview,
+  ContractRowPreviewApprover,
+  ContractRowPreviewSigner,
   RepositoryDateBasis,
   RepositoryDatePreset,
   RepositoryExportColumn,
@@ -248,14 +252,87 @@ export class ContractQueryService {
         assignedToUsers.length > 0 ? assignedToUsers : normalizedCurrentAssignee ? [normalizedCurrentAssignee] : [],
     }
 
+    const executedAt = resolveExecutedAt(signatories)
+    const documentsWithDownloadNames = documents.map((document) => ({
+      ...document,
+      downloadFileName: resolveDocumentDownloadFileName({
+        documentKind: document.documentKind,
+        fileName: document.fileName,
+        contractTitle: contract.title,
+        executedAt,
+      }),
+    }))
+
     return {
       contract: contractWithAssignedUsers,
       counterparties,
-      documents,
+      documents: documentsWithDownloadNames,
       availableActions,
       additionalApprovers,
       legalCollaborators,
       signatories,
+    }
+  }
+
+  async getContractRowPreview(params: {
+    tenantId: string
+    contractId: string
+    employeeId: string
+    role?: string
+  }): Promise<ContractRowPreview> {
+    const contract = await this.contractRepository.getById(params.tenantId, params.contractId)
+
+    if (!contract) {
+      throw new NotFoundError('Contract', params.contractId)
+    }
+
+    if (
+      !(await this.contractRepository.canAccessContract({
+        tenantId: params.tenantId,
+        actorEmployeeId: params.employeeId,
+        actorRole: params.role,
+        contract,
+      }))
+    ) {
+      throw new AuthorizationError('CONTRACT_READ_FORBIDDEN', 'You do not have access to this contract')
+    }
+
+    const [counterparties, additionalApprovers, signatories] = await Promise.all([
+      this.contractRepository.getCounterparties(params.tenantId, params.contractId),
+      this.contractRepository.getAdditionalApprovers(params.tenantId, params.contractId),
+      this.contractRepository.getSignatories(params.tenantId, params.contractId),
+    ])
+
+    const mappedApprovers: ContractRowPreviewApprover[] = additionalApprovers.map((approver) => ({
+      id: approver.id,
+      email: approver.approverEmail,
+      status: approver.status,
+      approvedAt: approver.approvedAt,
+      sequenceOrder: approver.sequenceOrder,
+    }))
+
+    const mappedSigners: ContractRowPreviewSigner[] = signatories.map((signatory) => ({
+      id: signatory.id,
+      email: signatory.signatoryEmail,
+      status: signatory.status,
+      signedAt: signatory.signedAt,
+      routingOrder: signatory.routingOrder,
+      recipientType: signatory.recipientType,
+    }))
+
+    return {
+      contractId: params.contractId,
+      description: contract.backgroundOfRequest?.trim() || null,
+      counterparties: [...counterparties]
+        .sort((left, right) => left.sequenceOrder - right.sequenceOrder)
+        .map((counterparty) => counterparty.counterpartyName),
+      hodApprovedAt: contract.hodApprovedAt ?? null,
+      additionalApprovers: mappedApprovers,
+      signatories: mappedSigners,
+      approvedCount: mappedApprovers.filter((approver) => approver.status === 'APPROVED').length,
+      totalApprovers: mappedApprovers.filter((approver) => approver.status !== 'SKIPPED').length,
+      signedCount: mappedSigners.filter((signer) => signer.status === 'SIGNED').length,
+      totalSigners: mappedSigners.length,
     }
   }
 
@@ -912,7 +989,10 @@ export class ContractQueryService {
     })
   }
 
-  async getContractDocumentsBySystem(params: { tenantId: string; contractId: string }): Promise<ContractDocument[]> {
+  async getContractDocumentsBySystem(params: {
+    tenantId: string
+    contractId: string
+  }): Promise<StoredContractDocument[]> {
     return this.contractRepository.getDocuments(params.tenantId, params.contractId)
   }
 

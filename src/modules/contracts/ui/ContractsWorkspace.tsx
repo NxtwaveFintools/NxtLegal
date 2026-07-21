@@ -17,6 +17,7 @@ import {
   type DepartmentOption,
 } from '@/core/client/contracts-client'
 import { publicConfig } from '@/core/config/public-config'
+import { resolveDownloadStrategy } from '@/modules/contracts/ui/resolveDownloadStrategy'
 import {
   contractDocumentKinds,
   contractActionHodBypass,
@@ -803,45 +804,44 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     [legalStatusActions]
   )
 
-  const handleDownload = useCallback(
-    async (document?: ContractDocument) => {
-      if (!selectedContractId) {
-        return
-      }
-
-      const response = await contractsClient.download(selectedContractId, {
-        documentId: document?.id,
-      })
-
-      if (!response.ok || !response.data?.signedUrl) {
-        toast.error(response.error?.message ?? 'Failed to generate download link')
-        return
-      }
-
-      window.open(response.data.signedUrl, '_blank', 'noopener,noreferrer')
-    },
-    [selectedContractId]
-  )
-
-  const openDownloadTab = () => {
+  const openDownloadTab = useCallback(() => {
     const downloadTab = window.open('', '_blank')
     if (downloadTab) {
       downloadTab.opener = null
     }
 
     return downloadTab
-  }
+  }, [])
 
-  const openUrlInTab = (downloadTab: Window | null, url: string) => {
+  const openUrlInTab = useCallback((downloadTab: Window | null, url: string) => {
     if (downloadTab && !downloadTab.closed) {
       downloadTab.location.href = url
       return
     }
 
     window.open(url, '_blank', 'noopener,noreferrer')
-  }
+  }, [])
 
-  const handleDownloadFinalSignedDocument = async () => {
+  const triggerBlobDownload = useCallback((blob: Blob, fileName: string, downloadTab?: Window | null) => {
+    const objectUrl = URL.createObjectURL(blob)
+
+    if (downloadTab && !downloadTab.closed) {
+      downloadTab.location.href = objectUrl
+    } else {
+      const anchor = document.createElement('a')
+      anchor.href = objectUrl
+      anchor.download = fileName
+      document.body.appendChild(anchor)
+      anchor.click()
+      anchor.remove()
+    }
+
+    window.setTimeout(() => {
+      URL.revokeObjectURL(objectUrl)
+    }, 60_000)
+  }, [])
+
+  const handleDownloadFinalSignedDocument = useCallback(async () => {
     if (!selectedContractId) {
       return
     }
@@ -875,9 +875,9 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
     triggerBlobDownload(response.data.blob, response.data.fileName, downloadTab)
     setIsDownloadingFinalSignedDoc(false)
-  }
+  }, [selectedContractId, openDownloadTab, openUrlInTab, triggerBlobDownload])
 
-  const handleDownloadCompletionCertificate = async () => {
+  const handleDownloadCompletionCertificate = useCallback(async () => {
     if (!selectedContractId) {
       return
     }
@@ -911,7 +911,42 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
 
     triggerBlobDownload(response.data.blob, response.data.fileName, downloadTab)
     setIsDownloadingCompletionCertificate(false)
-  }
+  }, [selectedContractId, openDownloadTab, openUrlInTab, triggerBlobDownload])
+
+  const handleDownload = useCallback(
+    async (document?: ContractDocument) => {
+      if (!selectedContractId) {
+        return
+      }
+
+      // Signing artifacts are served by the final-artifact endpoints, which
+      // apply the friendly filename. The generic route would return the
+      // internal storage name.
+      const strategy = document ? resolveDownloadStrategy(document.documentKind) : 'generic'
+
+      if (strategy === 'final_signed_document') {
+        await handleDownloadFinalSignedDocument()
+        return
+      }
+
+      if (strategy === 'final_completion_certificate') {
+        await handleDownloadCompletionCertificate()
+        return
+      }
+
+      const response = await contractsClient.download(selectedContractId, {
+        documentId: document?.id,
+      })
+
+      if (!response.ok || !response.data?.signedUrl) {
+        toast.error(response.error?.message ?? 'Failed to generate download link')
+        return
+      }
+
+      window.open(response.data.signedUrl, '_blank', 'noopener,noreferrer')
+    },
+    [selectedContractId, handleDownloadFinalSignedDocument, handleDownloadCompletionCertificate]
+  )
 
   const handleDownloadMergedSigningArtifact = async () => {
     if (!selectedContractId) {
@@ -979,8 +1014,10 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
           }
           // A raw storage signed URL is cross-origin and browsers refuse to render it inside
           // our <iframe> ("This content is blocked"). Route the in-app viewer through our own
-          // same-origin preview proxy instead; the raw signed URL is still fine for direct
-          // top-level navigation, so it's kept as the "Open in New Tab" fallback.
+          // same-origin preview proxy instead, which serves the bytes with an inline
+          // Content-Disposition. "Open in New Tab" uses the same proxy: the raw signed URL
+          // now carries an attachment disposition, so opening it would download rather than
+          // render.
           const viewUrl = response.data.signedUrl
             ? contractsClient.previewFinalSignedArtifactUrl(selectedContractId, 'merged_pdf')
             : response.data.blob
@@ -991,7 +1028,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
             return
           }
           setViewerUrl(viewUrl)
-          setViewerExternalUrl(response.data.signedUrl ?? viewUrl)
+          setViewerExternalUrl(viewUrl)
           setViewerMimeType('application/pdf')
           setViewerFileName(response.data.fileName)
           setViewerIsDocx(false)
@@ -1008,8 +1045,14 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
           return
         }
 
+        // The document's own user-facing name wins: the generic download route
+        // reports the internal storage name, which must never reach the viewer.
         const resolvedFileName =
-          response.data.fileName ?? document?.displayName ?? selectedContract?.fileName ?? 'Contract document'
+          document?.downloadFileName ??
+          response.data.fileName ??
+          document?.displayName ??
+          selectedContract?.fileName ??
+          'Contract document'
         const resolvedMimeType = (document?.fileMimeType ?? '').trim().toLowerCase()
         const resolvedExtension = resolveFileExtension(resolvedFileName)
         const isDocx =
@@ -1081,25 +1124,6 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
     setViewerMimeType('')
     setViewerFileName('')
     setViewerIsDocx(false)
-  }, [])
-
-  const triggerBlobDownload = useCallback((blob: Blob, fileName: string, downloadTab?: Window | null) => {
-    const objectUrl = URL.createObjectURL(blob)
-
-    if (downloadTab && !downloadTab.closed) {
-      downloadTab.location.href = objectUrl
-    } else {
-      const anchor = document.createElement('a')
-      anchor.href = objectUrl
-      anchor.download = fileName
-      document.body.appendChild(anchor)
-      anchor.click()
-      anchor.remove()
-    }
-
-    window.setTimeout(() => {
-      URL.revokeObjectURL(objectUrl)
-    }, 60_000)
   }, [])
 
   useEffect(() => {
@@ -1611,13 +1635,13 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
       const counterpartyName = document.counterpartyName?.trim() ?? ''
       if (counterpartyId) {
         const existing = supportingDocsByCounterpartyId.get(counterpartyId) ?? []
-        existing.push(document.fileName)
+        existing.push(document.downloadFileName)
         supportingDocsByCounterpartyId.set(counterpartyId, existing)
       }
       const normalizedCounterpartyName = normalizeCounterpartyKey(counterpartyName)
       if (normalizedCounterpartyName) {
         const existing = supportingDocsByCounterpartyName.get(normalizedCounterpartyName) ?? []
-        existing.push(document.fileName)
+        existing.push(document.downloadFileName)
         supportingDocsByCounterpartyName.set(normalizedCounterpartyName, existing)
       }
     }
@@ -1759,7 +1783,7 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
           !document.counterpartyId?.trim() &&
           !document.counterpartyName?.trim()
       )
-      .map((document) => document.fileName)
+      .map((document) => document.downloadFileName)
   }, [documents])
   const allSignatoriesSigned = useMemo(() => {
     const actionableSignatories = orderedSignatories.filter((signatory) => signatory.recipientType !== 'VIEWER')

@@ -207,6 +207,7 @@ function getRoleConfig(role?: string): DashboardRoleConfig {
         { value: 'COMPLETED', label: 'Completed' },
         { value: 'ON_HOLD', label: 'On Hold' },
         { value: 'ALL_ASSIGNED', label: 'All My Contracts' },
+        { value: 'EXECUTED', label: 'Executed' },
       ],
     }
   }
@@ -221,6 +222,7 @@ function getRoleConfig(role?: string): DashboardRoleConfig {
         { value: 'COMPLETED', label: 'Completed' },
         { value: 'ON_HOLD', label: 'On Hold' },
         { value: 'ALL_ASSIGNED', label: 'All My Contracts' },
+        { value: 'EXECUTED', label: 'Executed' },
       ],
     }
   }
@@ -234,6 +236,7 @@ function getRoleConfig(role?: string): DashboardRoleConfig {
         { value: 'REJECTED', label: 'Rejected' },
         { value: 'COMPLETED', label: 'Completed' },
         { value: 'ON_HOLD', label: 'On Hold' },
+        { value: 'EXECUTED', label: 'Executed' },
       ],
     }
   }
@@ -245,6 +248,7 @@ function getRoleConfig(role?: string): DashboardRoleConfig {
       { value: 'UNDER_REVIEW', label: 'Under Review' },
       { value: 'COMPLETED', label: 'Completed' },
       { value: 'ON_HOLD', label: 'On Hold' },
+      { value: 'EXECUTED', label: 'Executed' },
     ],
   }
 }
@@ -281,8 +285,13 @@ export default function DashboardClient({ session }: DashboardClientProps) {
   const [pageCursors, setPageCursors] = useState<Array<string | undefined>>([undefined])
   const [mutatingContractId, setMutatingContractId] = useState<string | null>(null)
   const [downloadingContractId, setDownloadingContractId] = useState<string | null>(null)
-  const [approvingContractId, setApprovingContractId] = useState<string | null>(null)
-  const [rejectingContractId, setRejectingContractId] = useState<string | null>(null)
+  // Snapshot the full record when a dialog opens: the optimistic update removes the row from
+  // `optimisticContracts` while the request is in flight, so deriving it from that list would
+  // blank out the dialog's title and background mid-approval.
+  const [approvingContract, setApprovingContract] = useState<ContractRecord | null>(null)
+  const [rejectingContract, setRejectingContract] = useState<ContractRecord | null>(null)
+  const approvingContractId = approvingContract?.id ?? null
+  const rejectingContractId = rejectingContract?.id ?? null
   const [rejectReasonDraft, setRejectReasonDraft] = useState('')
   const [selectedContractIds, setSelectedContractIds] = useState<Set<string>>(() => new Set())
   const [isBulkApproveDialogOpen, setIsBulkApproveDialogOpen] = useState(false)
@@ -746,13 +755,13 @@ export default function DashboardClient({ session }: DashboardClientProps) {
     ]
   )
 
-  const openRejectDialog = useCallback((contractId: string) => {
-    setRejectingContractId(contractId)
+  const openRejectDialog = useCallback((contract: ContractRecord) => {
+    setRejectingContract(contract)
     setRejectReasonDraft('')
   }, [])
 
-  const openApproveDialog = useCallback((contractId: string) => {
-    setApprovingContractId(contractId)
+  const openApproveDialog = useCallback((contract: ContractRecord) => {
+    setApprovingContract(contract)
   }, [])
 
   const closeApproveDialog = useCallback(() => {
@@ -760,7 +769,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
       return
     }
 
-    setApprovingContractId(null)
+    setApprovingContract(null)
   }, [isPending, mutatingContractId])
 
   const submitApproveDialog = useCallback(async () => {
@@ -770,7 +779,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
 
     const didApprove = await handleRowAction(approvingContractId, 'hod.approve')
     if (didApprove) {
-      setApprovingContractId(null)
+      setApprovingContract(null)
     }
   }, [approvingContractId, handleRowAction])
 
@@ -779,7 +788,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
       return
     }
 
-    setRejectingContractId(null)
+    setRejectingContract(null)
     setRejectReasonDraft('')
   }, [isPending, mutatingContractId])
 
@@ -796,7 +805,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
 
     const didReject = await handleRowAction(rejectingContractId, 'hod.reject', reason)
     if (didReject) {
-      setRejectingContractId(null)
+      setRejectingContract(null)
       setRejectReasonDraft('')
     }
   }, [handleRowAction, rejectReasonDraft, rejectingContractId])
@@ -805,22 +814,6 @@ export default function DashboardClient({ session }: DashboardClientProps) {
     event.preventDefault()
     void submitRejectDialog()
   }
-
-  const rejectingContract = useMemo(() => {
-    if (!rejectingContractId) {
-      return null
-    }
-
-    return optimisticContracts.find((contract) => contract.id === rejectingContractId) ?? null
-  }, [optimisticContracts, rejectingContractId])
-
-  const approvingContract = useMemo(() => {
-    if (!approvingContractId) {
-      return null
-    }
-
-    return optimisticContracts.find((contract) => contract.id === approvingContractId) ?? null
-  }, [approvingContractId, optimisticContracts])
 
   const rejectingBackgroundText = rejectingContract?.backgroundOfRequest?.trim() ?? null
   const approvingBackgroundText = approvingContract?.backgroundOfRequest?.trim() ?? null
@@ -1320,7 +1313,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                                 type="button"
                                 className={styles.contractActionButton}
                                 disabled={Boolean(mutatingContractId) || isPending}
-                                onClick={() => openApproveDialog(contract.id)}
+                                onClick={() => openApproveDialog(contract)}
                               >
                                 Approve
                               </button>
@@ -1330,7 +1323,7 @@ export default function DashboardClient({ session }: DashboardClientProps) {
                                 type="button"
                                 className={styles.contractActionButton}
                                 disabled={Boolean(mutatingContractId) || isPending}
-                                onClick={() => openRejectDialog(contract.id)}
+                                onClick={() => openRejectDialog(contract)}
                               >
                                 Reject
                               </button>

@@ -95,7 +95,8 @@ describe('ContractSignatoryService', () => {
     expect(pages[0].getHeight()).toBe(220)
     expect(pages[1].getWidth()).toBe(640)
     expect(pages[1].getHeight()).toBe(480)
-    expect(result.fileName).toBe('completion-certificate-and-signed-env-merged-1.pdf')
+    // No signatory carries a status/signedAt, so the date segment is omitted.
+    expect(result.fileName).toBe('Master Service Agreement - Signed with Certificate.pdf')
     expect(signatureProvider.downloadCompletedEnvelopeDocuments).toHaveBeenCalledWith({
       envelopeId: 'env-merged-1',
     })
@@ -1897,5 +1898,184 @@ describe('ContractSignatoryService', () => {
         artifact: 'signed_document',
       } as never)
     ).rejects.toMatchObject({ code: 'CONTRACT_SIGNATORY_FORBIDDEN' })
+  })
+})
+
+describe('downloadFinalSigningArtifact naming', () => {
+  const signedSignatories = [
+    {
+      zohoSignEnvelopeId: 'env-1',
+      status: 'SIGNED',
+      signedAt: '2026-07-19T10:00:00.000Z',
+    },
+    {
+      zohoSignEnvelopeId: 'env-1',
+      status: 'SIGNED',
+      signedAt: '2026-07-20T09:30:00.000Z',
+    },
+  ]
+
+  const executedDocument = {
+    id: 'doc-executed',
+    documentKind: 'EXECUTED_CONTRACT',
+    fileName: 'executed-env-1.pdf',
+    downloadFileName: 'MSA - Acme Corp - Signed - 20-07-2026.pdf',
+    createdAt: '2026-07-20T10:00:00.000Z',
+  }
+
+  const buildService = (overrides: {
+    documents?: unknown[]
+    createSignedDownloadUrl?: jest.Mock
+    storageSignedDownloadUrl?: jest.Mock
+  }) => {
+    const contractQueryService = {
+      getContractDetail: jest.fn().mockResolvedValue({
+        contract: { id: 'contract-1', title: 'MSA - Acme Corp', status: 'COMPLETED' },
+        documents: overrides.documents ?? [],
+        availableActions: [],
+        additionalApprovers: [],
+        signatories: signedSignatories,
+      }),
+    }
+
+    const contractDocumentDownloadService = {
+      createSignedDownloadUrl:
+        overrides.createSignedDownloadUrl ??
+        jest.fn().mockResolvedValue({
+          signedUrl: 'https://storage.example.com/signed',
+          fileName: 'executed-env-1.pdf',
+        }),
+    }
+
+    const contractStorageRepository = {
+      upload: jest.fn(),
+      createSignedDownloadUrl:
+        overrides.storageSignedDownloadUrl ?? jest.fn().mockRejectedValue(new Error('merged artifact not in storage')),
+    }
+    const contractRepository = { createDocument: jest.fn() }
+
+    const signatureProvider = {
+      createSigningEnvelope: jest.fn(),
+      downloadEnvelopePdf: jest.fn().mockResolvedValue(new Uint8Array([1, 2, 3])),
+      downloadCompletionCertificate: jest.fn().mockResolvedValue(new Uint8Array([4, 5, 6])),
+    }
+
+    const service = new ContractSignatoryService(
+      contractQueryService as never,
+      contractDocumentDownloadService as never,
+      contractRepository as never,
+      contractStorageRepository as never,
+      signatureProvider as never,
+      { sendTemplateEmail: jest.fn() },
+      { signatoryLinkTemplateId: 101, signingCompletedTemplateId: 102 },
+      'https://app.example.com',
+      createLogger()
+    )
+
+    return { service, contractDocumentDownloadService, contractStorageRepository }
+  }
+
+  it('returns the friendly filename when served from storage', async () => {
+    const { service } = buildService({ documents: [executedDocument] })
+
+    const result = await service.downloadFinalSigningArtifact({
+      tenantId: 'tenant-1',
+      contractId: 'contract-1',
+      actorEmployeeId: 'legal-1',
+      actorRole: 'LEGAL_TEAM',
+      artifact: 'signed_document',
+    })
+
+    expect(result.fileName).toBe('MSA - Acme Corp - Signed - 20-07-2026.pdf')
+  })
+
+  it('passes the friendly filename to the signed URL so Content-Disposition carries it', async () => {
+    const { service, contractDocumentDownloadService } = buildService({
+      documents: [executedDocument],
+    })
+
+    await service.downloadFinalSigningArtifact({
+      tenantId: 'tenant-1',
+      contractId: 'contract-1',
+      actorEmployeeId: 'legal-1',
+      actorRole: 'LEGAL_TEAM',
+      artifact: 'signed_document',
+    })
+
+    expect(contractDocumentDownloadService.createSignedDownloadUrl).toHaveBeenCalledWith(
+      expect.objectContaining({
+        downloadFileName: 'MSA - Acme Corp - Signed - 20-07-2026.pdf',
+      })
+    )
+  })
+
+  it('returns the friendly filename when falling back to Zoho', async () => {
+    const { service } = buildService({ documents: [] })
+
+    const result = await service.downloadFinalSigningArtifact({
+      tenantId: 'tenant-1',
+      contractId: 'contract-1',
+      actorEmployeeId: 'legal-1',
+      actorRole: 'LEGAL_TEAM',
+      artifact: 'signed_document',
+    })
+
+    expect(result.fileName).toBe('MSA - Acme Corp - Signed - 20-07-2026.pdf')
+  })
+
+  it('still stores the artifact under its internal path', async () => {
+    const { service, contractStorageRepository } = buildService({ documents: [] })
+
+    await service.downloadFinalSigningArtifact({
+      tenantId: 'tenant-1',
+      contractId: 'contract-1',
+      actorEmployeeId: 'legal-1',
+      actorRole: 'LEGAL_TEAM',
+      artifact: 'signed_document',
+    })
+
+    expect(contractStorageRepository.upload).toHaveBeenCalledWith(
+      expect.objectContaining({ path: expect.stringContaining('/executed/') })
+    )
+  })
+
+  it('names the completion certificate with its own suffix', async () => {
+    const { service } = buildService({ documents: [] })
+
+    const result = await service.downloadFinalSigningArtifact({
+      tenantId: 'tenant-1',
+      contractId: 'contract-1',
+      actorEmployeeId: 'legal-1',
+      actorRole: 'LEGAL_TEAM',
+      artifact: 'completion_certificate',
+    })
+
+    expect(result.fileName).toBe('MSA - Acme Corp - Completion Certificate - 20-07-2026.pdf')
+  })
+
+  // Without the friendly name Supabase omits Content-Disposition: attachment,
+  // so the browser renders the merged PDF inline under its storage key instead
+  // of downloading it.
+  it('forces an attachment with the friendly name on the merged artifact served from storage', async () => {
+    const storageSignedDownloadUrl = jest.fn().mockResolvedValue('https://storage.example.com/merged?token=abc')
+    const { service, contractStorageRepository } = buildService({
+      documents: [],
+      storageSignedDownloadUrl,
+    })
+
+    const result = await service.downloadFinalSigningArtifact({
+      tenantId: 'tenant-1',
+      contractId: 'contract-1',
+      actorEmployeeId: 'legal-1',
+      actorRole: 'LEGAL_TEAM',
+      artifact: 'merged_pdf',
+    })
+
+    expect(contractStorageRepository.createSignedDownloadUrl).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Number),
+      'MSA - Acme Corp - Signed with Certificate - 20-07-2026.pdf'
+    )
+    expect(result.fileName).toBe('MSA - Acme Corp - Signed with Certificate - 20-07-2026.pdf')
   })
 })

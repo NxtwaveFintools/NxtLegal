@@ -30,12 +30,12 @@ class SupabaseContractStorageRepository implements ContractStorageRepository {
     }
   }
 
-  async createSignedDownloadUrl(path: string, expiresInSeconds: number): Promise<string> {
+  async createSignedDownloadUrl(path: string, expiresInSeconds: number, downloadFileName?: string): Promise<string> {
     const supabase = createServiceSupabase()
 
     const { data, error } = await supabase.storage
       .from(contractStorage.privateBucketName)
-      .createSignedUrl(path, expiresInSeconds)
+      .createSignedUrl(path, expiresInSeconds, downloadFileName ? { download: downloadFileName } : undefined)
 
     if (error || !data?.signedUrl) {
       throw new ExternalServiceError('supabase-storage', error?.message ?? 'Failed to create signed download URL')
@@ -47,9 +47,7 @@ class SupabaseContractStorageRepository implements ContractStorageRepository {
   async createSignedUploadUrl(path: string): Promise<{ path: string; token: string; signedUrl: string }> {
     const supabase = createServiceSupabase()
     const storage = supabase.storage.from(contractStorage.privateBucketName) as unknown as {
-      createSignedUploadUrl: (
-        path: string
-      ) => Promise<{
+      createSignedUploadUrl: (path: string) => Promise<{
         data: { path?: string; token?: string; signedUrl?: string } | null
         error: { message: string } | null
       }>
