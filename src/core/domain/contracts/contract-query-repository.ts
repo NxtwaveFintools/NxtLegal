@@ -284,6 +284,13 @@ export type ContractSigningPreparationDraftField = {
   width?: number | null
   height?: number | null
   anchorString: string | null
+  /**
+   * Static text burned into the PDF for TEXT fields. Carried end to end:
+   * editor -> draft JSONB -> sendSigningPreparationDraft -> assignSignatory ->
+   * flattenStaticFields. Dropping it anywhere on that path renders a blank box
+   * in the final PDF with no error raised.
+   */
+  textValue?: string | null
   assignedSignerEmail: string
 }
 

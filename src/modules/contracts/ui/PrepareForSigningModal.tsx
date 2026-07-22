@@ -5,6 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { contractsClient } from '@/core/client/contracts-client'
 import { contractStatuses } from '@/core/constants/contracts'
+import { layoutStaticText, toStampBoxSize } from '@/core/domain/contracts/static-field-layout'
 import type { PrepareForSigningPdfViewerProps } from './PrepareForSigningPdfViewer'
 import styles from './prepare-for-signing-modal.module.css'
 
@@ -34,6 +35,8 @@ type DraftField = {
   height?: number
   mirrorGroupId?: string
   anchorString?: string
+  /** Static text burned into the PDF for TEXT fields before it reaches Zoho Sign. */
+  textValue?: string
   assignedSignerEmail: string
 }
 
@@ -48,6 +51,20 @@ type ResizeSession = {
   startHeight: number
   xPosition: number
   yPosition: number
+}
+
+type DragSession = {
+  fieldId: string
+  mirrorGroupId?: string
+  pageNumber: number
+  startClientX: number
+  startClientY: number
+  startX: number
+  startY: number
+  /** Alt was held at mousedown: move only this copy, leaving its group peers put. */
+  detachFromGroup: boolean
+  /** Set once the pointer passes the threshold, which is what separates a drag from a click. */
+  hasMoved: boolean
 }
 
 type PrepareForSigningModalProps = {
@@ -82,6 +99,7 @@ type PrepareForSigningModalProps = {
       width?: number
       height?: number
       anchor_string?: string
+      text_value?: string
       assigned_signer_email: string
     }>
   }) => void
@@ -120,8 +138,60 @@ const defaultFieldSizeByType: Record<FieldType, { width: number; height: number 
   TIME: { width: 96, height: 22 },
   TEXT: { width: 200, height: 22 },
 }
+/**
+ * Nominal width for a stamp box. Height is derived from the seal image so the
+ * box carries no invisible padding — see toStampBoxSize.
+ */
+const STAMP_NOMINAL_WIDTH = 96
 const imageFieldTypes: FieldType[] = ['SIGNATURE', 'INITIAL', 'STAMP']
 const isImageFieldType = (fieldType: FieldType) => imageFieldTypes.includes(fieldType)
+const allPagesFieldTypes: FieldType[] = ['SIGNATURE', 'STAMP']
+const supportsAllPages = (fieldType: FieldType) => allPagesFieldTypes.includes(fieldType)
+
+/**
+ * Fallback for environments with no canvas (SSR, and jsdom under test).
+ * 0.5em per character is roughly Helvetica's mean advance over mixed-case prose.
+ */
+const HELVETICA_AVERAGE_CHAR_WIDTH_RATIO = 0.5
+
+/** Pointer travel, in screen pixels, before a press on a chip counts as a drag. */
+const DRAG_MOVEMENT_THRESHOLD_PX = 3
+
+/** Points a selected field moves per arrow key press; Shift multiplies by this. */
+const NUDGE_STEP_POINTS = 1
+const NUDGE_COARSE_MULTIPLIER = 10
+
+const roundToPoints = (value: number) => Number(value.toFixed(2))
+const clampToRange = (value: number, max: number) => Math.max(0, Math.min(Math.max(0, max), value))
+
+/**
+ * Measures Helvetica advance widths for the editor's box auto-grow.
+ *
+ * Canvas measureText against Helvetica gives near-real metrics, so the editor
+ * and the send-time renderer (which measures with the embedded font via
+ * PDFFont.widthOfTextAtSize) agree on where lines break. The previous
+ * 0.5em-per-character estimate disagreed by roughly a character per line, which
+ * sized boxes the burned text then spilled out of.
+ *
+ * The context is created once and reused; `font` is reassigned per call because
+ * size is a parameter.
+ */
+const measureStaticText = (() => {
+  let context: CanvasRenderingContext2D | null | undefined
+
+  return (text: string, size: number): number => {
+    if (context === undefined) {
+      context = typeof document === 'undefined' ? null : document.createElement('canvas').getContext('2d')
+    }
+
+    if (!context) {
+      return text.length * size * HELVETICA_AVERAGE_CHAR_WIDTH_RATIO
+    }
+
+    context.font = `${size}px Helvetica, Arial, sans-serif`
+    return context.measureText(text).width
+  }
+})()
 
 function mergeRecipientsWithDefaults(
   recipients: DraftRecipient[],
@@ -183,20 +253,26 @@ export default function PrepareForSigningModal({
   const [currentPage, setCurrentPage] = useState(1)
   const [selectedFieldType, setSelectedFieldType] = useState<FieldType>('SIGNATURE')
   const [selectedRecipientId, setSelectedRecipientId] = useState('')
-  const [applySignatureToAllPages, setApplySignatureToAllPages] = useState(false)
+  const [applyToAllPages, setApplyToAllPages] = useState(false)
   const [recipients, setRecipients] = useState<DraftRecipient[]>([])
   const [fields, setFields] = useState<DraftField[]>([])
   const [pageMetricsByNumber, setPageMetricsByNumber] = useState<Record<number, { width: number; height: number }>>({})
   const [pageRenderBoxByNumber, setPageRenderBoxByNumber] = useState<
     Record<number, { widthPx: number; heightPx: number }>
   >({})
+  const [stampSignedUrl, setStampSignedUrl] = useState<string | null>(null)
+  const [isStampConfigured, setIsStampConfigured] = useState(true)
+  const [stampImageSize, setStampImageSize] = useState<{ width: number; height: number } | null>(null)
 
   const pageSurfaceRef = useRef<HTMLDivElement | null>(null)
   const pageRenderRef = useRef<HTMLDivElement | null>(null)
   const resizeSessionRef = useRef<ResizeSession | null>(null)
-  const suppressDeleteForFieldRef = useRef<string | null>(null)
+  const dragSessionRef = useRef<DragSession | null>(null)
   const suppressPlacementUntilMsRef = useRef(0)
   const [activeResizeFieldId, setActiveResizeFieldId] = useState<string | null>(null)
+  const [activeDragFieldId, setActiveDragFieldId] = useState<string | null>(null)
+  const [selectedFieldId, setSelectedFieldId] = useState<string | null>(null)
+  const [isDetachedDrag, setIsDetachedDrag] = useState(false)
 
   const isLocked = contractStatus === contractStatuses.signing || contractStatus === contractStatuses.pendingExternal
   const canEdit = !isLocked && !isSending
@@ -255,6 +331,61 @@ export default function PrepareForSigningModal({
       return
     }
 
+    void (async () => {
+      try {
+        const response = await fetch('/api/contracts/org-assets/stamp')
+
+        if (!response.ok) {
+          setIsStampConfigured(false)
+          return
+        }
+
+        const payload = (await response.json()) as {
+          ok: boolean
+          data: { configured: boolean; signedUrl: string | null }
+        }
+        setIsStampConfigured(payload.data.configured)
+        setStampSignedUrl(payload.data.signedUrl)
+      } catch {
+        // A transient network failure is not evidence that the org has no stamp.
+        // Fail open: leave the palette enabled and let the send-time check —
+        // which reads the stamp bytes directly — be the authority.
+      }
+    })()
+  }, [isOpen])
+
+  /**
+   * Reads the seal's intrinsic dimensions so the stamp box can match them.
+   *
+   * Until this resolves the box falls back to the static default, which only
+   * means the first render is letterboxed; it corrects itself on load.
+   */
+  useEffect(() => {
+    if (!stampSignedUrl) {
+      setStampImageSize(null)
+      return
+    }
+
+    let isCurrent = true
+    const image = new window.Image()
+
+    image.onload = () => {
+      if (isCurrent && image.naturalWidth > 0 && image.naturalHeight > 0) {
+        setStampImageSize({ width: image.naturalWidth, height: image.naturalHeight })
+      }
+    }
+    image.src = stampSignedUrl
+
+    return () => {
+      isCurrent = false
+    }
+  }, [stampSignedUrl])
+
+  useEffect(() => {
+    if (!isOpen) {
+      return
+    }
+
     const loadDraft = async () => {
       setIsLoadingDraft(true)
 
@@ -296,6 +427,7 @@ export default function PrepareForSigningModal({
           width: field.width ?? undefined,
           height: field.height ?? undefined,
           anchorString: field.anchorString ?? undefined,
+          textValue: field.textValue ?? undefined,
           assignedSignerEmail: field.assignedSignerEmail,
         }))
 
@@ -423,8 +555,30 @@ export default function PrepareForSigningModal({
     }))
   }
 
+  /**
+   * Default box size for a field type, with STAMP sized to the seal's own
+   * proportions once the image has loaded.
+   *
+   * Everything downstream keys off this — placement, resize's aspect lock, and
+   * the reset handle — so correcting it here corrects all three at once.
+   */
+  const resolveDefaultFieldSize = useCallback(
+    (fieldType: FieldType) => {
+      if (fieldType !== 'STAMP' || !stampImageSize) {
+        return defaultFieldSizeByType[fieldType]
+      }
+
+      return toStampBoxSize({
+        nominalWidth: STAMP_NOMINAL_WIDTH,
+        imageWidth: stampImageSize.width,
+        imageHeight: stampImageSize.height,
+      })
+    },
+    [stampImageSize]
+  )
+
   const resolveFieldDimensions = (field: DraftField) => {
-    const defaults = defaultFieldSizeByType[field.fieldType]
+    const defaults = resolveDefaultFieldSize(field.fieldType)
     const rawWidth = field.width ?? defaults.width
     const rawHeight = field.height ?? defaults.height
 
@@ -482,23 +636,129 @@ export default function PrepareForSigningModal({
     }
   }
 
-  const removeFieldWithCurrentScope = (current: DraftField[], field: DraftField) => {
-    if (
-      selectedFieldType === 'SIGNATURE' &&
-      field.fieldType === 'SIGNATURE' &&
-      applySignatureToAllPages &&
-      field.mirrorGroupId
-    ) {
+  const removeFieldWithCurrentScope = (current: DraftField[], field: DraftField, scope: 'page' | 'group') => {
+    // Scope keys off mirrorGroupId, not the live toolbar toggle: a field
+    // mirrored at placement time must still delete as a group after the
+    // toggle is switched off.
+    if (scope === 'group' && field.mirrorGroupId) {
       return current.filter((item) => item.mirrorGroupId !== field.mirrorGroupId)
     }
 
     return current.filter((item) => item.id !== field.id)
   }
 
+  /**
+   * Moves `field` to a new pdf-space position, carrying its mirror group along.
+   *
+   * Shared by drag and arrow-key nudge so the two cannot drift apart on the
+   * group and clamping rules. Group peers are re-projected by ratio against
+   * their own page dimensions, matching how placement mirrors a field, so a
+   * document mixing A4 and Letter pages stays aligned.
+   */
+  const moveFieldTo = (
+    current: DraftField[],
+    field: DraftField,
+    nextX: number,
+    nextY: number,
+    detachFromGroup: boolean
+  ): DraftField[] => {
+    const pageNumber = field.pageNumber ?? currentPage
+    const metrics = getPageMetrics(pageNumber)
+
+    if (!metrics) {
+      return current
+    }
+
+    const dimensions = resolveFieldDimensions(field)
+    const clampedX = clampToRange(nextX, metrics.width - dimensions.width)
+    const clampedY = clampToRange(nextY, metrics.height - dimensions.height)
+    const xRatio = metrics.width > 0 ? clampedX / metrics.width : 0
+    const yRatio = metrics.height > 0 ? clampedY / metrics.height : 0
+    const movesAsGroup = Boolean(field.mirrorGroupId) && !detachFromGroup
+
+    return current.map((item) => {
+      if (item.id === field.id) {
+        return { ...item, xPosition: roundToPoints(clampedX), yPosition: roundToPoints(clampedY) }
+      }
+
+      if (!movesAsGroup || item.mirrorGroupId !== field.mirrorGroupId) {
+        return item
+      }
+
+      const peerMetrics = getPageMetrics(item.pageNumber ?? pageNumber) ?? metrics
+      const peerDimensions = resolveFieldDimensions(item)
+
+      return {
+        ...item,
+        xPosition: roundToPoints(clampToRange(xRatio * peerMetrics.width, peerMetrics.width - peerDimensions.width)),
+        yPosition: roundToPoints(clampToRange(yRatio * peerMetrics.height, peerMetrics.height - peerDimensions.height)),
+      }
+    })
+  }
+
+  /**
+   * Grows a TEXT box to fit what has been typed, clamped to the page bottom.
+   *
+   * This is what makes typing unrestricted: the remedy for overflow is applied
+   * automatically instead of being demanded of the user. The renderer only
+   * refuses when even the clamped height cannot hold the text.
+   */
+  const applyTextValue = (current: DraftField[], field: DraftField, nextValue: string): DraftField[] =>
+    current.map((item) => {
+      if (item.id !== field.id) {
+        return item
+      }
+
+      const dimensions = resolveFieldDimensions(item)
+      const layout = layoutStaticText({
+        text: nextValue,
+        width: dimensions.width,
+        height: dimensions.height,
+        measure: measureStaticText,
+      })
+
+      const minimumHeight = defaultFieldSizeByType.TEXT.height
+      const metrics = getPageMetrics(item.pageNumber ?? currentPage)
+      const heightAvailableBelowTop = metrics
+        ? Math.max(minimumHeight, metrics.height - (item.yPosition ?? 0))
+        : Number.POSITIVE_INFINITY
+
+      return {
+        ...item,
+        textValue: nextValue,
+        height: roundToPoints(Math.min(Math.max(minimumHeight, layout.requiredHeight), heightAvailableBelowTop)),
+      }
+    })
+
+  const resetFieldSize = (field: DraftField) => {
+    const defaults = resolveDefaultFieldSize(field.fieldType)
+
+    setFields((current) =>
+      current.map((item) => {
+        // Reset is always group-wide, deliberately unlike delete: mismatched
+        // sizes across pages is the problem it exists to solve.
+        const isInScope = field.mirrorGroupId ? item.mirrorGroupId === field.mirrorGroupId : item.id === field.id
+
+        return isInScope ? { ...item, width: defaults.width, height: defaults.height } : item
+      })
+    )
+  }
+
   const fieldsForCurrentPage = useMemo(
     () => fields.filter((field) => (field.pageNumber ?? 1) === currentPage),
     [currentPage, fields]
   )
+
+  /** Pages the in-flight drag will move; 0 or 1 means there is nothing to warn about. */
+  const mirrorDragPageCount = useMemo(() => {
+    const dragged = activeDragFieldId ? fields.find((field) => field.id === activeDragFieldId) : undefined
+
+    if (!dragged?.mirrorGroupId) {
+      return 0
+    }
+
+    return fields.filter((field) => field.mirrorGroupId === dragged.mirrorGroupId).length
+  }, [activeDragFieldId, fields])
 
   const validateDraft = () => {
     if (recipients.length === 0) {
@@ -559,6 +819,13 @@ export default function PrepareForSigningModal({
       if (!hasAnchor && !hasCoordinates) {
         return 'Each field must include anchor_string OR page/x/y coordinates'
       }
+
+      // An empty TEXT chip is stripped from the Zoho payload AND rejected by
+      // the burn-in renderer, so it would evaporate on both paths. Catch it
+      // here rather than after the round-trip.
+      if (field.fieldType === 'TEXT' && !field.textValue?.trim()) {
+        return `Type the text for the empty text field on page ${field.pageNumber ?? 1}, or remove it`
+      }
     }
 
     return null
@@ -595,6 +862,10 @@ export default function PrepareForSigningModal({
   }
 
   const handlePageClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    // Clicking bare page always drops the selection, even when placement below
+    // is blocked, so the outline never lingers on a field the user moved off.
+    setSelectedFieldId(null)
+
     if (!canEdit || !activeRecipientEmail || step < 2) {
       return
     }
@@ -621,21 +892,21 @@ export default function PrepareForSigningModal({
     const yInPdfSpace = (Math.max(0, Math.min(renderBox.heightPx, clickY)) / renderBox.heightPx) * metrics.height
 
     const normalizedSignerEmail = activeRecipientEmail.trim().toLowerCase()
-    const defaultDimensions = defaultFieldSizeByType[selectedFieldType]
+    const defaultDimensions = resolveDefaultFieldSize(selectedFieldType)
     const xRatio = metrics.width > 0 ? xInPdfSpace / metrics.width : 0
     const yRatio = metrics.height > 0 ? yInPdfSpace / metrics.height : 0
 
     const placementPages =
-      selectedFieldType === 'SIGNATURE' && applySignatureToAllPages
+      supportsAllPages(selectedFieldType) && applyToAllPages
         ? Array.from({ length: numPages }, (_, index) => index + 1)
         : [currentPage]
-    const mirrorGroupId = selectedFieldType === 'SIGNATURE' && applySignatureToAllPages ? createDraftId() : undefined
+    const mirrorGroupId = supportsAllPages(selectedFieldType) && applyToAllPages ? createDraftId() : undefined
 
     setFields((current) => {
-      if (selectedFieldType === 'SIGNATURE' && applySignatureToAllPages) {
+      if (supportsAllPages(selectedFieldType) && applyToAllPages) {
         const hitField = current.find((field) => {
           if (
-            field.fieldType !== 'SIGNATURE' ||
+            field.fieldType !== selectedFieldType ||
             field.assignedSignerEmail.trim().toLowerCase() !== normalizedSignerEmail ||
             (field.pageNumber ?? 1) !== currentPage ||
             typeof field.xPosition !== 'number' ||
@@ -654,7 +925,7 @@ export default function PrepareForSigningModal({
         })
 
         if (hitField) {
-          return removeFieldWithCurrentScope(current, hitField)
+          return removeFieldWithCurrentScope(current, hitField, 'group')
         }
       }
 
@@ -805,12 +1076,6 @@ export default function PrepareForSigningModal({
       if (resizeSessionRef.current?.fieldId) {
         // Prevent synthetic click after resize from creating a new field on page surface.
         suppressPlacementUntilMsRef.current = Date.now() + 250
-        suppressDeleteForFieldRef.current = resizeSessionRef.current.fieldId
-        window.setTimeout(() => {
-          if (suppressDeleteForFieldRef.current) {
-            suppressDeleteForFieldRef.current = null
-          }
-        }, 180)
       }
       resizeSessionRef.current = null
       setActiveResizeFieldId(null)
@@ -824,6 +1089,136 @@ export default function PrepareForSigningModal({
       window.removeEventListener('mouseup', onMouseUp)
     }
   }, [activeResizeFieldId, canEdit, getPageMetrics, getPageRenderBox, pageMetricsByNumber, pageRenderBoxByNumber])
+
+  useEffect(() => {
+    if (!activeDragFieldId || !canEdit) {
+      return
+    }
+
+    const onMouseMove = (event: MouseEvent) => {
+      const session = dragSessionRef.current
+      if (!session || session.fieldId !== activeDragFieldId) {
+        return
+      }
+
+      const metrics = getPageMetrics(session.pageNumber)
+      const renderBox = getPageRenderBox(session.pageNumber)
+      if (!metrics || !renderBox || renderBox.widthPx <= 0 || renderBox.heightPx <= 0) {
+        return
+      }
+
+      const deltaXPx = event.clientX - session.startClientX
+      const deltaYPx = event.clientY - session.startClientY
+
+      // Below the threshold this is still a click. Without it no click ever
+      // registers, because a real press always drifts a pixel or two.
+      if (!session.hasMoved && Math.hypot(deltaXPx, deltaYPx) < DRAG_MOVEMENT_THRESHOLD_PX) {
+        return
+      }
+      session.hasMoved = true
+
+      const nextX = session.startX + deltaXPx * (metrics.width / renderBox.widthPx)
+      const nextY = session.startY + deltaYPx * (metrics.height / renderBox.heightPx)
+
+      setFields((current) => {
+        const dragged = current.find((item) => item.id === session.fieldId)
+        return dragged ? moveFieldTo(current, dragged, nextX, nextY, session.detachFromGroup) : current
+      })
+    }
+
+    const onMouseUp = () => {
+      const session = dragSessionRef.current
+
+      if (session?.hasMoved) {
+        // Releasing over the page surface fires a click on the common ancestor,
+        // which would place a brand new field on top of the one just moved.
+        suppressPlacementUntilMsRef.current = Date.now() + 250
+      }
+
+      dragSessionRef.current = null
+      setActiveDragFieldId(null)
+      setIsDetachedDrag(false)
+    }
+
+    window.addEventListener('mousemove', onMouseMove)
+    window.addEventListener('mouseup', onMouseUp)
+
+    return () => {
+      window.removeEventListener('mousemove', onMouseMove)
+      window.removeEventListener('mouseup', onMouseUp)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeDragFieldId, canEdit, getPageMetrics, getPageRenderBox, pageMetricsByNumber, pageRenderBoxByNumber])
+
+  const handleChipMouseDown = (event: React.MouseEvent<HTMLDivElement>, field: DraftField) => {
+    if (!canEdit) {
+      return
+    }
+
+    // The textarea and the handles own their own gestures; starting a drag from
+    // them would make the text box impossible to click into.
+    if ((event.target as HTMLElement).closest('[data-chip-control]')) {
+      return
+    }
+
+    event.stopPropagation()
+    setSelectedFieldId(field.id)
+
+    const pageNumber = field.pageNumber ?? currentPage
+    const metrics = getPageMetrics(pageNumber)
+    const renderBox = getPageRenderBox(pageNumber)
+
+    if (!metrics || !renderBox || typeof field.xPosition !== 'number' || typeof field.yPosition !== 'number') {
+      return
+    }
+
+    dragSessionRef.current = {
+      fieldId: field.id,
+      mirrorGroupId: field.mirrorGroupId,
+      pageNumber,
+      startClientX: event.clientX,
+      startClientY: event.clientY,
+      startX: field.xPosition,
+      startY: field.yPosition,
+      detachFromGroup: event.altKey,
+      hasMoved: false,
+    }
+    setActiveDragFieldId(field.id)
+    setIsDetachedDrag(event.altKey)
+  }
+
+  const handleChipKeyDown = (event: React.KeyboardEvent<HTMLDivElement>, field: DraftField) => {
+    if (!canEdit || (event.target as HTMLElement).closest('[data-chip-control]')) {
+      return
+    }
+
+    if (event.key === 'Delete' || event.key === 'Backspace') {
+      event.preventDefault()
+      setFields((current) => removeFieldWithCurrentScope(current, field, 'page'))
+      setSelectedFieldId(null)
+      return
+    }
+
+    // Drag resolution is capped by page zoom, so arrows are how a stamp lands
+    // exactly on a ruled line. Alt matches drag: nudge this copy only.
+    const step = event.shiftKey ? NUDGE_STEP_POINTS * NUDGE_COARSE_MULTIPLIER : NUDGE_STEP_POINTS
+    const nudgeByKey: Record<string, { x: number; y: number } | undefined> = {
+      ArrowLeft: { x: -step, y: 0 },
+      ArrowRight: { x: step, y: 0 },
+      ArrowUp: { x: 0, y: -step },
+      ArrowDown: { x: 0, y: step },
+    }
+    const nudge = nudgeByKey[event.key]
+
+    if (!nudge || typeof field.xPosition !== 'number' || typeof field.yPosition !== 'number') {
+      return
+    }
+
+    event.preventDefault()
+    setFields((current) =>
+      moveFieldTo(current, field, field.xPosition! + nudge.x, field.yPosition! + nudge.y, event.altKey)
+    )
+  }
 
   const handleResizeStart = (event: React.MouseEvent<HTMLSpanElement>, field: DraftField) => {
     event.stopPropagation()
@@ -890,6 +1285,9 @@ export default function PrepareForSigningModal({
         width: field.width,
         height: field.height,
         anchor_string: field.anchorString,
+        // Emptiness is decided on a trimmed copy, but the value sent keeps its
+        // whitespace: newlines and indentation are part of the typed clause.
+        text_value: field.textValue?.trim() ? field.textValue : undefined,
         assigned_signer_email: field.assignedSignerEmail.trim().toLowerCase(),
       })),
     }
@@ -944,6 +1342,9 @@ export default function PrepareForSigningModal({
         width: field.width,
         height: field.height,
         anchor_string: field.anchorString,
+        // Emptiness is decided on a trimmed copy, but the value sent keeps its
+        // whitespace: newlines and indentation are part of the typed clause.
+        text_value: field.textValue?.trim() ? field.textValue : undefined,
         assigned_signer_email: field.assignedSignerEmail.trim().toLowerCase(),
       })),
     }
@@ -1082,7 +1483,12 @@ export default function PrepareForSigningModal({
                   type="button"
                   className={selectedFieldType === fieldType ? styles.paletteItemActive : styles.paletteItem}
                   onClick={() => setSelectedFieldType(fieldType)}
-                  disabled={!canEdit}
+                  disabled={!canEdit || (fieldType === 'STAMP' && !isStampConfigured)}
+                  title={
+                    fieldType === 'STAMP' && !isStampConfigured
+                      ? 'No company stamp configured for this organisation'
+                      : undefined
+                  }
                 >
                   {fieldType}
                 </button>
@@ -1102,15 +1508,15 @@ export default function PrepareForSigningModal({
                     </option>
                   ))}
               </select>
-              {selectedFieldType === 'SIGNATURE' ? (
+              {supportsAllPages(selectedFieldType) ? (
                 <label className={styles.toggleLabel}>
                   <input
                     type="checkbox"
-                    checked={applySignatureToAllPages}
-                    onChange={(event) => setApplySignatureToAllPages(event.target.checked)}
+                    checked={applyToAllPages}
+                    onChange={(event) => setApplyToAllPages(event.target.checked)}
                     disabled={!canEdit}
                   />
-                  Add signature on all pages
+                  Add on all pages
                 </label>
               ) : null}
             </div>
@@ -1191,37 +1597,163 @@ export default function PrepareForSigningModal({
                     }}
                   />
 
-                  {fieldsForCurrentPage.map((field) => (
-                    <button
-                      key={field.id}
-                      type="button"
-                      className={styles.fieldChip}
-                      style={resolveFieldChipStyle(field)}
-                      onClick={(event) => {
-                        event.stopPropagation()
-                        if (!canEdit) {
-                          return
+                  {fieldsForCurrentPage.map((field) => {
+                    const chipDimensions = resolveFieldDimensions(field)
+                    // Mirrors the renderer's only remaining hard stop. Outgrowing
+                    // the box is no longer worth flagging — the box grows — so the
+                    // warning fires solely when there is no page left to grow into.
+                    const staticTextOverflows = (() => {
+                      if (field.fieldType !== 'TEXT') {
+                        return false
+                      }
+
+                      const layout = layoutStaticText({
+                        text: field.textValue ?? '',
+                        width: chipDimensions.width,
+                        height: chipDimensions.height,
+                        measure: measureStaticText,
+                      })
+                      const metrics = getPageMetrics(field.pageNumber ?? currentPage)
+
+                      return layout.requiredHeight > (metrics ? metrics.height - (field.yPosition ?? 0) : Infinity)
+                    })()
+
+                    const isSelected = selectedFieldId === field.id
+                    const chipClassNames = [
+                      styles.fieldChip,
+                      staticTextOverflows ? styles.fieldChipOverflow : '',
+                      isSelected ? styles.fieldChipSelected : '',
+                      activeDragFieldId === field.id ? styles.fieldChipDragging : '',
+                    ]
+                      .filter(Boolean)
+                      .join(' ')
+
+                    return (
+                      // A div, not a button: a text control nested in a button is
+                      // invalid HTML, and any keystroke the browser resolves as a
+                      // button activation ran the chip's delete handler. Deleting
+                      // now lives only on the × handle and the Delete key.
+                      <div
+                        key={field.id}
+                        role="button"
+                        tabIndex={canEdit ? 0 : -1}
+                        aria-label={`${field.fieldType} field for ${field.assignedSignerEmail} on page ${field.pageNumber ?? 1}`}
+                        aria-pressed={isSelected}
+                        className={chipClassNames}
+                        style={resolveFieldChipStyle(field)}
+                        onMouseDown={(event) => handleChipMouseDown(event, field)}
+                        onKeyDown={(event) => handleChipKeyDown(event, field)}
+                        // Stops the page surface from treating the release as a
+                        // click and placing another field underneath this one.
+                        onClick={(event) => event.stopPropagation()}
+                        title={
+                          staticTextOverflows
+                            ? 'Text does not fit above the bottom of the page — move the box higher, widen it, or shorten the text'
+                            : `${field.fieldType} → ${field.assignedSignerEmail} (${Math.round(chipDimensions.width)}x${Math.round(chipDimensions.height)}) — drag to move, arrow keys to nudge`
                         }
-                        if (suppressDeleteForFieldRef.current === field.id) {
-                          return
-                        }
-                        setFields((current) => removeFieldWithCurrentScope(current, field))
-                      }}
-                      title={`${field.fieldType} → ${field.assignedSignerEmail} (${Math.round(resolveFieldDimensions(field).width)}x${Math.round(resolveFieldDimensions(field).height)})`}
-                    >
-                      {field.fieldType} {Math.round(resolveFieldDimensions(field).width)}x
-                      {Math.round(resolveFieldDimensions(field).height)}
-                      <span
-                        className={styles.resizeHandle}
-                        role="presentation"
-                        onMouseDown={(event) => handleResizeStart(event, field)}
-                        onClick={(event) => {
-                          event.stopPropagation()
-                          event.preventDefault()
-                        }}
-                      />
-                    </button>
-                  ))}
+                      >
+                        {field.fieldType === 'STAMP' && stampSignedUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element
+                          <img src={stampSignedUrl} alt="Company stamp" className={styles.stampPreview} />
+                        ) : null}
+                        {field.fieldType === 'TEXT' ? (
+                          <textarea
+                            className={styles.chipTextInput}
+                            value={field.textValue ?? ''}
+                            placeholder="Type anything…"
+                            disabled={!canEdit}
+                            spellCheck={false}
+                            aria-label={`Static text for ${field.assignedSignerEmail}`}
+                            // Marks this as owning its own pointer and key events, so
+                            // pressing here neither starts a drag nor nudges the field.
+                            data-chip-control="text"
+                            onClick={(event) => event.stopPropagation()}
+                            onChange={(event) => {
+                              const nextValue = event.target.value
+                              setFields((current) => applyTextValue(current, field, nextValue))
+                            }}
+                          />
+                        ) : (
+                          <>
+                            {field.fieldType} {Math.round(chipDimensions.width)}x{Math.round(chipDimensions.height)}
+                          </>
+                        )}
+                        <span
+                          className={styles.resizeHandle}
+                          role="presentation"
+                          data-chip-control="resize"
+                          onMouseDown={(event) => handleResizeStart(event, field)}
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            event.preventDefault()
+                          }}
+                        />
+                        {/* Positioned flex row so handle placement does not depend on
+                            sibling index: the delete-all handle renders conditionally. */}
+                        <span className={styles.chipHandles} role="presentation" data-chip-control="handles">
+                          <span
+                            className={styles.chipHandle}
+                            role="presentation"
+                            title="Remove from this page"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              event.preventDefault()
+                              if (!canEdit) {
+                                return
+                              }
+                              setFields((current) => removeFieldWithCurrentScope(current, field, 'page'))
+                            }}
+                          >
+                            ×
+                          </span>
+                          {field.mirrorGroupId ? (
+                            <span
+                              className={styles.chipHandle}
+                              role="presentation"
+                              title="Remove from all pages"
+                              onClick={(event) => {
+                                event.stopPropagation()
+                                event.preventDefault()
+                                if (!canEdit) {
+                                  return
+                                }
+                                setFields((current) => removeFieldWithCurrentScope(current, field, 'group'))
+                              }}
+                            >
+                              ⨯⨯
+                            </span>
+                          ) : null}
+                          <span
+                            className={styles.chipHandle}
+                            role="presentation"
+                            title="Reset to default size"
+                            onClick={(event) => {
+                              event.stopPropagation()
+                              event.preventDefault()
+                              if (!canEdit) {
+                                return
+                              }
+                              resetFieldSize(field)
+                            }}
+                          >
+                            ↺
+                          </span>
+                        </span>
+                      </div>
+                    )
+                  })}
+
+                  {/* A modifier nobody is told about is the same as no feature, so
+                      the Alt escape hatch announces itself during the drag. */}
+                  {mirrorDragPageCount > 1 ? (
+                    <div className={styles.dragHint} role="status">
+                      {/* Alt is read once at mousedown, so the copy must not imply
+                          it can be toggled part-way through the drag. */}
+                      {isDetachedDrag
+                        ? 'Moving this page only (Alt held)'
+                        : `Moving all ${mirrorDragPageCount} pages — hold Alt as you start dragging to move just this one`}
+                    </div>
+                  ) : null}
                 </div>
               )}
             </div>

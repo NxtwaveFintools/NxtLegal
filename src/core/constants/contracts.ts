@@ -106,6 +106,12 @@ export const contractStorage = {
   signedUrlExpirySeconds: 60 * 10,
 } as const
 
+export const orgAssetStorage = {
+  privateBucketName: 'org-assets',
+  signedUrlExpirySeconds: 60 * 10,
+  stampPathForTenant: (tenantId: string) => `stamps/${tenantId}.png`,
+} as const
+
 export const contractDocumentKinds = {
   primary: 'PRIMARY',
   counterpartySupporting: 'COUNTERPARTY_SUPPORTING',
@@ -218,6 +224,16 @@ export const contractSignatoryFieldTypes = {
 } as const
 
 export type ContractSignatoryFieldType = (typeof contractSignatoryFieldTypes)[keyof typeof contractSignatoryFieldTypes]
+
+/**
+ * Field types burned into the PDF before it reaches Zoho, rather than sent as
+ * Zoho fields. Zoho never learns about these — it receives an already-stamped
+ * document.
+ */
+export const staticContractFieldTypes = ['STAMP', 'TEXT'] as const
+
+export const isStaticContractFieldType = (fieldType: string): boolean =>
+  (staticContractFieldTypes as readonly string[]).includes(fieldType)
 
 export const contractSignatoryWebhookStatuses = {
   sent: 'SENT',

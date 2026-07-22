@@ -300,6 +300,7 @@ type ContractSigningPreparationDraft = {
     width?: number | null
     height?: number | null
     anchorString: string | null
+    textValue?: string | null
     assignedSignerEmail: string
   }>
   createdByEmployeeId: string
@@ -1503,6 +1504,7 @@ export const contractsClient = {
         width?: number
         height?: number
         anchor_string?: string
+        text_value?: string
         assigned_signer_email: string
       }>
     }

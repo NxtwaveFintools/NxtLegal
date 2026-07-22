@@ -15,7 +15,9 @@ import {
   contractAuditEvents,
   contractSignatoryRecipientTypes,
   contractStatuses,
+  isStaticContractFieldType,
 } from '@/core/constants/contracts'
+import { flattenStaticFields } from './pdf-static-field-renderer'
 import { buildSignedArtifactFileName, resolveExecutedAt } from '@/core/domain/contracts/signed-document-filename'
 import { buildMasterTemplate } from '@/lib/email/master-template'
 import type { ContractDetailView } from '@/core/domain/contracts/contract-query-repository'
@@ -75,6 +77,10 @@ type SignatureProvider = {
   recallSigningEnvelope?: (params: { envelopeId: string }) => Promise<void>
 }
 
+type OrgAssetRepository = {
+  findStampBytes(tenantId: string): Promise<Uint8Array | undefined>
+}
+
 type SignatoryMailer = {
   sendTemplateEmail(input: {
     recipientEmail: string
@@ -115,7 +121,8 @@ export class ContractSignatoryService {
         }
       | undefined,
     private readonly appSiteUrl: string,
-    private readonly logger: Logger
+    private readonly logger: Logger,
+    private readonly orgAssetRepository: OrgAssetRepository
   ) {}
 
   async assignSignatory(params: {
@@ -137,6 +144,7 @@ export class ContractSignatoryService {
         width?: number
         height?: number
         anchor_string?: string
+        text_value?: string
         assigned_signer_email: string
       }>
     }>
@@ -270,6 +278,37 @@ export class ContractSignatoryService {
       throw new BusinessRuleError('CONTRACT_DOCUMENT_FETCH_FAILED', 'Failed to fetch contract document for signing')
     }
 
+    const staticFields = params.recipients
+      .flatMap((recipient) => recipient.fields)
+      .filter((field) => isStaticContractFieldType(field.field_type))
+      .map((field) => ({
+        fieldType: field.field_type as 'STAMP' | 'TEXT',
+        pageNumber: field.page_number ?? 1,
+        x: field.x_position ?? 0,
+        y: field.y_position ?? 0,
+        width: field.width ?? 0,
+        height: field.height ?? 0,
+        textValue: field.text_value,
+      }))
+
+    if (staticFields.length > 0) {
+      // pdf-lib cannot flatten DOCX/DOC. Sending one with the stamps silently
+      // dropped would put an unsealed contract in front of a counterparty.
+      const isPdf = documentMimeType.includes('pdf') || download.fileName.toLowerCase().endsWith('.pdf')
+      if (!isPdf) {
+        throw new BusinessRuleError(
+          'CONTRACT_STATIC_FIELDS_REQUIRE_PDF',
+          'Stamp and text fields can only be applied to PDF documents. Convert this contract to PDF and try again.'
+        )
+      }
+
+      const stampBytes = staticFields.some((field) => field.fieldType === 'STAMP')
+        ? await this.orgAssetRepository.findStampBytes(params.tenantId)
+        : undefined
+
+      documentBytes = await flattenStaticFields({ pdfBytes: documentBytes, fields: staticFields, stampBytes })
+    }
+
     let envelope: {
       envelopeId: string
       recipients: Array<{
@@ -288,7 +327,10 @@ export class ContractSignatoryService {
           name: recipient.signatoryName,
           recipientType: recipient.recipientType,
           routingOrder: recipient.routingOrder,
-          fields: recipient.fields,
+          // STAMP and TEXT are already burned into documentBytes above, so Zoho
+          // must never receive them as fields — it would draw its own upload box
+          // on top of the flattened content.
+          fields: recipient.fields.filter((field) => !isStaticContractFieldType(field.fieldType)),
         })),
         documentName: download.fileName,
         documentMimeType,
@@ -513,6 +555,9 @@ export class ContractSignatoryService {
 
       const recipients = draft.recipients.map((recipient) => {
         const recipientEmail = recipient.email.trim().toLowerCase()
+        // STAMP and TEXT fields are deliberately kept here. assignSignatory needs
+        // them to burn the stamp into the PDF; it strips them again just before
+        // building the Zoho payload.
         const recipientFields = draft.fields
           .filter((field) => field.assignedSignerEmail.trim().toLowerCase() === recipientEmail)
           .map((field) => ({
@@ -523,6 +568,9 @@ export class ContractSignatoryService {
             width: field.width ?? undefined,
             height: field.height ?? undefined,
             anchor_string: field.anchorString ?? undefined,
+            // assignSignatory reads text_value to burn TEXT fields into the PDF.
+            // Losing it here renders an empty box with no error raised anywhere.
+            text_value: field.textValue ?? undefined,
             assigned_signer_email: field.assignedSignerEmail,
           }))
 

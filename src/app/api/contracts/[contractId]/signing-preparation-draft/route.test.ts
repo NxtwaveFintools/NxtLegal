@@ -74,6 +74,7 @@ describe('Contract signing preparation draft route', () => {
           width: null,
           height: null,
           anchorString: null,
+          textValue: null,
           assignedSignerEmail: 'shriya@example.com',
         },
       ],
@@ -134,10 +135,60 @@ describe('Contract signing preparation draft route', () => {
           width: null,
           height: null,
           anchorString: null,
+          textValue: null,
           assignedSignerEmail: 'shriya@example.com',
         },
       ],
     })
+  })
+
+  // The route is the narrowest point of the textValue bridge: it renames
+  // text_value -> textValue on the way into the draft store. Dropping it here
+  // makes TEXT fields flatten to an empty box with no error anywhere.
+  it('forwards text_value on TEXT fields as textValue to the draft store', async () => {
+    mockContractQueryService.saveSigningPreparationDraft.mockResolvedValueOnce({
+      contractId: 'contract-1',
+      recipients: [],
+      fields: [],
+      createdByEmployeeId: 'legal-user-id',
+      updatedByEmployeeId: 'legal-user-id',
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    })
+
+    await POST(
+      {
+        json: async () => ({
+          recipients: [
+            {
+              name: 'Shriya Mattoo',
+              email: 'shriya@example.com',
+              recipient_type: 'INTERNAL',
+              routing_order: 1,
+            },
+          ],
+          fields: [
+            {
+              field_type: 'TEXT',
+              page_number: 1,
+              x_position: 100,
+              y_position: 200,
+              width: 200,
+              height: 22,
+              text_value: 'Executed under common seal',
+              assigned_signer_email: 'shriya@example.com',
+            },
+          ],
+        }),
+      } as unknown as PostRequestArg,
+      { params: { contractId: 'contract-1' } } as PostContextArg
+    )
+
+    expect(mockContractQueryService.saveSigningPreparationDraft).toHaveBeenCalledWith(
+      expect.objectContaining({
+        fields: [expect.objectContaining({ fieldType: 'TEXT', textValue: 'Executed under common seal' })],
+      })
+    )
   })
 
   it('returns invalid status when contract is not completed', async () => {

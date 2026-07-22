@@ -1,4 +1,5 @@
 import { BusinessRuleError } from '@/core/http/errors'
+import { StaticFieldRenderError } from '@/core/domain/contracts/pdf-static-field-renderer'
 
 const mockSession = {
   employeeId: 'legal-user-id',
@@ -109,5 +110,24 @@ describe('Contract signing prep send route', () => {
     expect(response.status).toBe(422)
     expect(body.ok).toBe(false)
     expect(body.error.code).toBe('SIGNING_PREPARATION_DRAFT_NOT_FOUND')
+  })
+
+  // Every static-field guard exists to tell the operator exactly what is wrong.
+  // While StaticFieldRenderError was a plain Error these messages collapsed
+  // into a generic 500, so the guards were invisible in production. This test
+  // pins the message to the wire.
+  it('surfaces the static field render guard message in the response body', async () => {
+    mockContractSignatoryService.sendSigningPreparationDraft.mockRejectedValueOnce(
+      new StaticFieldRenderError('Static text on page 3 overflows its box. Widen the box or shorten the text.')
+    )
+
+    const response = await POST({} as PostRequestArg, { params: { contractId: 'contract-1' } } as PostContextArg)
+    const body = await response.json()
+
+    expect(response.status).toBe(422)
+    expect(body.ok).toBe(false)
+    expect(body.error.code).toBe('CONTRACT_STATIC_FIELD_RENDER_FAILED')
+    expect(body.error.message).toBe('Static text on page 3 overflows its box. Widen the box or shorten the text.')
+    expect(body.error.message).not.toContain('Failed to send signing preparation draft')
   })
 })

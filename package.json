@@ -21,6 +21,7 @@
     "test:e2e:cleanup": "tsx tests/e2e/cleanup/teardown.ts",
     "test:e2e:cleanup:delete": "tsx tests/e2e/cleanup/teardown.ts --delete",
     "seed:test-employee": "tsx scripts/seed-test-employee.ts",
+    "seed:company-stamp": "tsx scripts/seed-company-stamp.ts",
     "prepare": "husky"
   },
   "lint-staged": {

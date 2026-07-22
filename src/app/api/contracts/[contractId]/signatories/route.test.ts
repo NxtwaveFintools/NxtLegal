@@ -1,4 +1,5 @@
 import { AuthorizationError } from '@/core/http/errors'
+import { StaticFieldRenderError } from '@/core/domain/contracts/pdf-static-field-renderer'
 
 const mockSession = {
   employeeId: 'legal-user-id',
@@ -273,5 +274,42 @@ describe('Contract signatory assignment route', () => {
     expect(response.status).toBe(503)
     expect(body.ok).toBe(false)
     expect(body.error.code).toBe('SIGNATORY_PROVIDER_NOT_CONFIGURED')
+  })
+
+  // The static-field guards are only useful if their message reaches the
+  // operator. As a plain Error they fell through isAppError into a generic
+  // 500 'Failed to add signatory', hiding every one of them.
+  it('surfaces the static field render guard message in the response body', async () => {
+    mockContractSignatoryService.assignSignatory.mockRejectedValueOnce(
+      new StaticFieldRenderError(
+        'A stamp field is placed on page 5, but this document has only 3 pages. Move the field onto an existing page and try again.'
+      )
+    )
+
+    const response = await POST(
+      {
+        json: async () => ({
+          recipients: [
+            {
+              signatoryEmail: 'signer@nxtwave.co.in',
+              recipientType: 'EXTERNAL',
+              routingOrder: 1,
+              fields: [],
+            },
+          ],
+        }),
+      } as unknown as PostRequestArg,
+      { params: { contractId: 'contract-1' } } as PostContextArg
+    )
+
+    const body = await response.json()
+
+    expect(response.status).toBe(422)
+    expect(body.ok).toBe(false)
+    expect(body.error.code).toBe('CONTRACT_STATIC_FIELD_RENDER_FAILED')
+    expect(body.error.message).toBe(
+      'A stamp field is placed on page 5, but this document has only 3 pages. Move the field onto an existing page and try again.'
+    )
+    expect(body.error.message).not.toContain('Failed to add signatory')
   })
 })

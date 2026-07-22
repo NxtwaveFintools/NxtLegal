@@ -14,6 +14,8 @@ import {
   repositoryExportQuerySchema,
   contractActionSchema,
   additionalApproverHistoryQuerySchema,
+  contractSignatorySchema,
+  contractSigningPreparationDraftSchema,
 } from '@/core/domain/contracts/schemas'
 import { contractStatuses } from '@/core/constants/contracts'
 
@@ -275,5 +277,94 @@ describe('additionalApproverHistoryQuerySchema', () => {
 
   it('rejects non-UUID departmentId', () => {
     expect(() => additionalApproverHistoryQuerySchema.parse({ departmentId: 'not-a-uuid' })).toThrow(ZodError)
+  })
+})
+
+// ─── static signatory fields (STAMP / TEXT) ───────────────────────────────────
+
+/**
+ * STAMP and TEXT are burned into the PDF before upload and stripped from the
+ * Zoho payload. An anchor-only static field therefore vanishes from BOTH
+ * paths: the renderer gets x:0 y:0 w:0 h:0 and draws nothing, and Zoho never
+ * hears about the field at all. These routes accept payloads from any
+ * authenticated caller, so the schema is the only place to stop it.
+ */
+describe('static signatory field validation', () => {
+  const signerEmail = 'signer@nxtwave.co.in'
+
+  const buildSignatoryPayload = (field: Record<string, unknown>) => ({
+    recipients: [
+      {
+        signatoryEmail: signerEmail,
+        recipientType: 'EXTERNAL',
+        routingOrder: 1,
+        fields: [{ assigned_signer_email: signerEmail, ...field }],
+      },
+    ],
+  })
+
+  const buildDraftPayload = (field: Record<string, unknown>) => ({
+    recipients: [
+      {
+        name: 'Signer',
+        email: signerEmail,
+        recipient_type: 'EXTERNAL',
+        routing_order: 1,
+      },
+    ],
+    fields: [{ assigned_signer_email: signerEmail, ...field }],
+  })
+
+  const fullRect = {
+    page_number: 1,
+    x_position: 100,
+    y_position: 200,
+    width: 96,
+    height: 36,
+  }
+
+  it.each(['STAMP', 'TEXT'])('rejects an anchor-only %s field on the signatory schema', (fieldType) => {
+    expect(() =>
+      contractSignatorySchema.parse(buildSignatoryPayload({ field_type: fieldType, anchor_string: 'SIGN_HERE' }))
+    ).toThrow(ZodError)
+  })
+
+  it.each(['STAMP', 'TEXT'])('rejects an anchor-only %s field on the signing preparation schema', (fieldType) => {
+    expect(() =>
+      contractSigningPreparationDraftSchema.parse(
+        buildDraftPayload({ field_type: fieldType, anchor_string: 'SIGN_HERE' })
+      )
+    ).toThrow(ZodError)
+  })
+
+  it.each(['width', 'height', 'page_number', 'x_position', 'y_position'])(
+    'rejects a STAMP field missing %s',
+    (missingKey) => {
+      const field: Record<string, unknown> = { field_type: 'STAMP', ...fullRect }
+      delete field[missingKey]
+
+      expect(() => contractSignatorySchema.parse(buildSignatoryPayload(field))).toThrow(ZodError)
+      expect(() => contractSigningPreparationDraftSchema.parse(buildDraftPayload(field))).toThrow(ZodError)
+    }
+  )
+
+  it('accepts a STAMP field with a complete rect', () => {
+    expect(() =>
+      contractSignatorySchema.parse(buildSignatoryPayload({ field_type: 'STAMP', ...fullRect }))
+    ).not.toThrow()
+    expect(() =>
+      contractSigningPreparationDraftSchema.parse(buildDraftPayload({ field_type: 'STAMP', ...fullRect }))
+    ).not.toThrow()
+  })
+
+  it('still accepts an anchor-only SIGNATURE field, which Zoho resolves itself', () => {
+    expect(() =>
+      contractSignatorySchema.parse(buildSignatoryPayload({ field_type: 'SIGNATURE', anchor_string: 'SIGN_HERE' }))
+    ).not.toThrow()
+    expect(() =>
+      contractSigningPreparationDraftSchema.parse(
+        buildDraftPayload({ field_type: 'SIGNATURE', anchor_string: 'SIGN_HERE' })
+      )
+    ).not.toThrow()
   })
 })

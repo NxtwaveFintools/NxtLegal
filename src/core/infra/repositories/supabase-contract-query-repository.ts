@@ -241,6 +241,7 @@ type SigningPreparationDraftEntity = {
     width?: number | null
     height?: number | null
     anchorString: string | null
+    textValue?: string | null
     assignedSignerEmail: string
   }>
   created_by_employee_id: string
@@ -2420,6 +2421,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       width?: number | null
       height?: number | null
       anchorString: string | null
+      textValue?: string | null
       assignedSignerEmail: string
     }>
   }): Promise<{
@@ -2443,6 +2445,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       width?: number | null
       height?: number | null
       anchorString: string | null
+      textValue?: string | null
       assignedSignerEmail: string
     }>
     createdByEmployeeId: string
@@ -2516,6 +2519,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         ...field,
         width: field.width ?? null,
         height: field.height ?? null,
+        textValue: field.textValue ?? null,
       })),
       createdByEmployeeId: data.created_by_employee_id,
       updatedByEmployeeId: data.updated_by_employee_id,
@@ -2545,6 +2549,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
       width?: number | null
       height?: number | null
       anchorString: string | null
+      textValue?: string | null
       assignedSignerEmail: string
     }>
     createdByEmployeeId: string
@@ -2585,6 +2590,7 @@ class SupabaseContractQueryRepository implements ContractQueryRepository {
         ...field,
         width: field.width ?? null,
         height: field.height ?? null,
+        textValue: field.textValue ?? null,
       })),
       createdByEmployeeId: data.created_by_employee_id,
       updatedByEmployeeId: data.updated_by_employee_id,

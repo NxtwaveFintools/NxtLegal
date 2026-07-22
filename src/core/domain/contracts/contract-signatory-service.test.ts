@@ -1,6 +1,38 @@
 import { ContractSignatoryService } from '@/core/domain/contracts/contract-signatory-service'
 import { AuthorizationError, BusinessRuleError, ExternalServiceError } from '@/core/http/errors'
-import { PDFDocument } from 'pdf-lib'
+import { PDFArray, PDFDocument, PDFName, PDFRawStream, decodePDFRawStream } from 'pdf-lib'
+
+/**
+ * Decodes a page's content stream from saved PDF bytes.
+ *
+ * Byte-length comparisons cannot prove text was drawn: embedFont runs
+ * unconditionally, so the font dictionary alone changes the length even when
+ * the text value was dropped. Only the show-text operator settles it.
+ */
+async function readPageContentStream(bytes: Uint8Array, pageIndex: number): Promise<string> {
+  const doc = await PDFDocument.load(bytes)
+  const page = doc.getPage(pageIndex)
+  const context = page.node.context
+  const contents = context.lookup(page.node.get(PDFName.of('Contents')))
+
+  if (!contents) {
+    return ''
+  }
+
+  const streams = contents instanceof PDFArray ? contents.asArray().map((ref) => context.lookup(ref)) : [contents]
+
+  return streams
+    .filter((stream): stream is PDFRawStream => stream instanceof PDFRawStream)
+    .map((stream) => Buffer.from(decodePDFRawStream(stream).decode()).toString('latin1'))
+    .join('\n')
+}
+
+/** pdf-lib writes show-text operands as an uppercase hex string of WinAnsi bytes. */
+function toPdfHexString(value: string): string {
+  return Array.from(value)
+    .map((character) => character.charCodeAt(0).toString(16).padStart(2, '0').toUpperCase())
+    .join('')
+}
 
 const mockContractView = {
   contract: {
@@ -72,7 +104,8 @@ describe('ContractSignatoryService', () => {
         signingCompletedTemplateId: 102,
       },
       'https://app.example.com',
-      { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+      { findStampBytes: jest.fn() }
     )
 
     const result = await service.downloadFinalSigningArtifact({
@@ -156,7 +189,8 @@ describe('ContractSignatoryService', () => {
         signingCompletedTemplateId: 102,
       },
       'https://app.example.com',
-      { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+      { findStampBytes: jest.fn() }
     )
 
     await service.handleZohoSignSignedWebhook({
@@ -225,7 +259,8 @@ describe('ContractSignatoryService', () => {
         signingCompletedTemplateId: 102,
       },
       'https://app.example.com',
-      { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+      { findStampBytes: jest.fn() }
     )
 
     await service.handleZohoSignSignedWebhook({
@@ -326,7 +361,8 @@ describe('ContractSignatoryService', () => {
         signingCompletedTemplateId: 102,
       },
       'https://app.example.com',
-      createLogger()
+      createLogger(),
+      { findStampBytes: jest.fn() }
     )
 
     await service.assignSignatory({
@@ -434,7 +470,8 @@ describe('ContractSignatoryService', () => {
         signingCompletedTemplateId: 102,
       },
       'https://app.example.com',
-      logger
+      logger,
+      { findStampBytes: jest.fn() }
     )
 
     const result = await service.assignSignatory({
@@ -538,7 +575,8 @@ describe('ContractSignatoryService', () => {
         signingCompletedTemplateId: 102,
       },
       'https://app.example.com',
-      { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+      { findStampBytes: jest.fn() }
     )
 
     await service.handleZohoSignSignedWebhook({
@@ -613,7 +651,8 @@ describe('ContractSignatoryService', () => {
         signingCompletedTemplateId: 102,
       },
       'https://app.example.com',
-      { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+      { findStampBytes: jest.fn() }
     )
 
     await service.handleZohoSignSignedWebhook({
@@ -679,7 +718,8 @@ describe('ContractSignatoryService', () => {
         signingCompletedTemplateId: 102,
       },
       'https://app.example.com',
-      { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+      { findStampBytes: jest.fn() }
     )
 
     await service.handleZohoSignSignedWebhook({
@@ -729,7 +769,8 @@ describe('ContractSignatoryService', () => {
         signingCompletedTemplateId: 102,
       },
       'https://app.example.com',
-      { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+      { findStampBytes: jest.fn() }
     )
 
     jest.spyOn(global, 'fetch').mockResolvedValue({
@@ -787,7 +828,8 @@ describe('ContractSignatoryService', () => {
         signingCompletedTemplateId: 102,
       },
       'https://app.example.com',
-      { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+      { findStampBytes: jest.fn() }
     )
 
     await expect(
@@ -847,7 +889,8 @@ describe('ContractSignatoryService', () => {
         signingCompletedTemplateId: 102,
       },
       'https://app.example.com',
-      { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+      { findStampBytes: jest.fn() }
     )
 
     await expect(
@@ -901,7 +944,8 @@ describe('ContractSignatoryService', () => {
         signingCompletedTemplateId: 102,
       },
       'https://app.example.com',
-      { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+      { findStampBytes: jest.fn() }
     )
 
     await expect(
@@ -968,7 +1012,8 @@ describe('ContractSignatoryService', () => {
         signingCompletedTemplateId: 102,
       },
       'https://app.example.com',
-      { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+      { findStampBytes: jest.fn() }
     )
 
     await expect(
@@ -1088,7 +1133,8 @@ describe('ContractSignatoryService', () => {
         signingCompletedTemplateId: 102,
       },
       'https://app.example.com',
-      { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+      { findStampBytes: jest.fn() }
     )
 
     const result = await service.sendSigningPreparationDraft({
@@ -1122,7 +1168,8 @@ describe('ContractSignatoryService', () => {
         signingCompletedTemplateId: 102,
       },
       'https://app.example.com',
-      { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+      { findStampBytes: jest.fn() }
     )
 
     await expect(
@@ -1316,7 +1363,8 @@ describe('ContractSignatoryService', () => {
         signingCompletedTemplateId: 102,
       },
       'https://app.example.com',
-      { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+      { findStampBytes: jest.fn() }
     )
 
     const result = await service.sendSigningPreparationDraft({
@@ -1466,7 +1514,8 @@ describe('ContractSignatoryService', () => {
         signingCompletedTemplateId: 102,
       },
       'https://app.example.com',
-      { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+      { findStampBytes: jest.fn() }
     )
 
     await service.sendSigningPreparationDraft({
@@ -1584,7 +1633,8 @@ describe('ContractSignatoryService', () => {
         signingCompletedTemplateId: 102,
       },
       'https://app.example.com',
-      { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+      { findStampBytes: jest.fn() }
     )
 
     await expect(
@@ -1623,7 +1673,8 @@ describe('ContractSignatoryService', () => {
         signingCompletedTemplateId: 102,
       },
       'https://app.example.com',
-      { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+      { findStampBytes: jest.fn() }
     )
 
     await expect(
@@ -1730,7 +1781,8 @@ describe('ContractSignatoryService', () => {
         signingCompletedTemplateId: 102,
       },
       'https://app.example.com',
-      createLogger()
+      createLogger(),
+      { findStampBytes: jest.fn() }
     )
 
     const result = await service.sendSigningPreparationDraft({
@@ -1817,7 +1869,8 @@ describe('ContractSignatoryService', () => {
         signingCompletedTemplateId: 102,
       },
       'https://app.example.com',
-      { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+      { findStampBytes: jest.fn() }
     )
 
     await expect(
@@ -1855,7 +1908,8 @@ describe('ContractSignatoryService', () => {
       { sendTemplateEmail: jest.fn() },
       { signatoryLinkTemplateId: 101, signingCompletedTemplateId: 102 },
       'https://app.example.com',
-      { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+      { findStampBytes: jest.fn() }
     )
 
     await expect(
@@ -1887,7 +1941,8 @@ describe('ContractSignatoryService', () => {
       { sendTemplateEmail: jest.fn() },
       { signatoryLinkTemplateId: 101, signingCompletedTemplateId: 102 },
       'https://app.example.com',
-      { info: jest.fn(), warn: jest.fn(), error: jest.fn() }
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+      { findStampBytes: jest.fn() }
     )
 
     await expect(
@@ -1898,6 +1953,392 @@ describe('ContractSignatoryService', () => {
         artifact: 'signed_document',
       } as never)
     ).rejects.toMatchObject({ code: 'CONTRACT_SIGNATORY_FORBIDDEN' })
+  })
+})
+
+describe('static field handling', () => {
+  // A 1x1 PNG. pdf-lib must be able to actually embed this, so the flatten path
+  // in these tests exercises real rendering rather than a stubbed renderer.
+  const stampPngBytes = Uint8Array.from(
+    Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==',
+      'base64'
+    )
+  )
+
+  const createSinglePagePdf = async (): Promise<Uint8Array> => {
+    const pdf = await PDFDocument.create()
+    pdf.addPage([612, 792])
+    return await pdf.save()
+  }
+
+  type DraftField = {
+    fieldType: string
+    pageNumber: number
+    xPosition: number
+    yPosition: number
+    width: number
+    height: number
+    anchorString: null
+    assignedSignerEmail: string
+    textValue?: string
+  }
+
+  const buildSendHarness = async (options: {
+    fields: DraftField[]
+    fileName?: string
+    contentType?: string
+    documentBytes?: Uint8Array
+    stampBytes?: Uint8Array
+  }) => {
+    const contractQueryService = {
+      countPendingSignatoriesByContract: jest.fn().mockResolvedValue(0),
+      getSigningPreparationDraft: jest.fn().mockResolvedValue({
+        contractId: 'contract-1',
+        recipients: [{ name: 'Signer One', email: 'one@nxtwave.co.in', recipientType: 'EXTERNAL', routingOrder: 1 }],
+        fields: options.fields,
+      }),
+      getContractDetail: jest.fn().mockResolvedValue({
+        ...mockContractView,
+        contract: { ...mockContractView.contract, currentDocumentId: 'doc-1' },
+      }),
+      addSignatory: jest.fn().mockResolvedValue({
+        ...mockContractView,
+        signatories: [
+          {
+            id: 'sig-1',
+            signatoryEmail: 'one@nxtwave.co.in',
+            recipientType: 'EXTERNAL',
+            routingOrder: 1,
+            fieldConfig: [],
+            status: 'PENDING',
+            signedAt: null,
+            zohoSignEnvelopeId: 'env-static-1',
+            zohoSignRecipientId: 'a1',
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      }),
+      moveContractToInSignature: jest.fn().mockResolvedValue(undefined),
+      deleteSigningPreparationDraft: jest.fn().mockResolvedValue(undefined),
+      resolveEnvelopeContext: jest.fn(),
+      recordZohoSignWebhookEvent: jest.fn(),
+      addSignatoryWebhookAuditEvent: jest.fn(),
+      recordContractNotificationDelivery: jest.fn().mockResolvedValue(undefined),
+      getEnvelopeNotificationProfile: jest.fn(),
+    }
+
+    const documentBytes = options.documentBytes ?? (await createSinglePagePdf())
+
+    jest.spyOn(global, 'fetch').mockResolvedValue({
+      ok: true,
+      arrayBuffer: async () => documentBytes.buffer,
+      headers: { get: () => options.contentType ?? 'application/pdf' },
+    } as unknown as Response)
+
+    const signatureProvider = {
+      createSigningEnvelope: jest.fn().mockResolvedValue({
+        envelopeId: 'env-static-1',
+        recipients: [{ email: 'one@nxtwave.co.in', recipientId: 'a1', clientUserId: 'c1', signingUrl: '' }],
+      }),
+      downloadCompletedEnvelopeDocuments: jest.fn(),
+    }
+
+    const orgAssetRepository = {
+      findStampBytes: jest.fn().mockResolvedValue(options.stampBytes ?? stampPngBytes),
+    }
+
+    const service = new ContractSignatoryService(
+      contractQueryService as never,
+      {
+        createSignedDownloadUrl: jest.fn().mockResolvedValue({
+          signedUrl: 'https://example.com/signed-url',
+          fileName: options.fileName ?? 'contract.pdf',
+        }),
+      },
+      { createDocument: jest.fn() } as never,
+      { upload: jest.fn() } as never,
+      signatureProvider,
+      { sendTemplateEmail: jest.fn().mockResolvedValue({ providerMessageId: 'msg-1' }) },
+      {
+        signatoryLinkTemplateId: 101,
+        signingCompletedTemplateId: 102,
+      },
+      'https://app.example.com',
+      { info: jest.fn(), warn: jest.fn(), error: jest.fn() },
+      orgAssetRepository
+    )
+
+    const send = () =>
+      service.sendSigningPreparationDraft({
+        tenantId: 'tenant-1',
+        contractId: 'contract-1',
+        actorEmployeeId: 'legal-1',
+        actorRole: 'LEGAL_TEAM',
+        actorEmail: 'legal@nxtwave.co.in',
+      })
+
+    return { service, send, signatureProvider, orgAssetRepository, documentBytes }
+  }
+
+  beforeEach(() => {
+    jest.restoreAllMocks()
+  })
+
+  it('excludes STAMP and TEXT from the fields sent to Zoho', async () => {
+    const { send, signatureProvider, orgAssetRepository } = await buildSendHarness({
+      fields: [
+        {
+          fieldType: 'SIGNATURE',
+          pageNumber: 1,
+          xPosition: 10,
+          yPosition: 20,
+          width: 96,
+          height: 22,
+          anchorString: null,
+          assignedSignerEmail: 'one@nxtwave.co.in',
+        },
+        {
+          fieldType: 'STAMP',
+          pageNumber: 1,
+          xPosition: 100,
+          yPosition: 200,
+          width: 80,
+          height: 80,
+          anchorString: null,
+          assignedSignerEmail: 'one@nxtwave.co.in',
+        },
+        {
+          fieldType: 'TEXT',
+          pageNumber: 1,
+          xPosition: 200,
+          yPosition: 300,
+          width: 200,
+          height: 40,
+          anchorString: null,
+          // An empty TEXT field is now rejected by the renderer, so this
+          // fixture must carry real text to exercise the filtering it is about.
+          textValue: 'Authorised signatory',
+          assignedSignerEmail: 'one@nxtwave.co.in',
+        },
+      ],
+    })
+
+    await send()
+
+    const sentFields = signatureProvider.createSigningEnvelope.mock.calls[0][0].recipients[0].fields
+    expect(sentFields.map((field: { fieldType: string }) => field.fieldType)).toEqual(['SIGNATURE'])
+    // The stamp must have been fetched and burned in, not silently skipped.
+    expect(orgAssetRepository.findStampBytes).toHaveBeenCalledWith('tenant-1')
+  })
+
+  it('sends flattened bytes to Zoho rather than the original document', async () => {
+    const { send, signatureProvider, documentBytes } = await buildSendHarness({
+      fields: [
+        {
+          fieldType: 'SIGNATURE',
+          pageNumber: 1,
+          xPosition: 10,
+          yPosition: 20,
+          width: 96,
+          height: 22,
+          anchorString: null,
+          assignedSignerEmail: 'one@nxtwave.co.in',
+        },
+        {
+          fieldType: 'STAMP',
+          pageNumber: 1,
+          xPosition: 100,
+          yPosition: 200,
+          width: 80,
+          height: 80,
+          anchorString: null,
+          assignedSignerEmail: 'one@nxtwave.co.in',
+        },
+      ],
+    })
+
+    await send()
+
+    const sentBytes = signatureProvider.createSigningEnvelope.mock.calls[0][0].documentBytes as Uint8Array
+    // A real flatten embeds the stamp XObject, so the payload must differ from
+    // the source PDF. Same-length bytes would mean the flatten never landed.
+    expect(sentBytes.byteLength).not.toBe(documentBytes.byteLength)
+    const reloaded = await PDFDocument.load(sentBytes)
+    expect(reloaded.getPages()).toHaveLength(1)
+  })
+
+  it('rejects a recipient whose only fields are STAMP and TEXT', async () => {
+    const { send } = await buildSendHarness({
+      fields: [
+        {
+          fieldType: 'STAMP',
+          pageNumber: 1,
+          xPosition: 100,
+          yPosition: 200,
+          width: 80,
+          height: 80,
+          anchorString: null,
+          assignedSignerEmail: 'one@nxtwave.co.in',
+        },
+        {
+          fieldType: 'TEXT',
+          pageNumber: 1,
+          xPosition: 200,
+          yPosition: 300,
+          width: 200,
+          height: 40,
+          anchorString: null,
+          assignedSignerEmail: 'one@nxtwave.co.in',
+        },
+      ],
+    })
+
+    await expect(send()).rejects.toThrow('SIGNATURE field is required')
+  })
+
+  // The draft stores textValue; assignSignatory reads text_value. If the
+  // recipientFields map in sendSigningPreparationDraft drops the property, TEXT
+  // fields flatten to an empty box and nothing anywhere reports a problem.
+  // These two tests pin that hand-off from both directions.
+  it('carries textValue from the loaded draft through to the flattened document', async () => {
+    const { send, signatureProvider } = await buildSendHarness({
+      fields: [
+        {
+          fieldType: 'SIGNATURE',
+          pageNumber: 1,
+          xPosition: 10,
+          yPosition: 20,
+          width: 96,
+          height: 22,
+          anchorString: null,
+          assignedSignerEmail: 'one@nxtwave.co.in',
+        },
+        {
+          fieldType: 'TEXT',
+          pageNumber: 1,
+          xPosition: 200,
+          yPosition: 300,
+          width: 300,
+          height: 40,
+          anchorString: null,
+          textValue: 'Executed under common seal',
+          assignedSignerEmail: 'one@nxtwave.co.in',
+        },
+      ],
+    })
+
+    await send()
+
+    const sentBytes = signatureProvider.createSigningEnvelope.mock.calls[0][0].documentBytes as Uint8Array
+    const reloaded = await PDFDocument.load(sentBytes)
+    expect(reloaded.getPages()).toHaveLength(1)
+
+    // The exact glyphs must appear in the page's show-text operator. A dropped
+    // text_value still embeds the font and still changes the byte length, so
+    // only this assertion can distinguish drawn text from a silent no-op.
+    const contentStream = await readPageContentStream(sentBytes, 0)
+    expect(contentStream).toContain(`<${toPdfHexString('Executed under common seal')}> Tj`)
+  })
+
+  it('surfaces the renderer page-bottom error, proving the text reached the renderer', async () => {
+    const { send } = await buildSendHarness({
+      fields: [
+        {
+          fieldType: 'SIGNATURE',
+          pageNumber: 1,
+          xPosition: 10,
+          yPosition: 20,
+          width: 96,
+          height: 22,
+          anchorString: null,
+          assignedSignerEmail: 'one@nxtwave.co.in',
+        },
+        {
+          fieldType: 'TEXT',
+          pageNumber: 1,
+          xPosition: 200,
+          // 12pt above the bottom of a 792pt page: not even one 13.2pt line fits,
+          // and the box cannot grow downward past the page edge.
+          yPosition: 780,
+          width: 40,
+          height: 14,
+          anchorString: null,
+          textValue: 'this is a great deal more text than can possibly fit inside forty points',
+          assignedSignerEmail: 'one@nxtwave.co.in',
+        },
+      ],
+    })
+
+    // A dropped text_value would render nothing and let the send succeed, so
+    // this rejection is only reachable when the value survives the hand-off.
+    await expect(send()).rejects.toThrow('before the bottom of the page')
+  })
+
+  it('sends text that outgrows its stored box height instead of blocking', async () => {
+    const { send } = await buildSendHarness({
+      fields: [
+        {
+          fieldType: 'SIGNATURE',
+          pageNumber: 1,
+          xPosition: 10,
+          yPosition: 20,
+          width: 96,
+          height: 22,
+          anchorString: null,
+          assignedSignerEmail: 'one@nxtwave.co.in',
+        },
+        {
+          fieldType: 'TEXT',
+          pageNumber: 1,
+          xPosition: 200,
+          yPosition: 300,
+          // A 14pt box holds one line; this text needs many. It used to block
+          // the send, which is the restriction Legal hit on ordinary clauses.
+          width: 40,
+          height: 14,
+          anchorString: null,
+          textValue: 'this is a great deal more text than can possibly fit inside forty points',
+          assignedSignerEmail: 'one@nxtwave.co.in',
+        },
+      ],
+    })
+
+    await expect(send()).resolves.toBeTruthy()
+  })
+
+  it('throws when the document is not a PDF and static fields are present', async () => {
+    const { send, signatureProvider } = await buildSendHarness({
+      fields: [
+        {
+          fieldType: 'SIGNATURE',
+          pageNumber: 1,
+          xPosition: 10,
+          yPosition: 20,
+          width: 96,
+          height: 22,
+          anchorString: null,
+          assignedSignerEmail: 'one@nxtwave.co.in',
+        },
+        {
+          fieldType: 'STAMP',
+          pageNumber: 1,
+          xPosition: 100,
+          yPosition: 200,
+          width: 80,
+          height: 80,
+          anchorString: null,
+          assignedSignerEmail: 'one@nxtwave.co.in',
+        },
+      ],
+      fileName: 'contract.docx',
+      contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      documentBytes: new Uint8Array([1, 2, 3]),
+    })
+
+    await expect(send()).rejects.toThrow(/PDF/i)
+    // Nothing may reach Zoho once we know the stamp cannot be burned in.
+    expect(signatureProvider.createSigningEnvelope).not.toHaveBeenCalled()
   })
 })
 
@@ -1969,7 +2410,8 @@ describe('downloadFinalSigningArtifact naming', () => {
       { sendTemplateEmail: jest.fn() },
       { signatoryLinkTemplateId: 101, signingCompletedTemplateId: 102 },
       'https://app.example.com',
-      createLogger()
+      createLogger(),
+      { findStampBytes: jest.fn() }
     )
 
     return { service, contractDocumentDownloadService, contractStorageRepository }

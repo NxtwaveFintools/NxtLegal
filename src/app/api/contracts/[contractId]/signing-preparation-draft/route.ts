@@ -48,6 +48,9 @@ const POSTHandler = withAuth(async (request: NextRequest, { session, params }) =
         width: field.width ?? null,
         height: field.height ?? null,
         anchorString: field.anchor_string ?? null,
+        // Persisted so the send path can burn TEXT fields into the PDF; dropping
+        // it here yields an empty box in the final document with no error.
+        textValue: field.text_value ?? null,
         assignedSignerEmail: field.assigned_signer_email,
       })),
     })

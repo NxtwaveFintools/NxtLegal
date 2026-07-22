@@ -5,6 +5,7 @@ import {
   contractRepositoryExportFormats,
   contractRepositoryStatuses,
   contractStatuses,
+  isStaticContractFieldType,
 } from '@/core/constants/contracts'
 
 export const contractActionNames = [
@@ -273,35 +274,73 @@ export const contractSignatoryFieldTypeValues = [
 ] as const
 export const contractSignatoryRecipientTypeValues = ['INTERNAL', 'EXTERNAL', 'VIEWER'] as const
 
-const contractSignatoryFieldSchema = z
-  .object({
-    field_type: z.enum(contractSignatoryFieldTypeValues),
-    page_number: z.number().int().min(1).optional(),
-    x_position: z.number().min(0).optional(),
-    y_position: z.number().min(0).optional(),
-    width: z.number().min(1).optional(),
-    height: z.number().min(1).optional(),
-    anchor_string: z.string().trim().min(1).optional(),
-    assigned_signer_email: z.string().trim().toLowerCase().email('Valid signer email is required'),
-  })
-  .superRefine((value, context) => {
-    if (value.anchor_string) {
-      return
+const contractSignatoryFieldBaseShape = {
+  field_type: z.enum(contractSignatoryFieldTypeValues),
+  page_number: z.number().int().min(1).optional(),
+  x_position: z.number().min(0).optional(),
+  y_position: z.number().min(0).optional(),
+  width: z.number().min(1).optional(),
+  height: z.number().min(1).optional(),
+  anchor_string: z.string().trim().min(1).optional(),
+  // Deliberately not .trim(): newlines, indentation and runs of spaces are
+  // content the user typed into a clause, and stripping them here silently
+  // rewrites the text regardless of what the editor and renderer preserve.
+  text_value: z.string().max(10000).optional(),
+  assigned_signer_email: z.string().trim().toLowerCase().email('Valid signer email is required'),
+}
+
+type ContractSignatoryFieldShape = {
+  field_type: (typeof contractSignatoryFieldTypeValues)[number]
+  page_number?: number
+  x_position?: number
+  y_position?: number
+  width?: number
+  height?: number
+  anchor_string?: string
+}
+
+const staticFieldRequiredKeys = ['page_number', 'x_position', 'y_position', 'width', 'height'] as const
+
+/**
+ * STAMP and TEXT are burned into the PDF before upload, so Zoho never resolves
+ * an anchor for them and the renderer needs a real rect. An anchor-only static
+ * field used to validate, then flatten to a 0x0 invisible box AND get stripped
+ * from the Zoho payload — vanishing from both paths with nothing reported.
+ */
+const refineContractSignatoryField = (value: ContractSignatoryFieldShape, context: z.RefinementCtx) => {
+  if (isStaticContractFieldType(value.field_type)) {
+    for (const key of staticFieldRequiredKeys) {
+      if (typeof value[key] !== 'number') {
+        context.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [key],
+          message: `${value.field_type} fields must define page_number, x_position, y_position, width and height; anchor_string alone is not supported`,
+        })
+      }
     }
 
-    const hasCoordinates =
-      typeof value.page_number === 'number' &&
-      typeof value.x_position === 'number' &&
-      typeof value.y_position === 'number'
+    return
+  }
 
-    if (!hasCoordinates) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['anchor_string'],
-        message: 'Each field must define anchor_string or page_number + x_position + y_position',
-      })
-    }
-  })
+  if (value.anchor_string) {
+    return
+  }
+
+  const hasCoordinates =
+    typeof value.page_number === 'number' &&
+    typeof value.x_position === 'number' &&
+    typeof value.y_position === 'number'
+
+  if (!hasCoordinates) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ['anchor_string'],
+      message: 'Each field must define anchor_string or page_number + x_position + y_position',
+    })
+  }
+}
+
+const contractSignatoryFieldSchema = z.object(contractSignatoryFieldBaseShape).superRefine(refineContractSignatoryField)
 
 const contractSignatoryRecipientSchema = z.object({
   signatoryEmail: z.string().trim().toLowerCase().email('Valid signatory email is required'),
@@ -323,34 +362,8 @@ const contractSigningPreparationRecipientSchema = z.object({
 })
 
 const contractSigningPreparationFieldSchema = z
-  .object({
-    field_type: z.enum(contractSignatoryFieldTypeValues),
-    page_number: z.number().int().min(1).optional(),
-    x_position: z.number().min(0).optional(),
-    y_position: z.number().min(0).optional(),
-    width: z.number().min(1).optional(),
-    height: z.number().min(1).optional(),
-    anchor_string: z.string().trim().min(1).optional(),
-    assigned_signer_email: z.string().trim().toLowerCase().email('Valid signer email is required'),
-  })
-  .superRefine((value, context) => {
-    if (value.anchor_string) {
-      return
-    }
-
-    const hasCoordinates =
-      typeof value.page_number === 'number' &&
-      typeof value.x_position === 'number' &&
-      typeof value.y_position === 'number'
-
-    if (!hasCoordinates) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['anchor_string'],
-        message: 'Each field must define anchor_string or page_number + x_position + y_position',
-      })
-    }
-  })
+  .object(contractSignatoryFieldBaseShape)
+  .superRefine(refineContractSignatoryField)
 
 export const contractSigningPreparationDraftSchema = z
   .object({

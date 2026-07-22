@@ -404,6 +404,12 @@ export class ZohoSignClient {
     actionId: string,
     index: number
   ): Record<string, unknown> {
+    if (field.fieldType === 'STAMP' || field.fieldType === 'TEXT') {
+      // These are flattened into the PDF upstream and must never reach Zoho.
+      // Reaching here means the filter in assignSignatory was bypassed.
+      throw new Error(`Static field type ${field.fieldType} must be flattened, not sent to Zoho`)
+    }
+
     const { fieldTypeName, fieldCategory, defaultWidth, defaultHeight, fieldLabel } = this.resolveZohoFieldType(
       field.fieldType
     )
@@ -481,7 +487,11 @@ export class ZohoSignClient {
     return Math.max(8, Math.min(1200, Math.round(value)))
   }
 
-  private resolveZohoFieldType(fieldType: ContractSignatoryFieldType): {
+  // STAMP and TEXT are excluded from the parameter type rather than handled with a
+  // `default` branch: they are flattened into the PDF upstream, so there is no
+  // honest Zoho mapping for them. The narrowed union keeps the switch exhaustive,
+  // so adding a new field type is still a compile error here.
+  private resolveZohoFieldType(fieldType: Exclude<ContractSignatoryFieldType, 'STAMP' | 'TEXT'>): {
     fieldTypeName: string
     fieldCategory: string
     defaultWidth: number
@@ -506,14 +516,6 @@ export class ZohoSignClient {
           defaultHeight: 15,
           fieldLabel: 'Initial',
         }
-      case 'STAMP':
-        return {
-          fieldTypeName: 'Stamp',
-          fieldCategory: 'image',
-          defaultWidth: 96,
-          defaultHeight: 36,
-          fieldLabel: 'Stamp',
-        }
       case 'NAME':
         return {
           fieldTypeName: 'Name',
@@ -537,14 +539,6 @@ export class ZohoSignClient {
           defaultWidth: 96,
           defaultHeight: 22,
           fieldLabel: 'Time',
-        }
-      case 'TEXT':
-        return {
-          fieldTypeName: 'Textfield',
-          fieldCategory: 'textfield',
-          defaultWidth: 200,
-          defaultHeight: 22,
-          fieldLabel: 'Text',
         }
     }
   }

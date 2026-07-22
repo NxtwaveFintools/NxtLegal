@@ -22,6 +22,7 @@ import { supabaseAuditRepository } from '@/core/infra/repositories/supabase-audi
 import { supabaseIdempotencyRepository } from '@/core/infra/repositories/supabase-idempotency-repository'
 import { supabaseContractRepository } from '@/core/infra/repositories/supabase-contract-repository'
 import { supabaseContractStorageRepository } from '@/core/infra/repositories/supabase-contract-storage-repository'
+import { supabaseOrgAssetRepository } from '@/core/infra/repositories/supabase-org-asset-repository'
 import { supabaseContractQueryRepository } from '@/core/infra/repositories/supabase-contract-query-repository'
 import { supabaseRoleGovernanceRepository } from '@/core/infra/repositories/supabase-role-governance-repository'
 import { supabaseAdminQueryRepository } from '../infra/repositories/supabase-admin-query-repository'
@@ -185,7 +186,8 @@ export function getContractSignatoryService(): ContractSignatoryService {
       brevoSmtpSender,
       undefined,
       appConfig.auth.siteUrl,
-      logger
+      logger,
+      supabaseOrgAssetRepository
     )
   }
 
