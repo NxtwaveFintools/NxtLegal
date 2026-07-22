@@ -1,9 +1,8 @@
 'use client'
 
 import type { ReactNode } from 'react'
-import { useMemo, useState } from 'react'
+import { useMemo } from 'react'
 import Link from 'next/link'
-import { BookOpen } from 'lucide-react'
 import LogoutButton from '@/components/auth/LogoutButton'
 import ThemeToggle from '@/components/theme/ThemeToggle'
 import FaqDrawer from './FaqDrawer'
@@ -56,7 +55,6 @@ export default function ProtectedAppShell({
   children,
 }: ProtectedAppShellProps) {
   const canAccessAdminConsole = ['ADMIN', 'LEGAL_ADMIN', 'SUPER_ADMIN'].includes((session.role ?? '').toUpperCase())
-  const [isFaqOpen, setIsFaqOpen] = useState(false)
 
   const activePage = topbarCopy[activeNav]
 
@@ -199,17 +197,6 @@ export default function ProtectedAppShell({
           </button>
         </div>
         <div className={styles.bottomNav}>
-          <button
-            type="button"
-            className={styles.navItem}
-            aria-label="FAQ"
-            data-nav-label="FAQ"
-            onClick={() => setIsFaqOpen(true)}
-          >
-            <span className={styles.navIcon}>
-              <BookOpen size={18} aria-hidden="true" />
-            </span>
-          </button>
           <button type="button" className={styles.navItem} aria-label="Settings" data-nav-label="Settings">
             <span className={styles.navIcon}>
               <svg viewBox="0 0 20 20" className={styles.navIconSvg} aria-hidden="true" focusable="false">
@@ -272,7 +259,7 @@ export default function ProtectedAppShell({
         {children}
       </div>
 
-      <FaqDrawer isOpen={isFaqOpen} onClose={() => setIsFaqOpen(false)} />
+      <FaqDrawer />
     </div>
   )
 }

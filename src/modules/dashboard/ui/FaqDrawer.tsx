@@ -5,11 +5,6 @@ import type { ReactNode } from 'react'
 import { BookOpen, ChevronDown, X } from 'lucide-react'
 import styles from './FaqDrawer.module.css'
 
-type FaqDrawerProps = {
-  isOpen: boolean
-  onClose: () => void
-}
-
 type FaqItem = {
   id: string
   question: string
@@ -186,7 +181,8 @@ const faqItems: FaqItem[] = [
   },
 ]
 
-export default function FaqDrawer({ isOpen, onClose }: FaqDrawerProps) {
+export default function FaqDrawer() {
+  const [isOpen, setIsOpen] = useState(false)
   const [openIndex, setOpenIndex] = useState<number | null>(null)
 
   useEffect(() => {
@@ -194,17 +190,25 @@ export default function FaqDrawer({ isOpen, onClose }: FaqDrawerProps) {
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        onClose()
+        setIsOpen(false)
       }
     }
 
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
-  }, [isOpen, onClose])
+  }, [isOpen])
 
   return (
     <>
-      <div className={`${styles.overlay} ${isOpen ? styles.overlayOpen : ''}`} onClick={onClose} aria-hidden="true" />
+      <button type="button" className={styles.trigger} onClick={() => setIsOpen(true)} aria-label="Open FAQ">
+        <BookOpen size={16} aria-hidden="true" />
+        <span>FAQ</span>
+      </button>
+      <div
+        className={`${styles.overlay} ${isOpen ? styles.overlayOpen : ''}`}
+        onClick={() => setIsOpen(false)}
+        aria-hidden="true"
+      />
       <aside
         className={`${styles.drawer} ${isOpen ? styles.drawerOpen : ''}`}
         role="dialog"
@@ -219,7 +223,7 @@ export default function FaqDrawer({ isOpen, onClose }: FaqDrawerProps) {
               Legal &amp; Compliance FAQ
             </span>
           </div>
-          <button type="button" className={styles.closeButton} onClick={onClose} aria-label="Close FAQ">
+          <button type="button" className={styles.closeButton} onClick={() => setIsOpen(false)} aria-label="Close FAQ">
             <X size={16} aria-hidden="true" />
           </button>
         </div>
