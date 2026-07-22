@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from 'react'
 import type { ReactNode } from 'react'
+import { usePathname } from 'next/navigation'
 import { BookOpen, ChevronDown, X } from 'lucide-react'
+import { routeRegistry } from '@/core/config/route-registry'
 import styles from './FaqDrawer.module.css'
 
 type FaqItem = {
@@ -182,6 +184,7 @@ const faqItems: FaqItem[] = [
 ]
 
 export default function FaqDrawer() {
+  const pathname = usePathname()
   const [isOpen, setIsOpen] = useState(false)
   const [openIndex, setOpenIndex] = useState<number | null>(null)
 
@@ -197,6 +200,10 @@ export default function FaqDrawer() {
     window.addEventListener('keydown', onKeyDown)
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [isOpen])
+
+  if (pathname !== routeRegistry.protected.dashboard) {
+    return null
+  }
 
   return (
     <>

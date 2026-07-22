@@ -2,7 +2,7 @@
   position: fixed;
   right: 24px;
   bottom: 24px;
-  z-index: 55;
+  z-index: 35;
   display: inline-flex;
   align-items: center;
   gap: 8px;
