@@ -5,6 +5,7 @@ import { useMemo } from 'react'
 import Link from 'next/link'
 import LogoutButton from '@/components/auth/LogoutButton'
 import ThemeToggle from '@/components/theme/ThemeToggle'
+import FaqDrawer from './FaqDrawer'
 import { routeRegistry } from '@/core/config/route-registry'
 import styles from './dashboard.module.css'
 
@@ -257,6 +258,8 @@ export default function ProtectedAppShell({
 
         {children}
       </div>
+
+      <FaqDrawer />
     </div>
   )
 }
