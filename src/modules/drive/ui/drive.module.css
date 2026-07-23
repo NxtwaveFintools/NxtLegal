@@ -1,0 +1,779 @@
+/* Google Drive integration UI */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 1000;
+}
+
+.modal {
+  background: #ffffff;
+  border-radius: 14px;
+  width: 100%;
+  max-width: 520px;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 50px rgba(15, 23, 42, 0.25);
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.headerTitle {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.headerSub {
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.closeButton {
+  border: none;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  border-radius: 8px;
+  padding: 6px;
+  display: inline-flex;
+}
+
+.closeButton:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.body {
+  padding: 16px 20px;
+  overflow: auto;
+  flex: 1;
+  min-height: 220px;
+}
+
+.footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 20px;
+  border-top: 1px solid #e2e8f0;
+  background: #f8fafc;
+}
+
+.footerHint {
+  font-size: 12px;
+  color: #64748b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Buttons */
+.primaryButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #4f46e5;
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  padding: 9px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.primaryButton:hover:not(:disabled) {
+  background: #4338ca;
+}
+
+.primaryButton:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.secondaryButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: #ffffff;
+  color: #334155;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.secondaryButton:hover:not(:disabled) {
+  background: #f1f5f9;
+}
+
+/* Trigger button (in panels/toolbars) */
+.triggerButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: #ffffff;
+  color: #1e293b;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 7px 12px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.triggerButton:hover:not(:disabled) {
+  border-color: #4f46e5;
+  color: #4f46e5;
+}
+
+.triggerButton:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.triggerIcon {
+  color: #4f46e5;
+  flex-shrink: 0;
+}
+
+/* Connect gate */
+.connectPane {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 12px;
+  padding: 28px 12px;
+}
+
+.connectIcon {
+  color: #4f46e5;
+}
+
+.connectTitle {
+  font-size: 15px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.connectText {
+  font-size: 13px;
+  color: #64748b;
+  max-width: 360px;
+  line-height: 1.5;
+}
+
+/* Last folder shortcut */
+.lastFolder {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px dashed #c7d2fe;
+  background: #eef2ff;
+  border-radius: 10px;
+  margin-bottom: 12px;
+}
+
+.lastFolderText {
+  font-size: 12px;
+  color: #4338ca;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.lastFolderButton {
+  border: none;
+  background: #4f46e5;
+  color: #fff;
+  border-radius: 7px;
+  padding: 6px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* Browser */
+.browser {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.breadcrumbs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  font-size: 12px;
+}
+
+.crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.crumbBtn {
+  border: none;
+  background: transparent;
+  color: #4f46e5;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 4px;
+  border-radius: 6px;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crumbBtn:disabled {
+  color: #0f172a;
+  cursor: default;
+}
+
+.crumbSep {
+  color: #94a3b8;
+}
+
+.refreshBtn {
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  color: #64748b;
+  cursor: pointer;
+  padding: 4px;
+  border-radius: 6px;
+  display: inline-flex;
+}
+
+.refreshBtn:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
+.list {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  overflow: hidden;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.folderRow,
+.fileRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: none;
+  border-bottom: 1px solid #f1f5f9;
+  background: #ffffff;
+  padding: 10px 12px;
+  cursor: pointer;
+  text-align: left;
+  font-size: 13px;
+  color: #1e293b;
+}
+
+.folderRow:hover,
+.fileRow:hover:not(:disabled) {
+  background: #f8fafc;
+}
+
+.fileRowSelected {
+  background: #eef2ff;
+}
+
+.fileRowDisabled {
+  color: #94a3b8;
+  cursor: not-allowed;
+}
+
+.folderIcon {
+  color: #f59e0b;
+  flex-shrink: 0;
+}
+
+.fileIcon {
+  color: #64748b;
+  flex-shrink: 0;
+}
+
+.rowName {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowChevron {
+  color: #cbd5e1;
+  flex-shrink: 0;
+}
+
+.listState,
+.listError {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 28px 12px;
+  font-size: 13px;
+  color: #64748b;
+}
+
+.listError {
+  color: #dc2626;
+  flex-direction: column;
+}
+
+.linkButton {
+  border: none;
+  background: transparent;
+  color: #4f46e5;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+/* Progress */
+.progressWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 28px 8px;
+  text-align: center;
+}
+
+.progressText {
+  font-size: 13px;
+  color: #334155;
+  font-weight: 600;
+}
+
+.progressTrack {
+  height: 6px;
+  background: #e2e8f0;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.progressBar {
+  height: 100%;
+  width: 40%;
+  background: #4f46e5;
+  border-radius: 999px;
+  animation: driveIndeterminate 1.1s ease-in-out infinite;
+}
+
+@keyframes driveIndeterminate {
+  0% {
+    margin-left: -40%;
+  }
+  100% {
+    margin-left: 100%;
+  }
+}
+
+/* ---- Google Drive branded trigger ---- */
+.brandButton {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  background: #ffffff;
+  color: #1f2937;
+  border: 1px solid #dadce0;
+  border-radius: 9999px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.1);
+  transition:
+    box-shadow 0.18s ease,
+    transform 0.18s ease,
+    border-color 0.18s ease,
+    background 0.18s ease;
+}
+
+.brandButton:hover:not(:disabled) {
+  box-shadow: 0 3px 10px rgba(60, 64, 67, 0.22);
+  transform: translateY(-1px);
+  border-color: #c6cbd1;
+  background: #f8fbff;
+}
+
+.brandButton:active:not(:disabled) {
+  transform: translateY(0);
+  box-shadow: 0 1px 2px rgba(60, 64, 67, 0.14);
+}
+
+.brandButton:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Modal header logo lockup */
+.brandHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.brandHeaderLogo {
+  animation: driveLogoPop 0.35s ease;
+}
+
+@keyframes driveLogoPop {
+  0% {
+    transform: scale(0.6) rotate(-8deg);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1) rotate(0);
+    opacity: 1;
+  }
+}
+
+/* ---- Step indicator ---- */
+.steps {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #94a3b8;
+}
+
+.stepActive {
+  color: #1a73e8;
+}
+
+.stepDone {
+  color: #34a853;
+}
+
+.stepDot {
+  width: 20px;
+  height: 20px;
+  border-radius: 9999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  background: #e2e8f0;
+  color: #64748b;
+}
+
+.stepActive .stepDot {
+  background: #1a73e8;
+  color: #fff;
+}
+
+.stepDone .stepDot {
+  background: #34a853;
+  color: #fff;
+}
+
+.stepBar {
+  flex: 1;
+  height: 2px;
+  background: #e2e8f0;
+  border-radius: 2px;
+}
+
+/* ---- Select documents checklist ---- */
+.selectAllRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 10px;
+  background: #f1f5f9;
+  border-radius: 8px;
+  margin-bottom: 10px;
+}
+
+.selectAllLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #0f172a;
+  cursor: pointer;
+}
+
+.selectedPill {
+  font-size: 12px;
+  font-weight: 600;
+  color: #1a73e8;
+  background: #e8f0fe;
+  border-radius: 9999px;
+  padding: 3px 10px;
+}
+
+.groupBlock {
+  margin-bottom: 12px;
+}
+
+.groupHeader {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #64748b;
+  cursor: pointer;
+  padding: 4px 2px;
+  background: none;
+  border: none;
+}
+
+.groupHeader:hover {
+  color: #1a73e8;
+}
+
+.docRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  border: 1px solid #eef2f7;
+  background: #ffffff;
+  border-radius: 8px;
+  padding: 9px 11px;
+  cursor: pointer;
+  text-align: left;
+  font-size: 13px;
+  color: #1e293b;
+  margin-top: 6px;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.docRow:hover {
+  background: #f8fbff;
+  border-color: #c6dafc;
+}
+
+.docRowSelected {
+  background: #e8f0fe;
+  border-color: #1a73e8;
+}
+
+/* ---- Checkbox ---- */
+.checkbox {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  border: 2px solid #cbd5e1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  color: #fff;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    transform 0.12s ease;
+}
+
+.checkboxChecked {
+  background: #1a73e8;
+  border-color: #1a73e8;
+  transform: scale(1.05);
+}
+
+.docFileIcon {
+  color: #5f6368;
+  flex-shrink: 0;
+}
+
+/* ---- Upload progress (batch) ---- */
+.batchProgress {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.batchProgressHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.batchProgressCount {
+  color: #1a73e8;
+}
+
+.batchBarTrack {
+  height: 8px;
+  background: #e8f0fe;
+  border-radius: 9999px;
+  overflow: hidden;
+}
+
+.batchBarFill {
+  height: 100%;
+  background: linear-gradient(90deg, #1a73e8, #34a853);
+  border-radius: 9999px;
+  transition: width 0.3s ease;
+}
+
+.resultList {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.resultRow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 12.5px;
+  padding: 7px 10px;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.resultOk {
+  color: #34a853;
+  flex-shrink: 0;
+}
+
+.resultErr {
+  color: #ea4335;
+  flex-shrink: 0;
+}
+
+.resultName {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #334155;
+}
+
+.resultPending {
+  display: inline-flex;
+  flex-shrink: 0;
+}
+
+.summaryBanner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-radius: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+
+.summaryOk {
+  background: #e6f4ea;
+  color: #1e7e34;
+}
+
+.summaryPartial {
+  background: #fef7e0;
+  color: #9a6700;
+}
+
+/* ---- Connected-account bar (switch / disconnect) ---- */
+.accountBar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  margin-bottom: 14px;
+}
+
+.accountEmail {
+  flex: 1;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #334155;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.accountAction {
+  border: none;
+  background: transparent;
+  color: #1a73e8;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+  transition: background 0.15s ease;
+}
+
+.accountAction:hover {
+  background: #e8f0fe;
+}
+
+.accountActionDanger {
+  color: #ea4335;
+}
+
+.accountActionDanger:hover {
+  background: #fce8e6;
+}
+
+/* Import intro strip */
+.importIntro {
+  font-size: 12.5px;
+  color: #64748b;
+  margin-bottom: 12px;
+}

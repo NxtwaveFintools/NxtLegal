@@ -76,6 +76,15 @@ export const routeRegistry = {
       signatoryRedirect: '/api/contracts/signatories/zoho-sign/redirect',
       notificationFailures: '/api/contracts/notifications/failed',
     },
+    drive: {
+      status: '/api/integrations/google-drive/status',
+      connect: '/api/integrations/google-drive/connect',
+      callback: '/api/integrations/google-drive/callback',
+      folders: '/api/integrations/google-drive/folders',
+      export: '/api/integrations/google-drive/export',
+      import: '/api/integrations/google-drive/import',
+      disconnect: '/api/integrations/google-drive/disconnect',
+    },
     admin: {
       users: '/api/admin/users',
       roles: '/api/admin/roles',

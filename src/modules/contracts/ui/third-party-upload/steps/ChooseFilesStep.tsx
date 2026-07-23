@@ -1,6 +1,6 @@
 'use client'
 
-import type { DragEvent } from 'react'
+import type { DragEvent, ReactNode } from 'react'
 import { formatFileSize } from '@/lib/format-file-size'
 import styles from '../third-party-upload.module.css'
 
@@ -14,6 +14,8 @@ type ChooseFilesStepProps = {
   onDragOver: (event: DragEvent<HTMLDivElement>) => void
   onDragLeave: () => void
   onDrop: (event: DragEvent<HTMLDivElement>) => void
+  /** Optional "Import from Google Drive" control, rendered inside the dropzone. */
+  driveImportSlot?: ReactNode
 }
 
 export default function ChooseFilesStep({
@@ -26,6 +28,7 @@ export default function ChooseFilesStep({
   onDragOver,
   onDragLeave,
   onDrop,
+  driveImportSlot,
 }: ChooseFilesStepProps) {
   return (
     <div className={styles.chooseFilesStep}>
@@ -59,6 +62,7 @@ export default function ChooseFilesStep({
             }
           }}
         />
+        {driveImportSlot ? <div style={{ marginTop: 12 }}>{driveImportSlot}</div> : null}
       </div>
 
       {mainFile && (

@@ -15,4 +15,5 @@ export const featureFlags = {
   enableGoogleOAuth: parseBoolean(envServer.featureGoogleOAuth, true),
   enableContractWorkflow: parseBoolean(envServer.featureContractWorkflow, false),
   enableAdminGovernance: parseBoolean(envServer.featureAdminGovernance, true),
+  enableGoogleDrive: parseBoolean(envServer.featureGoogleDrive, false),
 } as const

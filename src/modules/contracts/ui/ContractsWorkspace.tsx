@@ -39,6 +39,7 @@ import {
 import Spinner from '@/components/ui/Spinner'
 import ContractStatusBadge from '@/modules/contracts/ui/ContractStatusBadge'
 import ContractDocumentsPanel from '@/modules/contracts/ui/ContractDocumentsPanel'
+import ExportDocumentsToDriveButton from '@/modules/drive/ui/ExportDocumentsToDriveButton'
 import ApprovalsTab from '@/modules/contracts/ui/ApprovalsTab'
 import { formatContractLogEvents, isContractNoteEvent } from '@/modules/contracts/ui/formatContractLogEvent'
 import { triggerContractStatusConfetti } from '@/modules/contracts/ui/contract-status-confetti'
@@ -3122,6 +3123,32 @@ export default function ContractsWorkspace({ session, initialContractId }: Contr
                                   {isDownloadingMergedArtifact ? 'Preparing...' : 'Download Combined PDF'}
                                 </span>
                               </button>
+                              {selectedContractId ? (
+                                <ExportDocumentsToDriveButton
+                                  contractId={selectedContractId}
+                                  buttonLabel="Export to Google Drive"
+                                  items={[
+                                    {
+                                      key: 'signed_document',
+                                      name: 'Signed Document',
+                                      group: 'Signed Documents',
+                                      artifact: 'signed_document',
+                                    },
+                                    {
+                                      key: 'completion_certificate',
+                                      name: 'Completion Certificate',
+                                      group: 'Signed Documents',
+                                      artifact: 'completion_certificate',
+                                    },
+                                    {
+                                      key: 'merged_pdf',
+                                      name: 'Combined PDF',
+                                      group: 'Signed Documents',
+                                      artifact: 'merged_pdf',
+                                    },
+                                  ]}
+                                />
+                              ) : null}
                             </div>
                           ) : null}
                         </div>

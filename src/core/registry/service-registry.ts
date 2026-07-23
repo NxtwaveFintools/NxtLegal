@@ -31,6 +31,10 @@ import { supabaseAdminAuditViewerRepository } from '@/core/infra/repositories/su
 import { logger } from '@/core/infra/logging/logger'
 import { ZohoSignClient } from '@/core/infra/integrations/zoho-sign/zoho-sign-client'
 import { BrevoSmtpSender } from '@/core/infra/integrations/email/brevo-smtp-sender'
+import { DriveService } from '@/core/domain/drive/drive-service'
+import { GoogleDriveOAuthClient } from '@/core/infra/integrations/google-drive/google-drive-oauth-client'
+import { GoogleDriveApiClient } from '@/core/infra/integrations/google-drive/google-drive-api-client'
+import { supabaseDriveConnectionRepository } from '@/core/infra/repositories/supabase-drive-connection-repository'
 import { appConfig } from '@/core/config/app-config'
 import type { EmployeeRepository } from '@/core/domain/users/employee-repository'
 import { ExternalServiceError } from '@/core/http/errors'
@@ -48,6 +52,7 @@ let adminQueryService: AdminQueryService | null = null
 let teamGovernanceService: TeamGovernanceService | null = null
 let systemConfigurationService: SystemConfigurationService | null = null
 let auditViewerService: AuditViewerService | null = null
+let driveService: DriveService | null = null
 
 /**
  * Get or create AuthService singleton with dependencies injected
@@ -284,6 +289,30 @@ export function getAuditViewerService(): AuditViewerService {
 }
 
 /**
+ * Get or create DriveService singleton with dependencies injected.
+ * Requires the Google Drive feature config (validated in app-config when the flag is on).
+ */
+export function getDriveService(): DriveService {
+  if (!driveService) {
+    const config = appConfig.googleDrive
+    if (!config.clientId || !config.clientSecret || !config.tokenEncKey) {
+      throw new Error(
+        'Google Drive config is incomplete. Set GOOGLE_CLIENT_ID (or GOOGLE_DRIVE_CLIENT_ID), GOOGLE_CLIENT_SECRET (or GOOGLE_DRIVE_CLIENT_SECRET), and GOOGLE_DRIVE_TOKEN_ENC_KEY.'
+      )
+    }
+
+    driveService = new DriveService(
+      new GoogleDriveOAuthClient({ clientId: config.clientId, clientSecret: config.clientSecret }),
+      new GoogleDriveApiClient(),
+      supabaseDriveConnectionRepository,
+      logger
+    )
+  }
+
+  return driveService
+}
+
+/**
  * Reset services (for testing)
  */
 export function resetServices(): void {
@@ -299,6 +328,7 @@ export function resetServices(): void {
   teamGovernanceService = null
   systemConfigurationService = null
   auditViewerService = null
+  driveService = null
 }
 
 // Export types for use in other files

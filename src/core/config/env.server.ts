@@ -46,4 +46,8 @@ export const envServer = {
   brevoLegalContractRejectedTemplateId: optionalEnv('BREVO_TEMPLATE_LEGAL_CONTRACT_REJECTED_ID'),
   mailFromName: optionalEnv('MAIL_FROM_NAME'),
   mailFromEmail: optionalEnv('MAIL_FROM_EMAIL'),
+  featureGoogleDrive: optionalEnv('FEATURE_GOOGLE_DRIVE') ?? 'false',
+  googleDriveClientId: optionalEnv('GOOGLE_DRIVE_CLIENT_ID') ?? optionalEnv('GOOGLE_CLIENT_ID'),
+  googleDriveClientSecret: optionalEnv('GOOGLE_DRIVE_CLIENT_SECRET') ?? optionalEnv('GOOGLE_CLIENT_SECRET'),
+  googleDriveTokenEncKey: optionalEnv('GOOGLE_DRIVE_TOKEN_ENC_KEY'),
 } as const

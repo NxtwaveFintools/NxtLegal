@@ -5,6 +5,7 @@ import { contractsClient, type ContractAdditionalApprover, type ContractDocument
 import { contractDocumentKinds, contractStatuses } from '@/core/constants/contracts'
 import Spinner from '@/components/ui/Spinner'
 import { toast } from 'sonner'
+import ExportDocumentsToDriveButton, { type DriveExportItem } from '@/modules/drive/ui/ExportDocumentsToDriveButton'
 import workspaceStyles from '@/modules/contracts/ui/contracts-workspace.module.css'
 
 type ContractDocumentsPanelProps = {
@@ -323,6 +324,38 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
     return Array.from(groupedDocuments.values())
   }, [documents])
 
+  const driveExportItems = useMemo<DriveExportItem[]>(() => {
+    const primary = documents
+      .filter((document) => document.documentKind === contractDocumentKinds.primary)
+      .map((document) => ({
+        key: document.id,
+        name: `${document.fileName}${typeof document.versionNumber === 'number' ? ` (v${document.versionNumber})` : ''}`,
+        group: 'Contract Document',
+        documentId: document.id,
+      }))
+    const artifacts = documents
+      .filter(
+        (document) =>
+          document.documentKind === contractDocumentKinds.executedContract ||
+          document.documentKind === contractDocumentKinds.auditCertificate
+      )
+      .map((document) => ({
+        key: document.id,
+        name: document.fileName,
+        group: 'Execution Artifacts',
+        documentId: document.id,
+      }))
+    const supporting = documents
+      .filter((document) => document.documentKind === contractDocumentKinds.counterpartySupporting)
+      .map((document) => ({
+        key: document.id,
+        name: document.fileName,
+        group: `Supporting · ${document.counterpartyName?.trim() || 'Supporting Documents'}`,
+        documentId: document.id,
+      }))
+    return [...primary, ...artifacts, ...supporting]
+  }, [documents])
+
   const activeDocument = useMemo(() => {
     if (!primaryDocuments.length) {
       return null
@@ -594,6 +627,20 @@ export default function ContractDocumentsPanel(props: ContractDocumentsPanelProp
 
   return (
     <div className={workspaceStyles.tabSection}>
+      {documents.length > 0 ? (
+        <div className={workspaceStyles.card}>
+          <div className={workspaceStyles.sectionHeaderRow}>
+            <div>
+              <div className={workspaceStyles.sectionTitle}>Export to Google Drive</div>
+              <div className={workspaceStyles.eventMeta}>
+                Select documents — including counterparty supporting files — and push them to a Drive folder.
+              </div>
+            </div>
+            <ExportDocumentsToDriveButton contractId={contractId} items={driveExportItems} />
+          </div>
+        </div>
+      ) : null}
+
       <ActiveVersionCard
         document={activeDocument}
         canReplace={canReplace}

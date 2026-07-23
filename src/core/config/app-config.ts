@@ -48,6 +48,16 @@ const mailConfig = requireConfigGroup({
   },
 })
 
+const googleDriveConfig = requireConfigGroup({
+  enabled: featureFlags.enableGoogleDrive,
+  groupName: 'Google Drive',
+  values: {
+    GOOGLE_DRIVE_CLIENT_ID: envServer.googleDriveClientId,
+    GOOGLE_DRIVE_CLIENT_SECRET: envServer.googleDriveClientSecret,
+    GOOGLE_DRIVE_TOKEN_ENC_KEY: envServer.googleDriveTokenEncKey,
+  },
+})
+
 export const appConfig = {
   environment: envServer.nodeEnv,
   routes: routeRegistry,
@@ -77,5 +87,10 @@ export const appConfig = {
     brevoApiKey: mailConfig.BREVO_API_KEY,
     fromName: mailConfig.MAIL_FROM_NAME,
     fromEmail: mailConfig.MAIL_FROM_EMAIL,
+  },
+  googleDrive: {
+    clientId: googleDriveConfig.GOOGLE_DRIVE_CLIENT_ID,
+    clientSecret: googleDriveConfig.GOOGLE_DRIVE_CLIENT_SECRET,
+    tokenEncKey: googleDriveConfig.GOOGLE_DRIVE_TOKEN_ENC_KEY,
   },
 } as const

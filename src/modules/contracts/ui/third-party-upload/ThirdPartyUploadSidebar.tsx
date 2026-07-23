@@ -15,6 +15,7 @@ import {
 import { composeContractTitle } from './composeContractTitle'
 import WorkflowSidebar from './WorkflowSidebar'
 import ChooseFilesStep from './steps/ChooseFilesStep'
+import DriveImportButton from '@/modules/drive/ui/DriveImportButton'
 import AdditionalDataStep from './steps/AdditionalDataStep'
 import ReviewStep from './steps/ReviewStep'
 import UploadStep from './steps/UploadStep'
@@ -104,6 +105,8 @@ export default function ThirdPartyUploadSidebar({
 
   const showCounterpartyModal = false
   const isLegalActor = actorRole === contractWorkflowRoles.legalTeam || actorRole === contractWorkflowRoles.admin
+  // Import-from-Drive is available to legal/admin in the send-for-signing flow (PDF only).
+  const canImportFromDrive = isLegalActor && isLegalSendForSigningMode
   const effectiveDepartmentId = departmentId
   const selectedDepartmentName = departments.find((item) => item.id === departmentId)?.name ?? ''
   const selectedContractTypeName = contractTypes.find((item) => item.id === contractType)?.name ?? ''
@@ -488,6 +491,7 @@ export default function ThirdPartyUploadSidebar({
               handleMainFile(file)
             }
           }}
+          driveImportSlot={canImportFromDrive ? <DriveImportButton onImported={handleMainFile} /> : undefined}
         />
       )
     }
