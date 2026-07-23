@@ -86,10 +86,6 @@ const faqItems: FaqItem[] = [
             <span className={styles.kvLabel}>Contracts requiring external review</span>
             <span className={styles.kvValue}>10 business days</span>
           </div>
-          <div className={styles.kvRow}>
-            <span className={styles.kvLabel}>Purchase Orders (PO)</span>
-            <span className={styles.kvValue}>As per PO-specific process below</span>
-          </div>
         </div>
       </>
     ),
@@ -138,7 +134,7 @@ const faqItems: FaqItem[] = [
             </div>
             <p className={styles.fieldDesc}>
               A clear title (e.g. counterparty + agreement type) and the correct type from the dropdown (NDA, MSA, PO,
-              IP transfer, etc.)
+              etc.)
             </p>
           </div>
           <div>
