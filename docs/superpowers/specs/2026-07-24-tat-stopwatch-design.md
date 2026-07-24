@@ -43,9 +43,10 @@ A live bug is fixed as a side effect: after `legal.query.reroute` (`UNDER_REVIEW
 
 - 100 contracts; **89 have `tat_deadline_at`**; 0 have `tat_breached_at` stamped; 0 soft-deleted.
 - 400 contract transition rows in `audit_logs`.
-- Of the 89 deadline contracts: **36** are currently `UNDER_REVIEW` (clock running — no backfill change); **35** are currently paused **and resolvable** from the audit log (a logged exit from `UNDER_REVIEW` exists); **18** are currently paused but **unresolvable** (no usable exit event) and will be skipped + reported.
-- **15** deadline contracts have `hod_approved_at IS NULL` (they were `hod.bypass`ed) — so any "HOD-approval-anchored" reconstruction is impossible for them. This is why the backfill anchors on the **exit event**, not on `hod_approved_at`.
-- Every closed pause window in the current data spans **0 business days** (same-day transitions). The historical deadline **shift is 0** for all clean contracts today; the backfill's real value is stamping `tat_paused_at` on the currently-paused set so future resumes are credited correctly.
+- Of the 89 deadline contracts, under the **safe write-gate** (§6): **36** are currently `UNDER_REVIEW` (no-op); **28** are currently paused **and writable** (complete audit chain whose reconstruction matches the stored deadline); **25** are skipped + reported (**22** chain-broken, **3** no exit event); **0** reconstruction mismatches.
+- **15** deadline contracts have `hod_approved_at IS NULL` (they were `hod.bypass`ed) — so any "HOD-approval-anchored" reconstruction is impossible for them. The backfill therefore anchors on **audit exit/entry events**, not on `hod_approved_at`.
+- Every closed pause window in the current data spans **0 business days** (same-day transitions), so `Σ closed windows = 0` for every writable contract and the deadline **shift is 0** today. This is an empirical property of current rows, **not** a structural guarantee — the write-gate (§6.3) enforces it so a future non-zero window can never be silently under-credited. The backfill's real value is stamping `tat_paused_at` so future resumes are credited correctly.
+- **24** contracts currently render `is_tat_breached = true` while paused (SIGNING 15, VOID 5, OFFLINE_EXECUTION 2, PENDING_WITH_EXTERNAL_STAKEHOLDERS 1, ON_HOLD 1). See the day-one blast-radius note in §11.
 
 ---
 
@@ -55,7 +56,7 @@ A live bug is fixed as a side effect: after `legal.query.reroute` (`UNDER_REVIEW
 2. **Resume semantics:** the trigger **overrides** any fresh deadline the app sends. The clock starts at first HOD approval/bypass and is never reset.
 3. **Breach flag becomes pause-aware** in the view (`is_tat_breached` = not breached while `tat_paused_at IS NOT NULL`). This is what makes the pause *visible*. Allowed because it does not touch `aging_business_days`.
 4. **Aging split accepted:** `aging_business_days`, the "Overdue by X days" number, and aging color chips remain total-time-since-HOD-approval and do **not** pause. A paused contract can read "not breached" while its aging chip still shows overdue. Documented, intended.
-5. **Backfill model (refined):** for each currently-paused deadline contract, set `tat_paused_at = timestamp of its *last* exit from `UNDER_REVIEW``. Keep the stored deadline as the base (no reconstruction of consumed time — business-day math is additive, so the trigger's resume-shift reproduces the correct remaining budget). Robust to bypass contracts (no `hod_approved_at`) and to multi-review histories. Option B (full reconstruction) is computed **read-only** as a cross-check report column, never written.
+5. **Backfill model (refined + gated):** for each currently-paused deadline contract, set `tat_paused_at = timestamp of its *last* exit from `UNDER_REVIEW``, keeping the stored deadline as the base — **but only when the Option B reconstruction matches the stored deadline** (which holds iff `Σ closed pause windows = 0` and the audit chain is complete). Otherwise skip + report. The write-gate is not optional: keeping the stored deadline as the base is only correct when `Σ closed windows = 0`; the gate makes that assumption self-enforcing rather than a property we hope current data has. Bypass contracts (no `hod_approved_at`) are still handled because the anchor is the audit entry event, not `hod_approved_at`.
 6. **Backfill scope:** all contracts with `tat_deadline_at IS NOT NULL`, terminal statuses included. Unresolvable/skipped contracts are reported, never written from incomplete history.
 7. **App change (DB + app resume-path):** on `hod.approve`/`hod.bypass` where a deadline already exists (re-approval), the app stops resending `today+7`; first approval still sets it. Makes the "never reset" intent explicit instead of relying on the trigger to silently discard the app's value.
 8. **Tests:** executable pgTAP, committed but **not run** here.
@@ -79,15 +80,19 @@ Nullable, no default. `NULL` = clock running (or never started); non-null = cloc
   `NEW.tat_paused_at := CURRENT_TIMESTAMP;`
 - **Resume** — `NEW.status = 'UNDER_REVIEW' AND OLD.status <> 'UNDER_REVIEW' AND OLD.tat_paused_at IS NOT NULL`:
   ```
-  pause_days := business_day_diff((OLD.tat_paused_at AT TIME ZONE 'UTC')::date,
-                                  (CURRENT_TIMESTAMP  AT TIME ZONE 'UTC')::date);
-  NEW.tat_deadline_at := business_day_add((OLD.tat_deadline_at AT TIME ZONE 'UTC')::date, pause_days)
-                         re-assembled with OLD.tat_deadline_at's original UTC time-of-day (preserves 23:59:59Z);
+  pause_days := GREATEST(business_day_diff((OLD.tat_paused_at AT TIME ZONE 'UTC')::date,
+                                           (CURRENT_TIMESTAMP  AT TIME ZONE 'UTC')::date), 0);
+  -- Reassemble on the ORIGINAL time-of-day (all live deadlines are 23:59:59Z);
+  -- a naive ::date cast would silently move breach detection by ~a day.
+  NEW.tat_deadline_at := (
+      business_day_add((OLD.tat_deadline_at AT TIME ZONE 'UTC')::date, pause_days)
+      + (OLD.tat_deadline_at AT TIME ZONE 'UTC')::time
+  ) AT TIME ZONE 'UTC';
   NEW.tat_paused_at   := NULL;
   ```
-  Bases the shift on **`OLD.tat_deadline_at`**, discarding whatever the app sent in the same UPDATE.
+  Bases the shift on **`OLD.tat_deadline_at`**, discarding whatever the app sent in the same UPDATE. `pause_days` is clamped ≥ 0 so clock skew can never move a deadline backward.
 - **Never-reset guard** — entering `UNDER_REVIEW` with `OLD.tat_deadline_at IS NOT NULL` but `OLD.tat_paused_at IS NULL` (e.g. a contract the backfill skipped): `NEW.tat_deadline_at := OLD.tat_deadline_at;` — keeps the existing deadline, discards the app's fresh 7-day value.
-- **First approval** — `OLD.tat_deadline_at IS NULL`: no action; the app's fresh deadline passes through.
+- **First approval** — `OLD.tat_deadline_at IS NULL`: no deadline action; also defensively `NEW.tat_paused_at := NULL` so an `UNDER_REVIEW` row can never carry a stale pause stamp.
 
 Convention: `LANGUAGE plpgsql`, `SET search_path TO 'public'`, owner `postgres`, `GRANT ALL … TO anon, authenticated, service_role`.
 
@@ -109,7 +114,9 @@ CASE WHEN tat_deadline_at IS NOT NULL AND tat_paused_at IS NULL
           AND status <> ALL (ARRAY['COMPLETED','EXECUTED','REJECTED'])
      THEN true ELSE false END AS is_tat_breached
 ```
-`aging_business_days` and `near_breach` expressions are copied **byte-for-byte**. (Consider whether `near_breach` should also gate on `tat_paused_at IS NULL` — default: leave unchanged to minimize surface; call out in review.)
+**Verified (2026-07-24):** the live view is byte-for-byte the May-dump definition (20 columns; **no** `legal_*` columns — those live only in the app's optional select, which falls back to a legacy select). No out-of-band drift, so recreating from the May def is safe. `CREATE OR REPLACE VIEW` keeps the same column list/order (only the `is_tat_breached` expression body changes), preserving `WITH (security_invoker='true')`, ownership, and grants. `tat_paused_at` is **referenced** in the expression but **not** added as a selected column (avoids a column-order change).
+
+`aging_business_days` is copied **byte-for-byte** (hard constraint). **Recommendation:** also gate `near_breach` on `tat_paused_at IS NULL` — otherwise a paused contract can render a "near breach" chip while `is_tat_breached` is false, an internal inconsistency. Final call in review (see §11).
 
 ---
 
@@ -122,18 +129,28 @@ File: `src/core/infra/repositories/supabase-contract-query-repository.ts`, `hod.
 
 This is behaviour-preserving given the trigger (the trigger already discards the app value), but makes intent explicit and removes a redundant `business_day_add` RPC on re-approval. No change to `hod_approved_at` handling.
 
+**Deployment order (critical if split into a separate PR):** the migration must ship **before or with** the app change — never app-first. App-first means re-approval stops sending a deadline while the resume trigger does not yet exist, so the pause is never credited and the deadline stays stale. Ship together, or migration first.
+
+**Observed, out of scope:** the app still sets `hod_approved_at = now()` on every `hod.approve` (and `= NULL` on `hod.bypass`) on re-approval, so `aging_business_days` restarts (or goes NULL) on re-approval. Pre-existing behaviour, untouched here; flagged so it is not mistaken for a regression.
+
 ---
 
 ## 6. Deliverable 3 — Backfill (one-time script)
 
 File: `supabase/backfills/20260724_tat_stopwatch_backfill.sql`. Single `BEGIN/COMMIT`. **Written, not run.**
 
-1. **Candidates:** every contract with `tat_deadline_at IS NOT NULL` (terminal included).
+1. **Candidates:** every contract with `tat_deadline_at IS NOT NULL AND deleted_at IS NULL` (terminal statuses included; soft-deleted excluded).
 2. **Currently `UNDER_REVIEW`:** clock running → `tat_paused_at` stays `NULL`, deadline untouched. No-op.
-3. **Currently paused (status ≠ `UNDER_REVIEW`):** find the **last** `audit_logs` row with `metadata->>'from_status' = 'UNDER_REVIEW'` (resource_type='contract', ordered by `event_sequence`). If found → `tat_paused_at := that row's created_at`; deadline untouched (stored `approval+7` is the correct base). If **not** found → **skip + report** (`reason = NO_EXIT_EVENT`).
-4. **Mechanics:** `ALTER TABLE public.contracts DISABLE TRIGGER enforce_contract_tat_mutability_trigger;` around the UPDATE, re-enabled in the same transaction. The UPDATE does not change `status`, so the stopwatch trigger's `WHEN` clause keeps it inert; `tat_deadline_at`, `tat_breached_at`, `row_version` are untouched.
-5. **Option B cross-check (read-only report column):** `reconstructed_deadline = business_day_add(first UNDER_REVIEW entry's UTC date, 7 + Σ closed pause windows)`, plus `matches_stored_deadline` boolean. `RAISE NOTICE` on any drift. Never written.
-6. **Report:** (a) updated contracts (id, status, new `tat_paused_at`); (b) skipped contracts + reason; (c) Option B disagreements; (d) summary counts. Expected on today's data: ~35 stamped, ~18 skipped, 36 no-op, 0 deadline shifts.
+3. **Currently paused (status ≠ `UNDER_REVIEW`) — the write-gate:** using audit rows (`resource_type='contract'`, `metadata ? 'to_status'`, ordered by `event_sequence`, tie-broken by `created_at,id`):
+   - `last_exit` = last row with `from_status='UNDER_REVIEW' AND to_status<>'UNDER_REVIEW'`; if none → **skip** (`NO_EXIT_EVENT`).
+   - `first_entry` = first row with `to_status='UNDER_REVIEW'`; if none → **skip** (`NO_ENTRY_EVENT`).
+   - **Chain-complete check:** every row's `from_status` must equal the previous row's `to_status`; else → **skip** (`CHAIN_BROKEN`).
+   - `Σ_closed` = sum of `business_day_diff(leave_date, reenter_date)` over closed windows; `reconstructed = business_day_add((first_entry.created_at AT TIME ZONE 'UTC')::date, 7 + Σ_closed)`.
+   - **Write iff** `reconstructed = (tat_deadline_at AT TIME ZONE 'UTC')::date`; then `tat_paused_at := last_exit.created_at`, deadline untouched. Else → **skip** (`RECONSTRUCTION_MISMATCH`) for manual review (a non-zero closed window the "keep stored deadline" base cannot represent).
+4. **Mechanics — no trigger disabling.** The UPDATE writes **only** `tat_paused_at`, which neither trigger guards (`enforce_contract_tat_mutability` guards only `tat_deadline_at`/`tat_breached_at`; the stopwatch trigger is `UPDATE OF status` and never fires here). **Do not** `DISABLE TRIGGER`: that is table-level DDL, not transaction-local — it drops the mutability guard for *every* concurrent writer and takes an `ACCESS EXCLUSIVE` lock. The existing `update_contracts_updated_at` trigger will bump `updated_at` on the ~28 written rows; this is accepted (do **not** disable it either, same DDL risk).
+5. **Option B is the gate, not just a report:** `reconstructed_deadline` + `matches_stored_deadline` are computed for every candidate and drive the write decision in step 3, and are emitted in the report. `RAISE NOTICE` on every mismatch.
+6. **Idempotent:** re-running yields the same result (writable rows recompute the same `last_exit`; resumed rows are back to `UNDER_REVIEW` → no-op). Safe to run twice.
+7. **Report:** (a) written contracts (id, status, new `tat_paused_at`); (b) skipped + reason; (c) mismatches; (d) summary counts. **Expected on today's data: 28 written, 25 skipped (22 `CHAIN_BROKEN`, 3 `NO_EXIT_EVENT`), 36 no-op, 0 deadline shifts, 0 mismatches.**
 
 ---
 
@@ -150,6 +167,10 @@ File: `supabase/tests/tat_stopwatch_test.sql`. Assertions (run later in a dispos
 7. **Mutability still guards:** direct `tat_breached_at` change still raises; out-of-band `tat_deadline_at` change (not an into-`UNDER_REVIEW` transition) still raises.
 8. **Breach flag pause-aware:** a past-deadline paused contract reports `is_tat_breached = false`; the same contract un-paused reports `true`.
 9. **Aging unchanged:** `aging_business_days` output is byte-identical before/after for a fixed sample (guards the hard constraint).
+10. **Time-of-day preserved (regression trap):** a deadline of `...T23:59:59Z` resumed after an N-day pause is still `...T23:59:59Z` on the shifted date — never `T00:00:00Z`. This is the naive-`::date`-cast trap; all live deadlines are `23:59:59Z` so a regression would be uniform and invisible without this assertion.
+11. **`pause_days` clamp:** a `tat_paused_at` in the future (simulated clock skew) yields a 0-day shift, never a backward move.
+12. **Backfill gate:** a synthetic contract with a non-zero closed window is **skipped** (`RECONSTRUCTION_MISMATCH`), not written; a clean `Σ=0` contract is written.
+13. **Backfill touches only `tat_paused_at`:** the backfill UPDATE succeeds with `enforce_contract_tat_mutability_trigger` **enabled** (proves no `DISABLE` is needed).
 
 ---
 
@@ -162,14 +183,55 @@ File: `supabase/rollbacks/20260724120000_add_tat_stopwatch_rollback.sql`. Drops 
 ## 9. Feasibility verdict
 
 - **Forward stopwatch + mutability fix + pause-aware breach flag:** fully feasible and clean; also fixes a live crash. This is the substantive fix.
-- **Backfill:** feasible for ~35/89 paused contracts via the last-exit stamp; ~18 skipped (incomplete audit history) and reported for manual review; 36 need nothing. Zero deadline shifts on today's data (all pause windows are same-day).
+- **Backfill:** feasible for **28/89** paused contracts under the safe write-gate; **25** skipped (22 chain-broken, 3 no exit event) and reported for manual review; 36 need nothing. Zero deadline shifts on today's data (all pause windows same-day). The gate guarantees no contract is ever silently under-credited.
 - **Not fixable at the DB layer (accepted):** the aging number/chips staying total (the split in §3.4), because the constraint forbids changing `aging_business_days`. If the business later wants chips to pause too, that is a separate, larger change (dashboard counts, sorting, exports all read aging).
 
 ---
 
-## 10. Out of scope
+## 11. Edge cases & hardening
+
+Ordered by risk. The first item is the load-bearing invariant; everything below it is preserve-correctness hardening.
+
+### A. Correctness invariants (must hold)
+
+1. **Backfill base assumption — `Σ closed windows = 0`.** "Keep the stored deadline as the base" is correct **only** when no closed pause window contributed business days. The write-gate (§6.3) enforces this by writing only when the full-chain reconstruction equals the stored deadline. Today all 28 writable contracts satisfy it; a future non-zero window is skipped for manual review, never silently under-credited. **This is the one edge case that would produce a wrong-but-plausible deadline in prod; the gate is mandatory.**
+2. **Resume shift reads `OLD.tat_deadline_at`, not `NEW`.** Reading `NEW` would make the override a no-op (the app's `today+7` would win). Tested in §7.4.
+3. **Time-of-day round-trips `23:59:59Z`.** The reassembly formula (§4.2) preserves the original UTC time; a naive `::date` cast moves breach detection ~1 day and would be uniform/invisible. Tested in §7.10.
+4. **Additivity.** Incremental (trigger, one shift per resume) equals batch (Σ then one shift) because `business_day_add` always lands on a business day and is additive over non-negative ints. This is why per-resume shifting and the backfill agree.
+5. **Post-backfill invariant:** `tat_paused_at IS NOT NULL ⇒ status <> 'UNDER_REVIEW'`. The backfill keys off `contracts.status` (authoritative), never the audit log, so it can never stamp an active contract. Not enforced by a CHECK constraint (existing rows / transient states), but relied upon.
+
+### B. Trigger edge cases (all handled by the branch structure)
+
+6. **Status change not involving `UNDER_REVIEW`** (e.g. `ON_HOLD → SIGNING`): neither branch matches; `tat_paused_at` is preserved (the contract stays paused from its original leave). Correct.
+7. **Multi-hop pause** (`UNDER_REVIEW → ON_HOLD → SIGNING → … → UNDER_REVIEW`): `tat_paused_at` is set once on the first leave and cleared on the eventual return; the shift spans the whole out-of-review stretch. Correct.
+8. **Reroute re-approval** (`UNDER_REVIEW → HOD_PENDING → UNDER_REVIEW`): pause branch stamps on the reroute, resume branch shifts on re-approval — so the guard is *not* hit here; the guard is only for backfill-skipped/legacy rows. This is the crash that is fixed.
+9. **`UNDER_REVIEW → UNDER_REVIEW`** and same-value status writes: excluded by `WHEN (OLD.status IS DISTINCT FROM NEW.status)`.
+10. **INSERT / first `UNDER_REVIEW` entry:** trigger is `UPDATE OF status`, so INSERT never fires it; first approval hits the `OLD.tat_deadline_at IS NULL` branch and passes the app value through.
+11. **No other trigger interferes.** The five `contracts` triggers fire alphabetically: `contract_tat_stopwatch_trigger` (BEFORE, first) → `enforce_contract_department_tenant_match` (only on dept/tenant cols) → `enforce_contract_tat_mutability` (validates our final `NEW`) → `update_contracts_updated_at` → `validate_contract_current_document` (only on `current_document_id`). Verified against the schema; adding our `c…`-named trigger deliberately keeps it first.
+
+### C. View / breach-flag blast radius (product-visible, day one)
+
+12. **24 contracts flip on deploy.** Contracts past their deadline while paused currently show `is_tat_breached = true` (SIGNING 15, VOID 5, OFFLINE_EXECUTION 2, PENDING_WITH_EXTERNAL_STAKEHOLDERS 1, ON_HOLD 1). After backfill, the ~resolvable ones flip to **false**; the ~25 skipped-but-paused ones **stay true** → two paused contracts can disagree until their audit history is repaired. Expected, but visible — call out in release notes.
+13. **Product question — should SIGNING / VOID / OFFLINE_EXECUTION ever show breached?** Today they can; after this change, paused+stamped ones will not. `is_tat_breached` still hard-excludes only `COMPLETED/EXECUTED/REJECTED`. Confirm the intended list with product; the change is defensible (clock paused) but is a behaviour change, not just a bug fix.
+14. **`near_breach`** is likewise deadline-driven and (default recommendation) should also gate on `tat_paused_at IS NULL` for consistency (§4.4).
+
+### D. Migration / ops
+
+15. **Deployment order:** migration before/with the app change (§5). Never app-first.
+16. **Locks:** `ADD COLUMN` (no default), `CREATE OR REPLACE FUNCTION/VIEW` are all fast on a 100-row table but take brief `ACCESS EXCLUSIVE` locks; run in a low-traffic window. Wrap the whole migration in one `BEGIN/COMMIT` so a partial failure rolls back.
+17. **Rollback** drops `tat_paused_at` (losing backfilled stamps — re-derivable from the audit log) and restores the exact prior `is_tat_breached` and `enforce_contract_tat_mutability` bodies.
+
+### E. Backfill / data
+
+18. **`updated_at` bump:** the backfill trips `update_contracts_updated_at` on the ~28 written rows. Accepted; do not disable the trigger to avoid it.
+19. **`resource_id` typing:** audit `resource_id` is `text`; filter `resource_type='contract'` and cast/compare against the contract UUID; tolerate non-castable rows by filtering them out.
+20. **Soft-deleted / terminal contracts:** soft-deleted excluded from candidates; terminal statuses included (harmless — they will not resume; and it corrects VOID breach display).
+
+---
+
+## 12. Out of scope
 
 - Any change to `aging_business_days`, `hod_approved_at`, or `tat_breached_at` logic.
 - Making "Overdue by X days" / aging chips pause-aware (the accepted limitation, §9).
 - Applying the migration, backfill, or tests to any environment.
-- Rewriting the `18` unresolvable contracts from incomplete history.
+- Rewriting the **25** skipped contracts from incomplete audit history (manual review).
