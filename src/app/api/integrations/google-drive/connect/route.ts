@@ -30,7 +30,7 @@ export const GET = withAuth(async (request, { session }) => {
     const state = await createDriveOAuthState({ userId, tenantId, nonce, returnPath })
     const authorizationUrl = getDriveService().buildAuthorizationUrl({
       state,
-      redirectUri: getDriveRedirectUri(),
+      redirectUri: getDriveRedirectUri(request),
     })
 
     const response = NextResponse.json(okResponse({ authorizationUrl }))

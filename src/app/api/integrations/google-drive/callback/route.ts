@@ -50,7 +50,7 @@ export async function GET(request: NextRequest) {
       tenantId: state.tenantId,
       userId: state.userId,
       code,
-      redirectUri: getDriveRedirectUri(),
+      redirectUri: getDriveRedirectUri(request),
     })
 
     const response = driveConnectedHtml({ ok: true, message: 'Google Drive connected. You can close this window.' })

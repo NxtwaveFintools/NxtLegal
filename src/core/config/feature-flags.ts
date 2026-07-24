@@ -15,5 +15,7 @@ export const featureFlags = {
   enableGoogleOAuth: parseBoolean(envServer.featureGoogleOAuth, true),
   enableContractWorkflow: parseBoolean(envServer.featureContractWorkflow, false),
   enableAdminGovernance: parseBoolean(envServer.featureAdminGovernance, true),
-  enableGoogleDrive: parseBoolean(envServer.featureGoogleDrive, false),
+  // Google Drive integration is always on (no env toggle); it only needs the
+  // GOOGLE_* credentials to be configured, which are validated lazily on use.
+  enableGoogleDrive: true,
 } as const

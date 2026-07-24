@@ -58,7 +58,6 @@ Rollback SQL for that step.
 
 Set these on the Prod host (e.g. Vercel) before enabling the feature:
 
-- `FEATURE_GOOGLE_DRIVE=true`
 - `GOOGLE_CLIENT_ID` (or `GOOGLE_DRIVE_CLIENT_ID`)
 - `GOOGLE_CLIENT_SECRET` (or `GOOGLE_DRIVE_CLIENT_SECRET`)
 - `GOOGLE_DRIVE_TOKEN_ENC_KEY` — base64-encoded 32-byte key (`node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`)

@@ -12,10 +12,25 @@ import type { SessionData } from '@/core/infra/session/jwt-session-store'
 
 export const isGoogleDriveEnabled = (): boolean => featureFlags.enableGoogleDrive
 
-/** Absolute OAuth redirect URI — must exactly match the Google console entry. */
-export const getDriveRedirectUri = (): string => {
-  const base = appConfig.auth.siteUrl.replace(/\/+$/, '')
+/**
+ * Absolute OAuth redirect URI. Prefers the incoming request's public origin
+ * (x-forwarded-host on Vercel) so every preview/branch URL works without env
+ * changes; falls back to NEXT_PUBLIC_SITE_URL. The value must be registered in
+ * the Google OAuth client's Authorized redirect URIs.
+ */
+export const getDriveRedirectUri = (request?: NextRequest): string => {
+  const origin = request ? resolveRequestOrigin(request) : null
+  const base = (origin ?? appConfig.auth.siteUrl).replace(/\/+$/, '')
   return `${base}${routeRegistry.api.drive.callback}`
+}
+
+const resolveRequestOrigin = (request: NextRequest): string | null => {
+  const host = request.headers.get('x-forwarded-host') ?? request.headers.get('host')
+  if (!host) {
+    return request.nextUrl?.origin ?? null
+  }
+  const proto = request.headers.get('x-forwarded-proto') ?? 'https'
+  return `${proto}://${host}`
 }
 
 export const driveFeatureDisabledResponse = (): NextResponse =>

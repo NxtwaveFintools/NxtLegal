@@ -52,8 +52,7 @@ ZOHO_SIGN_CLIENT_SECRET=your-zoho-sign-client-secret
 ZOHO_SIGN_REFRESH_TOKEN=your-zoho-sign-refresh-token
 ZOHO_SIGN_WEBHOOK_SECRET=your-zoho-sign-webhook-secret
 
-# Google Drive Integration (OAuth 2.0 + Drive API)
-FEATURE_GOOGLE_DRIVE=true
+# Google Drive Integration (OAuth 2.0 + Drive API) — feature is always on
 GOOGLE_CLIENT_ID=your-google-oauth-client-id
 GOOGLE_CLIENT_SECRET=your-google-oauth-client-secret
 # base64-encoded 32-byte key — generate with:
@@ -67,20 +66,21 @@ GOOGLE_DRIVE_TOKEN_ENC_KEY=your-32-byte-base64-key
 - Use strong, randomly generated secrets
 - Keep `SUPABASE_SERVICE_ROLE_KEY` private (full database access)
 
-### Google Drive Integration (optional feature)
+### Google Drive Integration
 
-The "Export/Import to Google Drive" feature is gated by `FEATURE_GOOGLE_DRIVE` (off by default).
-To enable it in an environment:
+The "Export/Import to Google Drive" feature is **always enabled**; it only needs the Google
+credentials below to be configured. Without them it stays visible but returns a config error on use.
 
 1. Create a Google Cloud OAuth 2.0 **Web application** client and enable the **Google Drive API**.
 2. Set `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, and a base64 32-byte `GOOGLE_DRIVE_TOKEN_ENC_KEY`
    (generate: `node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"`).
    Keep the encryption key **stable per environment** — changing it invalidates all stored Drive
    tokens (users must reconnect). Use a **different** key in each environment. Never commit these.
-3. Add the callback to the OAuth client's **Authorized redirect URIs**:
-   `${NEXT_PUBLIC_SITE_URL}/api/integrations/google-drive/callback`
-   (e.g. `http://localhost:3000/api/integrations/google-drive/callback` locally). `NEXT_PUBLIC_SITE_URL`
-   must point at the environment's real domain (avoid dynamic per-deploy preview URLs).
+3. Add the callback to the OAuth client's **Authorized redirect URIs** for every origin you use:
+   `https://<your-domain>/api/integrations/google-drive/callback`
+   (e.g. `http://localhost:3000/api/integrations/google-drive/callback` locally, plus each Vercel
+   branch/preview URL you test on). The app derives the redirect URI from the incoming request's
+   origin automatically (falling back to `NEXT_PUBLIC_SITE_URL`), so any registered origin works.
 4. Scopes: `drive.file` + `drive.readonly`. `drive.readonly` is a Google **restricted scope** — while
    the consent screen is in *Testing*, add each user as a **Test user**; a public release later requires
    Google verification.
@@ -264,8 +264,7 @@ ZOHO_SIGN_CLIENT_SECRET=prod-zoho-sign-client-secret
 ZOHO_SIGN_REFRESH_TOKEN=prod-zoho-sign-refresh-token
 ZOHO_SIGN_WEBHOOK_SECRET=prod-zoho-sign-webhook-secret
 
-# Google Drive Integration (OAuth 2.0 + Drive API)
-FEATURE_GOOGLE_DRIVE=true
+# Google Drive Integration (OAuth 2.0 + Drive API) — feature is always on
 GOOGLE_CLIENT_ID=prod-google-oauth-client-id
 GOOGLE_CLIENT_SECRET=prod-google-oauth-client-secret
 # base64-encoded 32-byte key — MUST be stable per environment (changing it
